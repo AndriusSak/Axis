@@ -1,0 +1,56 @@
+# electron-builder config for the Axis desktop app.
+# The app bundles ForgeFX (built server + prod node_modules + definitions + vendor) as resources;
+# the Electron main process runs it in-process. ForgeFX must be checked out + built next to Axis
+# (sibling ../ForgeFX) before building — the release workflow does this. Its only native dep
+# (`serialport`) is N-API with a universal darwin-x64+arm64 prebuild (and win/linux prebuilds), so
+# no per-arch rebuild is needed — the bundled binary loads on every target via node-gyp-build.
+appId: dev.skuhlight.axis
+productName: Axis
+copyright: Axis — independent, not affiliated with Fractal Audio Systems
+# auto-update feed: electron-updater reads the latest*.yml published with each GitHub release.
+publish:
+  provider: github
+  owner: sKuhLight
+  repo: Axis
+directories:
+  output: dist-desktop
+files:
+  - electron/**
+  - package.json
+extraResources:
+  - from: build
+    to: axis-ui
+  # NOTE: node_modules/forgefx-midi is an npm SYMLINK to ../../forgefx-midi (the sibling codec
+  # repo). Before packaging, replace it with a real copy (dist + catalog + package.json) — the
+  # release workflow does this; for a local desktop:build run the same three lines from
+  # .github/workflows/release.yml ("Build ForgeFX server" step).
+  - from: ../ForgeFX/server/dist
+    to: forgefx/server/dist
+  - from: ../ForgeFX/server/node_modules
+    to: forgefx/server/node_modules
+  - from: ../ForgeFX/server/package.json
+    to: forgefx/server/package.json
+  # Bundle the production env (Supabase creds + AXIS_CLOUD/AXIS_TELEMETRY/AXIS_FARO_URL). The release
+  # workflow writes ../ForgeFX/server/.env from CI secrets; a `filter` (not a literal file) so builds
+  # without a .env (e.g. a fresh local clone) simply skip it instead of failing.
+  - from: ../ForgeFX/server
+    to: forgefx/server
+    filter:
+      - .env
+npmRebuild: false
+linux:
+  # AppImage is universal (runs on CachyOS/Arch and everything else); deb = Debian/Ubuntu,
+  # pacman = Arch/CachyOS native package, rpm = Fedora/openSUSE.
+  target: [AppImage, deb, pacman, rpm]
+  category: AudioVideo
+mac:
+  category: public.app-category.music
+  # Build for both Apple Silicon and Intel (separate dmg/zip per arch). serialport's universal
+  # N-API prebuild runs on both, so each artifact bundles the same binary — no per-arch rebuild.
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+    - target: zip
+      arch: [x64, arm64]
+win:
+  target: [nsis, zip]
