@@ -1,0 +1,137 @@
+name: release
+
+# Tag a version (e.g. v0.1.0-beta) to build the bundled Axis + ForgeFX desktop app for
+# Windows, macOS, and Linux, and attach the installers to a DRAFT GitHub release to publish.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    name: desktop (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout Axis
+        uses: actions/checkout@v4
+        with:
+          path: Axis
+      - name: Checkout ForgeFX (bundled engine)
+        uses: actions/checkout@v4
+        with:
+          repository: sKuhLight/ForgeFX
+          path: ForgeFX
+      # the server links the codec as file:../../forgefx-midi — check it out as the sibling
+      # the link expects and build it (its package exports point at dist/)
+      - name: Checkout forgefx-midi (codec package)
+        uses: actions/checkout@v4
+        with:
+          repository: sKuhLight/forgefx-midi
+          path: forgefx-midi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build forgefx-midi (codec)
+        working-directory: forgefx-midi
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+
+      # Build ForgeFX (the bundled server) and keep only production deps for shipping. npm links
+      # forgefx-midi as a SYMLINK pointing outside the bundle — electron-builder must ship real
+      # files, so the symlink is replaced with a plain copy (dist + catalog + package.json; the
+      # codec has zero runtime deps).
+      - name: Build ForgeFX server
+        working-directory: ForgeFX/server
+        shell: bash
+        run: |
+          npm ci
+          npm run build
+          npm prune --omit=dev
+          rm -rf node_modules/forgefx-midi
+          mkdir -p node_modules/forgefx-midi
+          cp -R ../../forgefx-midi/package.json ../../forgefx-midi/dist ../../forgefx-midi/catalog node_modules/forgefx-midi/
+
+      # Inject the production env (Supabase + telemetry) into the bundled server. index.ts loads
+      # server/.env relative to itself; electron-builder bundles it (see extraResources filter).
+      # Keys are publishable (client-safe); they live in CI secrets, never in source.
+      - name: Inject ForgeFX production env
+        working-directory: ForgeFX/server
+        run: |
+          {
+            echo "AXIS_CLOUD=1"
+            echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}"
+            echo "SUPABASE_ANON_KEY=${{ secrets.SUPABASE_ANON_KEY }}"
+            echo "AXIS_TELEMETRY=1"
+            echo "AXIS_FARO_URL=${{ secrets.AXIS_FARO_URL }}"
+          } > .env
+
+      # Install Axis (incl. Electron) and build the static UI pointed at the local engine.
+      - name: Install Axis
+        working-directory: Axis
+        run: npm ci
+      - name: Build Axis UI
+        working-directory: Axis
+        env:
+          VITE_FORGEFX_BASE: '' # same-origin: the UI is served by ForgeFX, so it finds the API on whatever port it bound
+        run: npm run build
+
+      # No native rebuild: serialport is N-API and ships a universal darwin-x64+arm64 prebuild
+      # (plus win/linux prebuilds), so the bundled binary loads on every target arch as-is.
+      # Rebuilding here would compile a host-arch build/Release that shadows the prebuild and
+      # break the cross-arch (x64) macOS build.
+
+      - name: Install Linux packaging tools (pacman needs bsdtar; rpm needs rpmbuild)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libarchive-tools rpm
+
+      - name: Package desktop app
+        working-directory: Axis
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --publish never
+
+      # Build the release body from the CHANGELOG section matching this tag (per-release notes,
+      # not a static template). Falls back to a generic line if no section is found.
+      - name: Assemble release notes
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          awk -v hdr="## $VERSION" '
+            /^## / { if (seen) exit; if (index($0, hdr) == 1) { seen = 1; next } }
+            seen { print }
+          ' Axis/CHANGELOG.md > notes-body.md
+          {
+            echo "**Axis $GITHUB_REF_NAME** — community beta. A standalone editor for Fractal devices that bundles the ForgeFX engine — one install, no setup."
+            echo
+            if [ -s notes-body.md ]; then cat notes-body.md; else echo "_See the commit history for changes in this build._"; fi
+            echo
+            echo "---"
+            echo "Independent, third-party software. Not affiliated with Fractal Audio Systems. Use at your own risk — see DISCLAIMER.md. Always back up your presets."
+          } > release-notes.md
+          cat release-notes.md
+
+      - name: Upload installers to release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: false
+          name: Axis ${{ github.ref_name }}
+          body_path: release-notes.md
+          files: |
+            Axis/dist-desktop/*.AppImage
+            Axis/dist-desktop/*.deb
+            Axis/dist-desktop/*.pacman
+            Axis/dist-desktop/*.rpm
+            Axis/dist-desktop/*.dmg
+            Axis/dist-desktop/*.zip
+            Axis/dist-desktop/*.exe
+            Axis/dist-desktop/*.blockmap
+            Axis/dist-desktop/latest*.yml
