@@ -2,6 +2,15 @@
   // Read-only routing-grid preview for the Preset Browser. Renders a preset's PresetGrid (positions,
   // colors, routing cables) at a fixed compact size; clicking a block calls `onpick(effectId)`.
   import type { PresetGrid, GridCell } from './types';
+  import {
+    miniGridCols,
+    miniGridX,
+    miniGridY,
+    miniGridHasCable,
+    MINIGRID_CW as CW,
+    MINIGRID_CH as CH,
+    MINIGRID_GAP as GAP
+  } from './miniGrid';
 
   let {
     grid,
@@ -15,13 +24,12 @@
     onpick: (eid: number) => void;
   } = $props();
 
-  const CW = 62, CH = 32, GAP = 18;
   const rows = $derived(grid.rows || 4);
-  const cols = $derived(Math.max(1, ...grid.cells.map((c) => c.col)));
+  const cols = $derived(miniGridCols(grid.cells));
   const W = $derived(cols * (CW + GAP) - GAP + 2);
   const H = $derived(rows * (CH + GAP) - GAP + 2);
-  const px = (col: number) => (col - 1) * (CW + GAP);
-  const py = (row: number) => (row - 1) * (CH + GAP);
+  const px = (col: number) => miniGridX(col);
+  const py = (row: number) => miniGridY(row);
   const cellAt = $derived.by(() => { const m = new Map<string, GridCell>(); for (const c of grid.cells) m.set(`${c.row},${c.col}`, c); return m; });
   // routing cables: each cell is fed from fromRows of the previous column
   // Cables run CENTRE-to-CENTRE so they form continuous wires: the segments under opaque block tiles
@@ -30,7 +38,7 @@
   const cables = $derived.by(() => {
     const segs: { d: string }[] = [];
     for (const c of grid.cells) {
-      if (c.col <= 1 || !c.fromRows.length) continue;
+      if (!miniGridHasCable(c.col, c.fromRows)) continue;
       const x2 = px(c.col) + CW / 2, y2 = py(c.row) + CH / 2;
       for (const fr of c.fromRows) {
         const x1 = px(c.col - 1) + CW / 2, y1 = py(fr) + CH / 2;
