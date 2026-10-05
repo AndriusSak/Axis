@@ -16,7 +16,7 @@ describe('miniGrid geometry (0-indexed decoded grid)', () => {
   it('sizes the canvas to max col + 1 (cells spanning cols 0..11 need 12 columns)', () => {
     const cells = Array.from({ length: 12 }, (_, i) => ({ row: 0, col: i }));
     expect(miniGridCols(cells)).toBe(12);
-    expect(miniGridCols([{ row: 0, col: 0 }])).toBe(1);
+    expect(miniGridCols([{ col: 0 }])).toBe(1);
   });
 
   it('draws an incoming cable only for col >= 1; col 0 has no previous column', () => {
