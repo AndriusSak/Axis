@@ -46,7 +46,8 @@
   const { controller, registry } = getWorkbenchContext();
   let zoneEl = $state<HTMLElement | null>(null);
   let zoneWidth = $state(0);
-  let groupWidth = $state(0);
+  /** Measured width of every zone in `fitGroup` (this zone reads its own from `zoneWidth`). */
+  let groupZoneWidths = $state<Record<string, number>>({});
   let overflowOpen = $state(false);
   const widgets = $derived(selectVisibleWidgetsByZone($controller.document, zone));
   const units = $derived(unitsForZone(widgets));
@@ -89,27 +90,37 @@
     return { key: unitKey(unit), estW, keep };
   }
 
-  // Descriptors across the whole fit group (or this zone alone). Group members
-  // fit jointly, so one decision + one overflow set drives every group zone.
-  const groupDescriptors = $derived.by<WidgetFitDescriptor[]>(() => {
-    if (!fitEnabled) return [];
-    const zones = fitGroup && fitGroup.length ? fitGroup : [zone];
+  // Descriptors for THIS zone's units (see `fitResult` for why the fit is per zone, not per group).
+  function zoneDescriptors(): WidgetFitDescriptor[] {
     const out: WidgetFitDescriptor[] = [];
-    for (const z of zones) {
-      const zoneWidgets = z === zone ? widgets : selectVisibleWidgetsByZone($controller.document, z);
-      for (const unit of unitsForZone(zoneWidgets)) out.push(unitDescriptor(unit));
-    }
+    for (const unit of units) out.push(unitDescriptor(unit));
     return out;
-  });
+  }
 
-  const availWidth = $derived(fitGroup && fitGroup.length ? groupWidth : zoneWidth);
-
-  // Joint fit + shedding (design `_fit` / `_overflow`, 01-shell §8). Overflow
-  // shedding only applies outside edit mode (design: overflowed widgets stay
-  // visible with a red dashed outline while editing).
+  /**
+   * Fit THIS zone against its own width.
+   *
+   * WHY not the group's total width: the zones are separate flex containers with a fixed widget
+   * assignment, so the row total is not the capacity available to any one zone. Measured at 1440x900:
+   * `top.right` held 793px of widgets in a 669px box while `top.left` sat 236px empty. The joint fit
+   * against the parent's 1382px concluded "fits", left every widget at `size=default`, shed nothing —
+   * and the zone overflowed. Because `top.right` is `justify-content: flex-end` with
+   * `overflow: hidden`, that surplus spilled LEFT, where LTR `scrollWidth` never counts it, so the
+   * leading view-chips widget was permanently clipped and unclickable (the zone even reported
+   * `scrollW == clientW`, i.e. "no overflow").
+   *
+   * Each zone therefore resolves its own tier and its own overflow set. A tier shared across the group
+   * would be worse than useless: `top.left` fits at `default` (502px of widgets in 669px), so sharing
+   * `top.right`'s `compact` would shrink widgets that had room to spare.
+   */
   const fitResult = $derived.by(() => {
-    if (!fitEnabled || availWidth <= 0) return { size: 'default' as WidgetSize, overflow: new Set<string>() };
-    const result = fitZone(groupDescriptors, availWidth, fitGap);
+    // `fitGroup` is still measured (see onMount) so a zone keeps a usable width even if its own
+    // measurement has not landed yet; the fallback never widens the fit beyond this zone.
+    const width = zoneWidth > 0 ? zoneWidth : (groupZoneWidths[zone] ?? 0);
+    if (!fitEnabled || width <= 0) return { size: 'default' as WidgetSize, overflow: new Set<string>() };
+    const result = fitZone(zoneDescriptors(), width, fitGap);
+    // Overflow shedding only applies outside edit mode (design: overflowed widgets stay visible with a
+    // red dashed outline while editing).
     if ($controller.editMode) return { size: result.size, overflow: new Set<string>() };
     return result;
   });
@@ -213,14 +224,32 @@
   onMount(() => {
     if (!zoneEl) return;
     const groupEl = fitGroup && fitGroup.length ? zoneEl.parentElement : null;
+    const memberEls = (): HTMLElement[] => {
+      if (!groupEl) return [];
+      return (fitGroup ?? [])
+        .map((name) => (name === zone ? zoneEl : groupEl.querySelector<HTMLElement>(`[data-zone="${name}"]`)))
+        .filter((el): el is HTMLElement => !!el);
+    };
     const measure = () => {
       if (zoneEl) zoneWidth = zoneEl.clientWidth;
-      if (groupEl) groupWidth = groupEl.clientWidth;
+      if (groupEl) {
+        // Every zone in the group is fitted against its OWN width (see `perZoneFits`), so keep each
+        // zone's measured width fresh rather than the parent's total.
+        const widths: Record<string, number> = {};
+        for (const name of fitGroup ?? []) {
+          const el = name === zone ? zoneEl : groupEl.querySelector<HTMLElement>(`[data-zone="${name}"]`);
+          if (el) widths[name] = el.clientWidth;
+        }
+        groupZoneWidths = widths;
+      }
     };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(zoneEl);
-    if (groupEl) ro.observe(groupEl);
+    if (groupEl) {
+      ro.observe(groupEl);
+      for (const el of memberEls()) ro.observe(el);
+    }
     return () => ro.disconnect();
   });
 </script>
@@ -344,7 +373,12 @@
     overflow: visible;
   }
   .aw-widget-zone[data-zone='top.right'] {
-    justify-content: flex-end;
+    /* `safe` matters: this zone hugs the right edge, so when its content overflows, plain `flex-end`
+       aligns the CONTENT'S END to the container's end and the surplus spills to the LEFT — where LTR
+       `scrollWidth` never counts it, making the leading widget unreachable rather than merely clipped.
+       With `safe`, an overflowing row falls back to start alignment, so any residual overflow is on the
+       reachable side. (The fit system is what normally prevents the overflow; see `perZoneFits`.) */
+    justify-content: safe flex-end;
   }
   .aw-widget-zone[data-zone='top.center'] {
     justify-content: center;

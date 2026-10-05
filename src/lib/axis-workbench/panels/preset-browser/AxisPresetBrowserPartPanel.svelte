@@ -1445,6 +1445,10 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+    /* Wrap, don't overflow. This row is wider than the query bar on a narrow pane (measured at 900px:
+       the row needed 365px in a 256px column, so it spilled past `.query-bar` and the
+       `.axis-pb-list` clip took the tail — "⇄ Convert Preset…" was unreachable). */
+    flex-wrap: wrap;
     gap: 8px;
   }
   .adv-toggle {
