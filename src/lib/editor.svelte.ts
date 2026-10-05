@@ -16,6 +16,7 @@ import { surfApplyRemote } from './surfaceStore.svelte';
 import { isRemoteBuild } from './cloudBrowser';
 import { paramValue } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
+import { isSceneStateUsable } from './sceneStateRefresh';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
 
@@ -1148,8 +1149,9 @@ class EditorStore {
    *  back to a full load(). */
   #refreshScene = async () => {
     const st = await forgefx.sceneState().catch(() => null);
-    if (!st || !Array.isArray(st)) {
-      // no lightweight path (AM4: /preset/scene-state is 501) → full reload. load() only refreshes
+    if (!isSceneStateUsable(st)) {
+      // no lightweight path (AM4: /preset/scene-state is 501) OR an empty [] (a failed server-side
+      // fn-0x13 status read — never a legitimate grid) → full reload. load() only refreshes
       // grid+blocks, so the open block's per-channel params (incl. blockType — the Type row) must be
       // re-read here too, exactly like the lightweight path below does.
       await this.load();
