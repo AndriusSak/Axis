@@ -15,6 +15,7 @@ import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, 
 import { surfApplyRemote } from './surfaceStore.svelte';
 import { isRemoteBuild } from './cloudBrowser';
 import { paramValue } from './format';
+import { mayReplacePending, type ReloadKind } from './eventReload';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
 
@@ -1133,6 +1134,11 @@ class EditorStore {
     }
   };
   #eventReload: ReturnType<typeof setTimeout> | null = null;
+  /** What the pending #eventReload timer will do. A full reload re-reads strictly more (grid structure +
+   *  block list + open block) than a scene/blockState refresh, so a lighter refresh must never cancel it
+   *  — otherwise a preset switch (`changed`) followed by the FM3's scene/channel watch poll leaves the
+   *  previous preset's grid on screen. See mayReplacePending() in eventReload.ts. */
+  #pendingReload: ReloadKind | null = null;
   /** Reflect a scene change WITHOUT a full preset reload. A scene switch never changes the grid
    *  STRUCTURE (block placement/routing is preset-level) — only per-block bypass / active channel /
    *  channel-linked params. So re-apply just the cheap bypass+channel (one fn-0x13 read via
@@ -1162,14 +1168,18 @@ class EditorStore {
   /** Debounce scene reflection (coalesces an app click + its SSE echo, or a fast footswitch sweep,
    *  into one lightweight refresh). */
   #scheduleSceneReload = (settleMs = 250) => {
+    if (!mayReplacePending(this.#pendingReload, 'scene')) return; // a pending FULL reload already covers it
     if (this.#eventReload) clearTimeout(this.#eventReload);
-    this.#eventReload = setTimeout(() => { void this.#refreshScene(); }, settleMs);
+    this.#pendingReload = 'scene';
+    this.#eventReload = setTimeout(() => { this.#pendingReload = null; void this.#refreshScene(); }, settleMs);
   };
   /** Debounce block-state reflection after channel changes; FM3-Edit waits a shorter settle window
    *  before re-reading the affected block. */
   #scheduleBlockStateReload = (settleMs = 120) => {
+    if (!mayReplacePending(this.#pendingReload, 'blockState')) return; // a pending FULL reload already covers it
     if (this.#eventReload) clearTimeout(this.#eventReload);
-    this.#eventReload = setTimeout(() => { void this.#refreshScene(); }, settleMs);
+    this.#pendingReload = 'blockState';
+    this.#eventReload = setTimeout(() => { this.#pendingReload = null; void this.#refreshScene(); }, settleMs);
   };
   /** Apply one live device event — from SSE (local) or the remote relay channel. Drives cross-UI sync:
    *  another window / the remote / the device itself changed something, so this UI follows. */
@@ -1210,8 +1220,11 @@ class EditorStore {
         // unit doesn't push — AM4 front-panel / AM4-Edit) — reload, debounced so a burst coalesces into
         // one refresh. Also re-read the open block's knobs: load() only refreshes the grid + blocks, so
         // without this a front-panel knob turn on the currently-open block would leave its arcs stale.
+        // The broadest refresh wins, so a later scene/blockState event cannot downgrade it (eventReload.ts).
         if (this.#eventReload) clearTimeout(this.#eventReload);
+        this.#pendingReload = 'full';
         this.#eventReload = setTimeout(async () => {
+          this.#pendingReload = null;
           await this.load();
           if (this.selKey) await this.#loadParams();
         }, 250);
