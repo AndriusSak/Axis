@@ -42,7 +42,10 @@ export function fmtCompact(p: DispRange): string {
 
 /** Big number for the HUD (no inline unit; unit shown separately via paramUnit). */
 export function fmtNumber(p: DispRange): string {
-  if (p.min == null || p.max == null) return Math.round((p.norm ?? 0) * 100) + '';
+  // No device-true range → the shared 0..10 knob scale, exactly like paramValue()/fmtCompact() here and
+  // the server's #display fallback (Math.round(norm*1000)/100 = norm*10). This branch used norm*100, so
+  // an uncalibrated param read 10× its real value in the grid swipe HUD and the undo/redo labels.
+  if (p.min == null || p.max == null) return Math.round((p.norm ?? 0) * 10) + '';
   const v = paramValue(p);
   if (p.unit === 'Hz' && Math.abs(v) >= 1000) return (v / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
   return Math.abs(v) >= 100 ? String(Math.round(v)) : (Math.round(v * 10) / 10).toFixed(1);
