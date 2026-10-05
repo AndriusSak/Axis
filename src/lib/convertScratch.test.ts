@@ -147,6 +147,18 @@ describe('seedScratch topology + tray', () => {
     const s = seed('fm3');
     expect(s.topology).toMatchObject({ kind: 'grid', rows: 4, cols: 12 });
   });
+  it('seeds the Axe-Fx II target with the device-true 4x12 grid (not 6x14)', () => {
+    // Axe-Fx II is a 4x12 grid: gen2.ts's header says so and the gen-2 builder validates row 1..4 /
+    // col 1..12. A 6x14 seed let canPlaceAt accept cells the device cannot address.
+    const s = seedScratch(preset({ blocks: [] }), [], 'axe-fx-ii');
+    expect(s.topology).toMatchObject({ kind: 'grid', rows: 4, cols: 12 });
+  });
+  it('seeds axe-fx-gen1 as its spec 4x12 dump grid', () => {
+    // Not a defect: gen-1's protocol has no grid-cell WRITE, but its dump carries a 4x12 effect grid
+    // (forgefx-midi GEN1_GRID_ROWS/COLS), which is the right topology for layout rendering.
+    const s = seedScratch(preset({ blocks: [] }), [], 'axe-fx-gen1');
+    expect(s.topology).toMatchObject({ kind: 'grid', rows: 4, cols: 12 });
+  });
   it('forces block-unplaced blocks into the tray', () => {
     const s = seed();
     const tray = unplacedBlocks(s);

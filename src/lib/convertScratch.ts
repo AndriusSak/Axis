@@ -37,7 +37,10 @@ const TOPOLOGY_DEFAULTS: Record<ConverterDeviceId, Topology> = {
   'axe-fx-iii': { kind: 'grid', rows: 6, cols: 14 },
   fm9: { kind: 'grid', rows: 6, cols: 14 },
   fm3: { kind: 'grid', rows: 4, cols: 12 },
-  'axe-fx-ii': { kind: 'grid', rows: 6, cols: 14 },
+  // Axe-Fx II is a 4×12 grid — gen2.ts's header and the gen-2 builder (row 1..4 / col 1..12) say so.
+  'axe-fx-ii': { kind: 'grid', rows: 4, cols: 12 },
+  // Axe-Fx Std/Ultra: no grid-cell WRITE, but its dump carries a 4×12 effect grid (forgefx-midi
+  // GEN1_GRID_ROWS/COLS), so 4×12 is the right layout topology.
   'axe-fx-gen1': { kind: 'grid', rows: 4, cols: 12 },
   vp4: { kind: 'chain', rows: 1, cols: 4 },
   // AM4 is a 4-slot chain the device lays out LEFT→RIGHT (1 row × 4 cols), exactly like the live AM4
