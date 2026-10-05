@@ -212,7 +212,11 @@
     background: linear-gradient(180deg, var(--surface), var(--bg2));
     display: flex;
     flex-direction: column;
-    overflow: hidden;
+    /* Scroll, don't clip. With `overflow: hidden` a short pane silently cut off whatever did not fit —
+       measured: the footer's Engaged / Remove / Mute buttons were entirely outside the card and
+       unreachable. The board now keeps a minimum height (see ControlSurface's `.content`) and the map
+       yields (GridMap's `.map`), so this only scrolls when even that does not fit. */
+    overflow-y: auto;
   }
   .card.sheet {
     position: absolute;

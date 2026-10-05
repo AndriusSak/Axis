@@ -243,7 +243,14 @@
 
 <style>
   .map {
-    flex: none;
+    /* The GRID MAP is auxiliary; the dial board below it is the point of the editor. As a fixed-height
+       block (`flex: none`, 204px) it starved the board in a short pane: head+map+tabs+board+foot need
+       386px, so in a 323px pane the board collapsed to 32px and the card (overflow:hidden) clipped the
+       footer actions entirely. Yielding here lets the board keep its usable floor; the map keeps its
+       header (44px, with the fold/zoom controls) so it stays operable. */
+    flex: 0 1 auto;
+    min-height: 44px;
+    overflow: hidden;
     background: var(--bg2);
     border-bottom: 1px solid var(--surface2);
   }

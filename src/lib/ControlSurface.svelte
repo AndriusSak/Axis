@@ -1870,8 +1870,13 @@
     color: var(--accentbright);
   }
   .content {
-    flex: 1;
-    min-height: 0;
+    flex: 1 1 auto;
+    /* Floor, not just `min-height: 0`: this is the pane's primary content (the dial board). With a bare
+       `flex: 1; min-height: 0` it was the only shrinkable child of the editor card, so in a short pane it
+       absorbed the whole deficit and collapsed to a 32px strip — every dial clipped away while the
+       auxiliary GRID MAP above kept its 204px. A floor keeps roughly a dial row usable; the card scrolls
+       for the rest (see BlockEditor's `.card`). */
+    min-height: 170px;
     position: relative;
     overflow-x: hidden; /* board is a zoom grid — it wraps to new rows, never scrolls sideways */
     overflow-y: auto;
