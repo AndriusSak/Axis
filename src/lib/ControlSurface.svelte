@@ -12,7 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
-  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
+  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
   import {
@@ -236,10 +236,13 @@
   const cell = $derived(Math.max(isMobile ? 60 : 48, Math.floor((containerW - (displayCols - 1) * GAP) / displayCols)));
   // a device-authentic Default board tags its widgets with a source `row`; the free-arranged boards don't
   const rowGrouped = $derived(widgets.some((w) => w.row != null));
-  // re-pack the arranged widgets into the shown columns whenever we're showing fewer than the layout uses.
+  // re-pack the arranged widgets into the shown columns whenever the arrangement doesn't fit them.
   // Row-grouped (device) boards reflow row-by-row so the editor's rows survive; free boards gravity-pack.
+  // `overflowsColumns` (not just `displayCols < cols`) is the trigger: a placement past the last shown
+  // column lands in a ZERO-WIDTH implicit grid track and the trailing dials pile up in one spot — the
+  // Steam-Deck report. Re-packing is what makes the template cover every placement.
   const viewWidgets = $derived(
-    !editMode && displayCols < cols
+    !editMode && (displayCols < cols || overflowsColumns(widgets, displayCols))
       ? rowGrouped
         ? packRows(widgets, displayCols)
         : packInto(widgets, displayCols, 256)

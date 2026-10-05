@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDeviceLayoutBoard, layoutVariantSig, packRows, type BoardCtl, type SurfaceWidget } from './deviceLayoutBoard';
+import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type BoardCtl, type SurfaceWidget } from './deviceLayoutBoard';
 import type { DeviceLayout, LayoutControl, LayoutWidget } from './types';
 
 // ── catalog builders (mirror ControlSurface's live catalog entries) ──
@@ -171,5 +171,37 @@ describe('packRows — row-preserving responsive reflow', () => {
     expect(at('b')).toMatchObject({ x: 1, y: 0 });
     expect(at('c')).toMatchObject({ x: 0, y: 1 }); // wrapped within row 0 onto a new line
     expect(at('d').y).toBe(2); // row 1 starts strictly below everything from row 0
+  });
+});
+
+// The re-pack trigger. The board's CSS grid template has exactly `displayCols` tracks, and a widget
+// placed past them lands in an IMPLICIT track — which CSS gives zero width, so the trailing tiles render
+// on top of each other (the "dials bunched up in one spot" report on a Steam Deck). The old trigger was
+// only `displayCols < cols`, which misses the case where the arrangement simply does not fit the shown
+// columns; this predicate is what catches it.
+describe('overflowsColumns — the responsive re-pack trigger', () => {
+  const w = (x: number, width = 1) => ({ x, w: width });
+
+  it('is false when every widget fits the shown columns', () => {
+    expect(overflowsColumns([w(0), w(1), w(2)], 3)).toBe(false);
+    expect(overflowsColumns([], 8)).toBe(false);
+  });
+
+  it('is true when a widget ends past the last shown column', () => {
+    // 12 controls in a 12-column arrangement shown in 8 columns: columns 8..11 do not exist.
+    const wide = Array.from({ length: 12 }, (_, i) => w(i));
+    expect(overflowsColumns(wide, 8)).toBe(true);
+    expect(overflowsColumns(wide, 12)).toBe(false);
+  });
+
+  it('accounts for a widget spanning more than one column', () => {
+    expect(overflowsColumns([w(6, 2)], 8)).toBe(false); // occupies 6..7
+    expect(overflowsColumns([w(7, 2)], 8)).toBe(true); // occupies 7..8 → column 8 does not exist
+  });
+
+  it('agrees with packRows: the re-packed output never overflows the target columns', () => {
+    const wide = Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, key: `k${i}`, x: i, y: 0, w: 1, h: 1, view: 'knob', row: 0 }));
+    expect(overflowsColumns(wide, 8)).toBe(true);
+    expect(overflowsColumns(packRows(wide, 8), 8)).toBe(false);
   });
 });

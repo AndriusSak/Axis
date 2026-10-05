@@ -211,6 +211,22 @@ export function buildDeviceLayoutBoard(
   return { pageOrder, page: pageOrder[0]!, boards, variantSig: layoutVariantSig(layout) };
 }
 
+/**
+ * True when an arrangement cannot be shown as-is in `cols` columns — i.e. some widget's right edge
+ * falls outside the grid.
+ *
+ * WHY this matters: the board's CSS grid template has exactly `cols` tracks. A widget placed beyond
+ * them (say `grid-column: 9` in an 8-track template) lands in an IMPLICIT column, and CSS gives implicit
+ * tracks zero width — so the trailing tiles render on top of each other, separated only by the grid gap.
+ * That is the "dials bunched up in one spot" report on a Steam Deck (1280x800): fewer columns fit, the
+ * arrangement still spans the desktop width, and the tail of every wide row collapses into one spot.
+ * The board must therefore re-pack into the shown columns whenever this is true, not only when the
+ * shown column count happens to differ from the preferred one.
+ */
+export function overflowsColumns(list: readonly { x: number; w: number }[], cols: number): boolean {
+  return list.some((w) => w.x + w.w > cols);
+}
+
 /** Row-preserving re-pack for a device-authentic board at a narrower column count: groups widgets by
  *  their source `row`, lays each group left→right (wrapping within the group), and starts every source
  *  row on a fresh grid line so the editor's row structure survives responsive reflow. */
