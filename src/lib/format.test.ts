@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fmtValue, withUnit, type DispRange } from './format';
+import { fmtCompact, fmtNumber, fmtValue, paramValue, withUnit, type DispRange } from './format';
 
 // A ranged param whose linear taper lands exactly on `value` at norm 0.5 (min/max straddle it).
 // Lets each case declare the device-true value + unit token it should render.
@@ -78,6 +78,31 @@ describe('fmtValue', () => {
       const s = fmtValue(p);
       expect(s).not.toMatch(/ {2}/);
       expect(s).not.toContain('undefined');
+    }
+  });
+});
+
+// An UNCALIBRATED param (no device-true min/max — the server's #display falls back to a plain
+// 0..10 knob scale) must read the same everywhere: paramValue() and fmtCompact() both use norm*10,
+// and the server's own fallback is `Math.round(norm*1000)/100` = norm*10. fmtNumber() used norm*100,
+// so the grid swipe HUD and the undo/redo param labels showed 10× the value every other readout —
+// and the device — shows.
+describe('uncalibrated (no min/max) readout consistency', () => {
+  const coarse: DispRange = { norm: 0.5 };
+
+  it('paramValue is the 0..10 knob scale', () => {
+    expect(paramValue(coarse)).toBe(5);
+  });
+
+  it('fmtCompact and fmtNumber agree with paramValue', () => {
+    expect(fmtCompact(coarse)).toBe('5.0');
+    expect(fmtNumber(coarse)).toBe('5');
+  });
+
+  it('stays on the 0..10 scale across the whole norm range', () => {
+    for (const norm of [0, 0.25, 0.3, 0.5, 0.75, 1]) {
+      expect(paramValue({ norm })).toBeCloseTo(norm * 10, 6);
+      expect(Number(fmtNumber({ norm }))).toBe(Math.round(norm * 10));
     }
   });
 });
