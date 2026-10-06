@@ -1,5 +1,14 @@
 # Axis / ForgeFX — Feature Roadmap (gap analysis)
 
+> ## ⚠️ STALE — DO NOT USE AS THE BACKLOG (verified 2026-10-06)
+> This document is from **2026-06-28** and its "missing" list is largely WRONG: it lists the Looper,
+> the FC editor, the cross-device converter and the Setup/Controllers virtual screens as unbuilt, and
+> they all shipped. It also predates the entire feature-parity round series.
+>
+> **The live gap list is `docs/axis-fm3edit-feature-parity-audit.md`** (FM3-Edit / FM3 hardware
+> parity, kept current, with per-item status and evidence). Trust the CODE plus that audit — not this
+> file. Kept only for the historical protocol-surface survey in §"Protocol" columns.
+
 > Living roadmap for Axis + ForgeFX. Derived from a survey of the `fractal-midi` protocol surface and
 > the current implementation (2026-06-28). It records what the protocol *can* do vs. what we ship today,
 > so the work can be sequenced. Not a dated promise list — priorities shift with the beta.
