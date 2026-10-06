@@ -185,18 +185,35 @@ only history's `revertTo`).
   into the edit buffer"; there is already a load-from-slot path (`POST /preset/select`). Snapshots
   map onto the existing version-history store.
 
-### 2.8 MIDI / Remote configuration — **Absent**
+### 2.8 MIDI / Remote configuration — **Partial** (Setup → MIDI / Remote section shipped)
 FM3-Edit's Setup covers **MIDI/Remote**: device MIDI channel, **Program Change mapping** (per-slot PC
-table), **CC mapping**, **Scene MIDI** messages, preset mapping. Axis's Setup screen is the GLOBAL
-block only.
-- The FM3 catalogue *does* carry these: `GLOBAL_MIDI_CHAN`, `GLOBAL_MIDI_PROG_CHANGE`,
-  `GLOBAL_PC_OFFSET`, `GLOBAL_MIDI_MAPPING`, `GLOBAL_SEND_MIDIPC`, plus a separate **`MIDIBLOCK`
-  family (13 params, incl. `MIDIBLOCK_SEND_MSG`, per-message chan/num/val arrays)** and **scene MIDI**
-  params. **But**: `MIDIBLOCK` is **not one of the four virtual effects** (`GEN3_VIRTUAL_EFFECTS` =
-  global/controllers/modifier/fc), so it has **no screen and no eid to address** in Axis today.
-- **Next step:** (a) verify whether the FM3 in use even exposes a *placeable* MIDI block (the catalog
-  family exists; the roster may not) — if yes, it needs a block editor entry; (b) the PC/CC **mapping
-  tables** are structured arrays, i.e. a different UI from a knob grid — scope separately.
+table), **CC mapping**, **Scene MIDI** messages, preset mapping. Axis now renders the **served** MIDI
+settings as a dedicated **MIDI / Remote** section on the Setup (GLOBAL, eid 1) screen
+(`src/lib/midiRemote.ts` + `MidiRemoteSection.svelte`, mounted by `VirtualScreen.svelte`); the parts the
+served param set cannot represent are shown as honest **disabled rows** (tooltip = addressing + reason),
+never faked.
+
+**Verified ground truth (2026-10-06, against the trees — the previous "no eid" claim was WRONG):**
+- **No placeable MIDI block.** `GET /blocks` (`gen3.ts blocksCatalog`) enumerates `effectRoster()` over
+  the grid `EFFECT_BASES` table; MIDIBLOCK is not in it. MIDIBLOCK is `addressing: 'virtual'`
+  (forgefx-midi `src/gen3/fm3/effectIds.ts`, firstId **190**, name **"Scene MIDI"**), so it can never be
+  placed on the grid.
+- **MIDIBLOCK IS addressable** as a virtual effect: ForgeFX maps **eid 190 → 'MIDIBLOCK'**
+  (`devices.ts VIRTUAL_EID_FAMILY`). BUT the FM3 catalogue carries **zero ranges and zero enum vocab**
+  for the family (`catalog/fm3.json` has no `FM3_RANGES.MIDIBLOCK` / `FM3_ENUM_OVERRIDES.MIDIBLOCK`;
+  CATALOG-COVERAGE.md lists MIDIBLOCK under "Ranges — zero-calib utility families"), so every param is
+  dropped by the server's serve filters and `blockParams(190)` returns **no controls**. A Scene-MIDI
+  screen would be an empty dead end → **none is offered** (and eid 190 is deliberately NOT added to
+  `GEN3_VIRTUAL_EFFECTS`).
+- **Served GLOBAL MIDI params** (the section's specs — real device paramIds): `GLOBAL_MIDI_CHAN` (68,
+  enum 1..16/OMNI), `GLOBAL_MIDI_PROG_CHANGE` (69), `GLOBAL_NO_REDUNDANT_PC` (70), `GLOBAL_PC_OFFSET`
+  (71, knob 0..383), `GLOBAL_SEND_MIDIPC` (73), `GLOBAL_MIDI_MAPPING` (97, OFF/ON **enable** only),
+  `GLOBAL_CC_BYPASS_TYPE` (104), `GLOBAL_SEND_REALTIME_SYSEX` (113), `GLOBAL_RCV_MIDI_CLOCK` (14874),
+  `GLOBAL_SEND_MIDI_CLOCK` (14875).
+- **Not served**: `GLOBAL_REMOTE_MUTE` (114 — unit `unverified`, no range row → dropped by `blockParams`).
+- **Still impossible** (honest disabled rows, see `MIDI_REMOTE_GAPS`): the per-slot **PC/CC mapping
+  tables** (pid 97 is only the enable; the table is a structured array with no wire param), the **Scene
+  MIDI block** (eid 190, zero calibration), and **Remote Mute** (pid 114).
 
 ### 2.9 Grid/block editing operations FM3-Edit has and Axis doesn't
 
@@ -449,24 +466,32 @@ not surfaced — see §3.6 item 3.
 4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; 17 wired, 4 reserved).
 5. **Mute + Scene Ignore** (§3.1) — **Scene Ignore DONE** (served `*_SCENEIGNORE` enum); **Mute
    left disabled** (no served generic per-block mute param — see §3.1).
-6. **Block-pane height / search-card** UX fixes (§3.6 items 1-2) — **DONE** (board fits without
-   scrolling at 1440×900 / 1280×800; compact search rows). Item 3 (surface the *existing* CLI-only
-   `GET /diag/ranges` in the UI) is still **open** — cheap, no new endpoint.
+6. **Block-pane height / search-card** UX fixes (§3.6 items 1-2) — **DONE** (compact search rows).
+   Item 3 (`GET /diag/ranges` in the UI) is **DONE** too — see §7.12. NOTE: the fit-to-view cell cap
+   added here was **reverted the same day** — it shrank dials to ~30px on tall boards; the board now
+   always fills the pane width and scrolls instead (see ControlSurface).
 
 **Moderate (new endpoints / structured UI)**
 7. ~~**Scene Manager page** (§2.1) with copy/swap/bulk engage~~ — **DONE 2026-10-06**
    (`sceneOps.ts` + `AxisSceneManagerPanel.svelte`, panel type `axis.sceneManager`); §6.3 resolved via
    client-side sequences over the existing endpoints (no new route). The CS-state remainder is
    **GATED** (§2.1): family PRESET has no wire effectId, so there is no eid to write — see §6.8.
-8. **Setup expansion**: MIDI/Remote tables + FC config (§2.8) — needs §6.2 and possibly new ops.
+8. **Setup expansion**: **MIDI/Remote section DONE 2026-10-06** (§2.8 — served GLOBAL MIDI params +
+   honest gated rows; `midiRemote.ts` + `MidiRemoteSection.svelte`). Remaining: the per-slot PC/CC
+   mapping **tables** and the Scene MIDI block are **impossible** on the served param set (see §2.8);
+   FC config stays gated.
 9. **FC Edit completion** (§3.8) — **PARTIALLY DONE**: Layout Links + Per-Preset switch assignment
    (served Layout/Per-Preset categories) and layout import/export shipped; CS MIDI and FC
    devices/config **gated** (no served param); per-preset definitions blocked on the preset-binary
    parser (§5).
-10. **Preset Librarian / Manage Presets** (§2.4) — needs slot move/swap/copy ops.
+10. ~~**Preset Librarian / Manage Presets** (§2.4)~~ — **DUPLICATE + SWAP DONE 2026-10-06** (both the
+    monolith `PresetBrowser.svelte` and the workbench menu, over the copy-by-store sequence in
+    `presetSlotOps.ts`). **Move / Delete remain impossible**: the FM3 wire protocol has no slot-erase
+    op, so they are honest disabled entries. No new endpoint was needed.
 11. **Block library (.blk-style)** if a Fractal-compatible format is wanted (§2.6).
-12. **Surface `GET /diag/ranges` in the UI** (§3.6 item 3) — the endpoint already exists (server-side,
-    `server/src/app.ts`); this is a small client panel. Ends the profile-vs-catalogue guessing class.
+12. ~~**Surface `GET /diag/ranges` in the UI** (§3.6 item 3)~~ — **DONE 2026-10-06** (round 2:
+    `rangeTrace.ts` + the Device Tools "Range trace" panel; the endpoint already existed in
+    `server/src/app.ts`).
 
 **Keystone / research**
 13. ~~**Preset-binary parser**~~ — **ALREADY EXISTS** (read path; see §5). The keystone work left is
