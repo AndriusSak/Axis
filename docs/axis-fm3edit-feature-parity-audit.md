@@ -324,10 +324,15 @@ custom label, live read-back. Missing (grep for `csMidi|layoutLink|perPreset|sta
 - **The four virtual effects are the whole "settings" story.** `GEN3_VIRTUAL_EFFECTS` (global=1,
   controllers=2, modifier=3, fc=199) — anything the FM3 exposes as a family that is *not* one of those
   (MIDIBLOCK, IRCAPTURE, PRESET) has **no screen and no address** in Axis.
-- **The preset-binary parser is still the keystone.** Modifier read-back, performance pages, FC
-  per-preset overrides, scene-ignore, and a real librarian all depend on either a preset-binary model
-  or new SyEx ops. Everything that must be *read back* from the device is blocked on it; everything
-  writable param-by-param can be done now.
+- **The preset-binary parser EXISTS — corrected 2026-10-06 (verified in code).** `forgefx-midi/src/
+  devices/gen3/presetDump.ts` parses the 0x77/0x78/0x79 stored-dump chain (`parsePresetDump`,
+  `parsePresetBank`, `serializePresetDump`, `extractPresetName`, `retargetPresetDumpToEditBuffer`) and
+  `presetBody.ts` decodes the reassembled body into a typed model — grid cells, placed blocks,
+  per-channel effect types, amp model + knobs, **modifiers** (`Gen3Modifier`) and scene controllers.
+  `ForgeFX` consumes it (`POST /preset/decode`, backups, local scan). What is still **not** captured is
+  the host→device **write-back** of 0x77/0x78/0x79 (stated in that file's own header). So the
+  follow-ons below are no longer blocked on "build a parser" — they are blocked on *surfacing* the
+  decoded model (e.g. modifier read-back, §3.2) or on RE for things the body does not contain.
 - **Silent-drop gates are the recurring defect class here** (`KNOB_UNITS`, enum length caps). Two of
   this audit's "candidate gaps" (§3.7) are that same class — verify before building UI for them.
 
@@ -366,9 +371,10 @@ not surfaced — see §3.6 item 3.
 3. **Scene ops over the wire.** `setScene` is deliberately fire-and-forget (`BACKLOG.md` W1.1: scene is
    not in the write-protocol op table). Copy/swap/bulk scenes need a plan: either new ops (verify they
    exist) or a client-side dump→store sequence.
-4. **Is a preset-binary parser in scope?** `ROADMAP.md` §9 calls it the keystone; `forgefx-midi` has
-   request builders but no parser for 0x77/0x78/0x79 or 0x51/0x52 frames. Confirm current state in
-   `forgefx-midi/src/devices/gen3/` before scoping §2.1/§2.2/§2.3/§3.2.
+4. ~~**Is a preset-binary parser in scope?**~~ **ANSWERED 2026-10-06: it already exists.** `forgefx-midi/
+   src/devices/gen3/presetDump.ts` handles the 0x77/0x78/0x79 read chain and `presetBody.ts` decodes
+   grid / channels / types / amp knobs / **modifiers** / scene controllers; `ForgeFX` exposes it via
+   `POST /preset/decode`. The genuine remaining gap is host→device **write-back** of that chain.
 5. **Does FM3 store performance pages / setlists in the preset or in system memory?** Determines
    whether either can be built without new RE.
 6. **Cab 2 Mute/Solo write path** (see §3.7) — the outstanding hardware check from the last handoff.
@@ -403,7 +409,8 @@ not surfaced — see §3.6 item 3.
     `server/src/app.ts`); this is a small client panel. Ends the profile-vs-catalogue guessing class.
 
 **Keystone / research**
-13. **Preset-binary parser** → then **modifier read-back** (§3.2), **Performance pages** (§2.2),
+13. ~~**Preset-binary parser**~~ — **ALREADY EXISTS** (read path; see §5). The keystone work left is
+    **surfacing** it: **modifier read-back** (§3.2, in flight), then **Performance pages** (§2.2),
     **Setlists/Songs** (§2.3), **IR/cab management** (§2.5).
 
 **Deferred / N/A on FM3**
