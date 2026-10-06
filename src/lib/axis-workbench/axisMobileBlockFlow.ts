@@ -76,8 +76,16 @@ export function createAxisMobileBlockFlowMemory(): AxisMobileBlockFlowMemory {
 }
 
 export interface AxisMobileBlockFlowInput {
-  /** True only on the phone profile — the flow is a no-op on tablet/desktop. */
+  /** True only on the phone profile — controls forcing the grid into map mode above the editor. */
   profileIsPhone: boolean;
+  /**
+   * Whether the editor should expand when a block opens. Defaults to `profileIsPhone` (the original
+   * phone-only behaviour) for backwards compatibility; the shell passes `true` on every profile so
+   * the desktop/tablet block drawer also grows to give the board room. Map forcing stays phone-only.
+   */
+  expandEnabled?: boolean;
+  /** Fraction of the workbench height the expanded editor takes (default 0.75). */
+  expandRatio?: number;
   /** True when a block editor is active/open for a selected block. */
   blockOpen: boolean;
   /** Workbench-height (px) available to size the expanded editor against. */
@@ -123,10 +131,13 @@ function currentBottomSizePx(layout: WorkbenchLayout): number | null {
   return typeof size === 'number' ? size : null;
 }
 
-/** Target expanded bottom size: ~75% of the workbench height, clamped sanely. */
-export function computeExpandedBottomPx(workbenchHeightPx: number): number {
+/** Target expanded bottom size: `ratio` of the workbench height, clamped sanely. */
+export function computeExpandedBottomPx(
+  workbenchHeightPx: number,
+  ratio: number = AXIS_MOBILE_BLOCK_EXPAND_RATIO
+): number {
   const h = workbenchHeightPx > 0 ? workbenchHeightPx : 0;
-  return Math.max(240, Math.round(h * AXIS_MOBILE_BLOCK_EXPAND_RATIO));
+  return Math.max(240, Math.round(h * ratio));
 }
 
 /**
@@ -152,10 +163,11 @@ export function decideAxisMobileBlockFlow(
   memory: AxisMobileBlockFlowMemory
 ): AxisMobileBlockFlowDecision {
   const layout = selectActiveLayout(input.doc);
+  const expandEnabled = input.expandEnabled ?? input.profileIsPhone;
 
-  // Off the phone profile (or no layout): if we're still holding an expanded state,
-  // restore it once; otherwise do nothing.
-  if (!input.profileIsPhone || !layout) {
+  // Expansion is off (or no layout): if we're still holding an expanded state, restore it once;
+  // otherwise do nothing.
+  if (!expandEnabled || !layout) {
     if (memory.expanded && layout) return restore(layout, memory);
     return { commands: [], memory: memory.expanded ? createAxisMobileBlockFlowMemory() : memory };
   }
@@ -171,7 +183,7 @@ export function decideAxisMobileBlockFlow(
       // No block editor docked to expand — nothing to do.
       return { commands: [], memory };
     }
-    return expand(layout, grid, input.workbenchHeightPx, memory);
+    return expand(layout, grid, input, memory);
   }
 
   // blockOpen === false
@@ -182,18 +194,20 @@ export function decideAxisMobileBlockFlow(
 function expand(
   layout: WorkbenchLayout,
   grid: GridModeWidgetRef | null,
-  workbenchHeightPx: number,
+  input: AxisMobileBlockFlowInput,
   memory: AxisMobileBlockFlowMemory
 ): AxisMobileBlockFlowDecision {
   const commands: WorkbenchCommand[] = [];
-  const target = computeExpandedBottomPx(workbenchHeightPx);
+  const target = computeExpandedBottomPx(input.workbenchHeightPx, input.expandRatio);
   const prevBottom = currentBottomSizePx(layout);
 
   commands.push({ type: 'region.resize', region: AXIS_BLOCK_EDITOR_REGION, sizePx: target });
 
   let prevGridMode: AxisGridModeValue | null = null;
   let prevGridZone: string | null = null;
-  if (grid) {
+  // Forcing the grid into map mode is a phone affordance: on a wide screen the grid stays visible
+  // above the drawer, so only the resize applies there.
+  if (grid && input.profileIsPhone) {
     prevGridMode = grid.mode;
     prevGridZone = grid.zone;
     // Force map. A hidden gridMode widget is ignored by the panel's view derivation,

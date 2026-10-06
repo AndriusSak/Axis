@@ -204,3 +204,49 @@ describe('decideAxisMobileBlockFlow — preset without a hidden grid widget', ()
     expect(gridModeWidget(restored).state?.mode).toBe('auto');
   });
 });
+
+describe('decideAxisMobileBlockFlow — expandEnabled on desktop/tablet', () => {
+  it('expands the bottom drawer on open and ONLY resizes (no grid-map forcing)', () => {
+    const doc = docFromPreset('default');
+    const before = activeDock(doc).regions.bottom.sizePx;
+    const { commands, memory } = decideAxisMobileBlockFlow(
+      input({ doc, profileIsPhone: false, expandEnabled: true, expandRatio: 0.68, blockOpen: true }),
+      createAxisMobileBlockFlowMemory()
+    );
+    // Wide-screen affordance: give the board height, leave the grid visible above it (no map forcing).
+    expect(commands.map((c) => c.type)).toEqual(['region.resize']);
+    const expanded = apply(doc, commands);
+    expect(activeDock(expanded).regions.bottom.sizePx).toBe(computeExpandedBottomPx(WORKBENCH_H, 0.68));
+    expect(memory.expanded).toBe(true);
+    expect(memory.prevBottomSizePx).toBe(before);
+    // gridMode widget untouched.
+    expect(gridModeWidget(expanded).zone).toBe(gridModeWidget(doc).zone);
+    expect(gridModeWidget(expanded).state?.mode).toBe(gridModeWidget(doc).state?.mode);
+  });
+
+  it('restores the previous bottom size when the block closes', () => {
+    const doc = docFromPreset('default');
+    const before = activeDock(doc).regions.bottom.sizePx;
+    const enter = decideAxisMobileBlockFlow(
+      input({ doc, profileIsPhone: false, expandEnabled: true, blockOpen: true }),
+      createAxisMobileBlockFlowMemory()
+    );
+    const expanded = apply(doc, enter.commands);
+    const leave = decideAxisMobileBlockFlow(
+      input({ doc: expanded, profileIsPhone: false, expandEnabled: true, blockOpen: false }),
+      enter.memory
+    );
+    const restored = apply(expanded, leave.commands);
+    expect(activeDock(restored).regions.bottom.sizePx).toBe(before);
+    expect(leave.memory.expanded).toBe(false);
+  });
+
+  it('is inert when expandEnabled is not set — legacy phone-only callers', () => {
+    const doc = docFromPreset('default');
+    const { commands } = decideAxisMobileBlockFlow(
+      input({ doc, profileIsPhone: false, blockOpen: true }),
+      createAxisMobileBlockFlowMemory()
+    );
+    expect(commands).toEqual([]);
+  });
+});

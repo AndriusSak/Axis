@@ -248,7 +248,7 @@
        386px, so in a 323px pane the board collapsed to 32px and the card (overflow:hidden) clipped the
        footer actions entirely. Yielding here lets the board keep its usable floor; the map keeps its
        header (44px, with the fold/zoom controls) so it stays operable. */
-    flex: 0 1 auto;
+    flex: 0 8 auto; /* yields hard: shrinks to its header before the board loses a pixel */
     min-height: 44px;
     overflow: hidden;
     background: var(--bg2);
