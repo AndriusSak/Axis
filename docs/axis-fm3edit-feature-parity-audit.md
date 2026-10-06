@@ -10,6 +10,10 @@ plus a list of features Axis already ships *incompletely*. Everything here is a 
 evidence (file/line or catalogue fact). **Nothing is hardware-verified** unless it says so — the
 whole point of writing it down is so the next session starts from evidence instead of re-deriving it.
 
+**Re-verified against HEAD `8ec6e40` (2026-10-06, later the same day):** §2.4, §2.6, §2.13 and §3.2
+had **already shipped** by the time this draft was read back, and are corrected below. Rule: trust the
+code over any tag in this file — a tag that disagrees with HEAD is a bug in the tag.
+
 **How to read the status tags**
 
 | Tag | Meaning |
@@ -144,16 +148,19 @@ rail's `sets` falls through to the toast path, `ToolRail.svelte:12`), no endpoin
   region, **not** a preset ⇒ needs an RE spike for read/write). Until then it is a **research item**,
   not a wiring task.
 
-### 2.4 Manage Presets (bank librarian) — **Absent**
+### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap DONE 2026-10-06; move/delete impossible)
 FM3-Edit's **Manage Presets** does multi-select **reorder / move / swap / duplicate / delete**
 across device slots, drag-and-drop, plus **Reset AMP blocks** per preset. Axis's preset browser is a
-*viewer/loader*; the device-slot context menu shows **Duplicate / Remove from device / Delete
-everywhere but marks them "soon"** (`PresetBrowser.svelte:519`, `548`).
-- Backing endpoints missing: no `POST /preset/move|swap|copy` in `router.ts`; only
-  `POST /preset/store` (store edit buffer → slot) and `POST /preset/name`.
-- **Next step:** device-side slot ops need the write protocol for "copy slot N → M" (does gen-3 even
-  expose it? verify — FM3-Edit does it, so it's in *some* SyEx path); alternatively implement a
-  **swap-by-store** sequence (dump → load → store) client- or server-side.
+*viewer/loader*, and (verified at HEAD 2026-10-06) the DEVICE-row context menu in BOTH browsers — the
+monolith `PresetBrowser.svelte` and the workbench panel — wires **Duplicate** and **Swap with slot**
+over the copy-by-store sequence in `src/lib/presetSlotOps.ts`; **Move** and **Delete everywhere** are
+honest disabled entries (no slot-erase op on the wire — §3.4). The `SOON` list is now only the legacy
+toast fallback for NON-device rows.
+- **No new endpoint was needed:** `POST /preset/store` + `POST /preset/name` + the location scan cover
+  the shipped ops. The FM3 wire protocol exposes **no slot copy/erase** primitive, so Move/Delete stay
+  honest negatives rather than fakes.
+- **Remaining:** multi-select **reorder-by-drag** across slots, and **Reset AMP blocks per preset**
+  (a batch param write — its natural home is §2.11's machinery).
 
 ### 2.5 User Cab / IR management — **Absent**
 FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav`/`.ir` with MPT /
@@ -163,17 +170,19 @@ upload; no IR-capture UI (IR capture on the FM3 is front-panel/III-editor).
 - **Next step:** low priority unless Andy shares IR packs; IR upload is a multi-frame SyEx transfer
   that must be verified on hardware first.
 
-### 2.6 Library (block/channel library on disk) — **Absent**
+### 2.6 Library (block/channel library on disk) — **DONE (Axis-local format)** · 2026-10-06
 FM3-Edit's **Library** stores named **blocks (all 4 channels) and single channels** as `.blk` files,
-recallable into any instance, shareable, with modifiers included for whole-block saves. Axis has no
-`.blk` concept (grep `.blk`/`block library` → only CSS class names).
-- Note: Axis's **workbench library drawer** is a *layout* library (pages/panels/widgets) — a
-  different thing. Don't conflate them.
-- **Next step:** a `.blk` is a serialised block-param set + type; Axis already reads full per-block
-  params. "Save block to disk / recall into a block" is feasible **without** new device work if the
-  file format is Axis-local (not byte-compatible with FM3-Edit's `.blk`, which is a Fractal format).
+recallable into any instance, shareable, with modifiers included for whole-block saves.
+**Shipped 2026-10-06** (`src/lib/blockLibrary.ts` + `blockLibrary.svelte.ts` + `BlockLibraryPanel.svelte`,
+wired through `BlockEditor.svelte` / `editorSurface.ts` / `editor.svelte.ts`): a named **local** block
+library with save / list / search / rename / delete / recall, plus **`.axblk` export/import**.
+- The format is **Axis-local, deliberately NOT byte-compatible with Fractal's `.blk`** (a
+  Fractal-internal format). FM3-Edit `.blk` interop is **not** a goal of this build.
+- Axis's **workbench library drawer** is a *layout* library (pages/panels/widgets) — a different
+  thing. Don't conflate them.
+- **Remaining (optional, low value):** Fractal-compatible `.blk` import/export, if ever wanted.
 
-### 2.7 Preset templates, bundles, snapshots-to-folder — **Partial** (Recent + Snapshot + Revert **done**; Clear Preset **not possible**; templates/bundles/.bnk still absent)
+### 2.7 Preset templates, bundles, snapshots-to-folder — **Partial** (Recent + Snapshot + Revert **done**; Clear Preset **not possible**; templates in flight, bundles/.bnk still absent)
 FM3-Edit: **New from Template / Save as Template**, **Preset+Cab bundle** export/import, **Snapshot**
 button writing `name.syx` into a Snapshots folder, **Clear Preset**, **Revert Preset** (discard
 unsaved changes back to the stored version), import from `.bnk` banks, **Recent Presets**.
@@ -244,7 +253,7 @@ never faked.
 | Drag block onto block/shunt to **swap** positions (cables preserved) | **Implemented** | `planSwap` + `editor.swap`; SignalGrid block-onto-block drop swaps (cables stay with each cell) |
 | **Reset channel / reset block** to defaults | **Implemented** | footer Reset CH (active channel, model re-select) / Reset Block (structural clear+re-place, undoable) + grid Cmd+I; `planResetBlock` |
 | **Disconnect all cables** from a block (Cmd+D) | **Implemented** | `planDisconnectAll` + `editor.disconnectAll` (Cmd+D) |
-| **Move an entire row / column** (grid border sliders) | **Absent** | grep `moveRow` → 0 |
+| **Move an entire row / column** (grid border sliders) | **In flight** (round 2026-10-06) | grep `moveRow` → 0 |
 | Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
 | **Quick Build** panel (Q) | **Partial** — the Cmd+K command palette covers placement differently | `CommandPalette.svelte` |
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
@@ -260,10 +269,11 @@ resetBlock`) over the existing per-block param/type writes — no new endpoint.
 - Reset is the FM3 **model re-select soft reset**: "Reset CH" resets the active channel only;
   "Reset Block" (and the grid's Cmd+I) clears + re-places the block in place — routing preserved,
   structurally undoable.
-- Still missing: **copy channel across blocks/presets**, **set channel across all scenes** (FM3-Edit
-  Block menu), and **copy/cut a block across presets** (the block clipboard is in-memory, same session).
+- **In flight** (round 2026-10-06): **copy channel across blocks** and **set channel across all
+  scenes** (FM3-Edit's Block menu). Still open after that round: **copy/cut a block across presets**
+  (the block clipboard is in-memory, same session).
 
-### 2.11 Cross-preset / batch editing — **Absent**
+### 2.11 Cross-preset / batch editing — **In flight** (round 2026-10-06)
 FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) and
 copy/paste of a parameter value between blocks are not implemented in Axis.
 
@@ -273,9 +283,11 @@ bypass, Backspace delete, Cmd+D disconnect, Cmd+U shunt, Shift+Space engage-all-
 arrow-key value nudges…). Axis registers only **Cmd+K** (palette) and **Cmd+Z / Cmd+Y**
 (`routes/+page.svelte:86-94`). No global shortcut map.
 
-### 2.13 Preset / cab colour tagging — **Absent**
-FM3-Edit lets you colour/flag picker entries and filter by colour. Axis has favourites + saved
-filters but no colour/flag dimension.
+### 2.13 Preset / cab colour tagging — **DONE** · 2026-10-06
+FM3-Edit lets you colour/flag picker entries and filter by colour. **Shipped**
+(`src/lib/presetColors.ts` + `library.svelte.ts`, surfaced in BOTH preset browsers through
+`presetBrowser/presetBrowserWorkbenchData.ts`): per-entry colour/flag tags + filter-by-colour,
+alongside the existing favourites and saved filters.
 
 ---
 
@@ -300,17 +312,20 @@ short.
   footer button is therefore `disabled` with a tooltip stating this, and points at **Bypass** (the
   served "silence this block" control, sitting right beside it). Do NOT wire it to an invented id.
 
-### 3.2 Modifier editor — **Partial / Unverified**
-`ModifierEditorCore.svelte` header (lines 7-10): curve fields are written live, *"Channel / PC Reset /
-Update Rate / Attack / Release / Damping / Auto Engage / Off Value are rendered but only written when
-the model exposes their pid (flagged 'pending decode' otherwise)"*, and *"local edit state (no
-read-back yet — sensible defaults from the design's defaultMod)"* (line ~78).
-- **No read-back of existing modifier assignments.** Axis can *create/bind* a modifier but cannot show
-  "this parameter already has modifier from Source X with these curve values". FM3-Edit shows that.
-- Where modifiers are used in a preset is likewise not listed anywhere (FM3-Edit's Controllers screen
-  shows "where Modifiers are being used").
-- **Next step:** the modifier state lives in the preset body; a read path over the mod virtual effect
-  (or the preset-binary parser, §6.4) is the blocker.
+### 3.2 Modifier editor — **read-back DONE** · 2026-10-06 (curve-field writes stay model-gated)
+**Read-back SHIPPED** (`src/lib/modifierAssignments.ts` + `ModifierEditorCore.svelte`; guarded by
+`modifierAssignments.test.ts` and `modifierReadback.sourceguard.test.ts`). The server decodes a preset
+body's modifier assignments and serves them on **`GET /preset/modifiers`** — registered in **BOTH**
+route tables (`runtime/router.ts` *and* `app.ts`), decoded in `gen3.ts` from a single preset dump with
+no extra wire. The editor now shows the assignment that already owns the opened parameter
+(`findModifierForTarget`) and a **"modifiers in use"** list (`modifiersInUse`), degrading to `null` on
+404/501 (older server / no read capability).
+- Still true from the original note: Channel / PC Reset / Update Rate / Attack / Release / Damping /
+  Auto Engage / Off Value are rendered but only written when the model exposes their pid
+  ("pending decode" otherwise).
+- **Remaining:** read an existing assignment's live *curve values* back from the device (the decoded
+  body carries the assignment, not the per-slot curve), and surface modifier usage on the Controllers
+  screen itself.
 
 ### 3.3 Scenes page & Live page — **Scenes done, Live done**
 The Scenes page is now the real Scene Manager (§2.1). The Live page is now the real Performance / Live
@@ -328,7 +343,7 @@ Setup = GLOBAL only; Controllers = CONTROLLERS block only. Both are gated on
 `caps.virtualEffects` (`ToolRail.svelte:30-42`), so on a legacy v1 server or AM4 **the whole Setup
 screen disappears**. FM3-Edit's Setup is broader (MIDI/Remote, FC config, utility, calibration).
 
-### 3.6 Known UX defects already logged (still open)
+### 3.6 Known UX defects already logged (5 of 6 addressed; only item 6 open)
 From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"):
 1. **Block pane too short** — **ADDRESSED** (drawer expands on open + GridMap yields). NOTE the
    "fit-to-view cell scale" candidate was tried and **reverted the same day**: it shrank dials to
@@ -535,15 +550,30 @@ remain absent.
     monolith `PresetBrowser.svelte` and the workbench menu, over the copy-by-store sequence in
     `presetSlotOps.ts`). **Move / Delete remain impossible**: the FM3 wire protocol has no slot-erase
     op, so they are honest disabled entries. No new endpoint was needed.
-11. **Block library (.blk-style)** if a Fractal-compatible format is wanted (§2.6).
+11. ~~**Block library (.blk-style)**~~ — **DONE 2026-10-06** as an Axis-local `.axblk` library (§2.6);
+    byte-compatible Fractal `.blk` interop remains out of scope.
 12. ~~**Surface `GET /diag/ranges` in the UI** (§3.6 item 3)~~ — **DONE 2026-10-06** (round 2:
     `rangeTrace.ts` + the Device Tools "Range trace" panel; the endpoint already existed in
     `server/src/app.ts`).
 
 **Keystone / research**
-13. ~~**Preset-binary parser**~~ — **ALREADY EXISTS** (read path; see §5). The keystone work left is
-    **surfacing** it: **modifier read-back** (§3.2, in flight), then **Performance pages** (§2.2),
-    **Setlists/Songs** (§2.3), **IR/cab management** (§2.5).
+13. ~~**Preset-binary parser**~~ — **ALREADY EXISTS** (read path; see §5). ~~modifier read-back~~
+    **DONE 2026-10-06** (§3.2). What is left is blocked on **RE / hardware**, in value order:
+    **Performance pages** device-side storage (§2.2/§6.5), **Setlists/Songs** (§2.3/§6.7),
+    **IR/cab management** (§2.5 — needs a hardware-verified multi-frame upload).
+
+**Next round — dispatched 2026-10-06** (orchestrator: Lykos; four parallel subagents, one git
+worktree each, all four Axis-only and offline-provable — no hardware, no new endpoint):
+
+| # | Item | Shape of the work |
+|---|---|---|
+| W1 | **§2.7 Preset templates** | Save as Template / New from Template, Axis-local + local-only |
+| W2 | **§2.9 Move an entire row / column** | pure grid planner + SignalGrid border controls, over the existing grid endpoints |
+| W3 | **§2.11 Cross-preset batch parameter set** | "Set in multiple presets": `GET /preset/locations` → `POST /preset/select` → `PUT …/params/:pid` → `POST /preset/store`, with a dry-run preview. **Destructive — it overwrites slots** |
+| W4 | **§2.10 Channel ops** | set channel across all scenes; copy channel across blocks (pure planner + injectable IO, `sceneOps.ts` pattern) |
+
+The orchestrator integrates the four branches, de-duplicates merged members, and runs
+`verify-stack.sh` — a subagent's own green suite is a self-report, not proof of composition.
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.

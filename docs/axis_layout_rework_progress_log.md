@@ -1,3 +1,14 @@
+> ## ⚠️ STALE — SUPERSEDED (bannered 2026-10-06)
+> Historical session-survivable log for a closed workstream. Its "resume here" instructions are dead.
+>
+> **Do not plan or estimate from this file.** Live sources instead:
+> `docs/axis-fm3edit-feature-parity-audit.md` (feature/parity gap list, kept current),
+> `~/repos/stack/BACKLOG.md` (defect backlog — every item merged),
+> `~/repos/stack/verify-stack.sh` (the only proof the stack is green).
+> Kept as a historical record only.
+
+---
+
 # Axis layout rework — running progress log
 
 > Purpose: session-survivable state. Updated and committed **after every step** so any

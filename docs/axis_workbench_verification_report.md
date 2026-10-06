@@ -1,3 +1,14 @@
+> ## ⚠️ STALE — SUPERSEDED (bannered 2026-10-06)
+> A point-in-time verification report (2026-07-05). Superseded by `verify-stack.sh` and the per-round audit notes.
+>
+> **Do not plan or estimate from this file.** Live sources instead:
+> `docs/axis-fm3edit-feature-parity-audit.md` (feature/parity gap list, kept current),
+> `~/repos/stack/BACKLOG.md` (defect backlog — every item merged),
+> `~/repos/stack/verify-stack.sh` (the only proof the stack is green).
+> Kept as a historical record only.
+
+---
+
 # Axis Workbench Verification Report
 
 Date: 2026-07-05

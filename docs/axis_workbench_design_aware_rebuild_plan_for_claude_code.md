@@ -1,3 +1,14 @@
+> ## ⚠️ STALE — SUPERSEDED (bannered 2026-10-06)
+> Planning document for a rebuild that was executed; it is not code and its task list is done.
+>
+> **Do not plan or estimate from this file.** Live sources instead:
+> `docs/axis-fm3edit-feature-parity-audit.md` (feature/parity gap list, kept current),
+> `~/repos/stack/BACKLOG.md` (defect backlog — every item merged),
+> `~/repos/stack/verify-stack.sh` (the only proof the stack is green).
+> Kept as a historical record only.
+
+---
+
 # Axis Workbench Design-Aware Rebuild Plan for Claude Code
 
 Date: 2026-07-05

@@ -1,3 +1,14 @@
+> ## ⚠️ STALE — SUPERSEDED (bannered 2026-10-06)
+> Its "missing" list is wrong: the Looper, the FC editor, the cross-device converter and the Setup/Controllers virtual screens all shipped, and it predates the whole parity-round series.
+>
+> **Do not plan or estimate from this file.** Live sources instead:
+> `docs/axis-fm3edit-feature-parity-audit.md` (feature/parity gap list, kept current),
+> `~/repos/stack/BACKLOG.md` (defect backlog — every item merged),
+> `~/repos/stack/verify-stack.sh` (the only proof the stack is green).
+> Kept as a historical record only.
+
+---
+
 # Axis Workbench Implementation Status And Next Plan
 
 Date: 2026-07-05

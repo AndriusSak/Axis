@@ -1,3 +1,14 @@
+> ## ⚠️ STALE — SUPERSEDED (bannered 2026-10-06)
+> The layout rework it plans is complete — the workbench shell, dockable panels, page/panel registry and responsive sweeps all shipped.
+>
+> **Do not plan or estimate from this file.** Live sources instead:
+> `docs/axis-fm3edit-feature-parity-audit.md` (feature/parity gap list, kept current),
+> `~/repos/stack/BACKLOG.md` (defect backlog — every item merged),
+> `~/repos/stack/verify-stack.sh` (the only proof the stack is green).
+> Kept as a historical record only.
+
+---
+
 # Axis Layout Rework - Current State Review and Remaining Implementation Plan
 
 Date: 2026-07-06
