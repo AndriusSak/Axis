@@ -182,7 +182,7 @@ library with save / list / search / rename / delete / recall, plus **`.axblk` ex
   thing. Don't conflate them.
 - **Remaining (optional, low value):** Fractal-compatible `.blk` import/export, if ever wanted.
 
-### 2.7 Preset templates, bundles, snapshots-to-folder — **Partial** (Recent + Snapshot + Revert **done**; Clear Preset **not possible**; templates in flight, bundles/.bnk still absent)
+### 2.7 Preset templates, bundles, snapshots-to-folder — **Partial** (Recent + Snapshot + Revert **done**; templates **DONE (local-only)**; Clear Preset **not possible**; bundles/.bnk still absent)
 FM3-Edit: **New from Template / Save as Template**, **Preset+Cab bundle** export/import, **Snapshot**
 button writing `name.syx` into a Snapshots folder, **Clear Preset**, **Revert Preset** (discard
 unsaved changes back to the stored version), import from `.bnk` banks, **Recent Presets**.
@@ -212,7 +212,15 @@ unsaved changes back to the stored version), import from `.bnk` banks, **Recent 
   clear/erase route either, and `src/lib/presetSlotOps.ts` already documents "no slot-erase op at all".
   Clearing the edit buffer would require a wire primitive that does not exist → **not a genuine op, so
   not faked.**
-- **New from Template / Save as Template / Preset+Cab bundle / `.bnk` bank import — still Absent.**
+- **New from Template / Save as Template — DONE (local-only) · 2026-10-06.** `src/lib/presetTemplate.ts`
+  + `presetTemplates.svelte.ts` + `PresetTemplatesPanel.svelte` (opened from Device Tools); registry in
+  `localStorage` (`axs.presetTemplates.v1`); format `.axtpl.json` with the captured `.syx` embedded as
+  base64. Save reuses the EXISTING export pair (`snapshotPreset` → `versionSyx`, or the active-buffer
+  `presetBackup`); load reuses the EXISTING imported-file buffer path (`loadBytes` → `POST /preset/load`).
+  **Never written to the device.** Honest limits: the server's local-write route only accepts `.syx`, so a
+  configured Presets folder gets a `.syx` mirror under `Presets/Templates/` while the `.axtpl.json`
+  itself is a browser download — disclosed in the panel, not hidden.
+- **Preset+Cab bundle / `.bnk` bank import — still Absent.**
 
 
 ### 2.8 MIDI / Remote configuration — **Partial** (Setup → MIDI / Remote section shipped)
@@ -253,7 +261,7 @@ never faked.
 | Drag block onto block/shunt to **swap** positions (cables preserved) | **Implemented** | `planSwap` + `editor.swap`; SignalGrid block-onto-block drop swaps (cables stay with each cell) |
 | **Reset channel / reset block** to defaults | **Implemented** | footer Reset CH (active channel, model re-select) / Reset Block (structural clear+re-place, undoable) + grid Cmd+I; `planResetBlock` |
 | **Disconnect all cables** from a block (Cmd+D) | **Implemented** | `planDisconnectAll` + `editor.disconnectAll` (Cmd+D) |
-| **Move an entire row / column** (grid border sliders) | **In flight** (round 2026-10-06) | grep `moveRow` → 0 |
+| **Move an entire row / column** (grid border sliders) | **Implemented** | `planGridShiftRow`/`planGridShiftColumn` (`gridShift.ts`) + `editor.shiftRow/shiftColumn` + Signal Grid row/column border controls; an off-edge move is refused with a named reason (never a silent drop); modeled offline in `convertEditor` too. `grep moveRow` → 0 only because the planners are named `planGridShift*`. |
 | Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
 | **Quick Build** panel (Q) | **Partial** — the Cmd+K command palette covers placement differently | `CommandPalette.svelte` |
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
@@ -269,13 +277,21 @@ resetBlock`) over the existing per-block param/type writes — no new endpoint.
 - Reset is the FM3 **model re-select soft reset**: "Reset CH" resets the active channel only;
   "Reset Block" (and the grid's Cmd+I) clears + re-places the block in place — routing preserved,
   structurally undoable.
-- **In flight** (round 2026-10-06): **copy channel across blocks** and **set channel across all
-  scenes** (FM3-Edit's Block menu). Still open after that round: **copy/cut a block across presets**
-  (the block clipboard is in-memory, same session).
+- **DONE 2026-10-06:** **copy channel across blocks** and **set channel across all scenes**
+  (`src/lib/channelOps.ts` + the Block Editor footer). The cross-scene sequence always restores the
+  origin scene and reports per-scene failures rather than pretending success. Still open: **copy/cut a
+  block across presets** (the block clipboard is in-memory, same session).
 
-### 2.11 Cross-preset / batch editing — **In flight** (round 2026-10-06)
-FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) and
-copy/paste of a parameter value between blocks are not implemented in Axis.
+### 2.11 Cross-preset / batch editing — **Partial** (batch set DONE 2026-10-06; param copy/paste between blocks still absent)
+FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) is
+**implemented**: `src/lib/batchSetOps.ts` (pure planner + injectable IO, the `sceneOps.ts` pattern) plus
+the registered workbench panel `axis.batchSet` (action `axis.openBatchSet`) — a dry-run preview of
+exactly which slots change, an explicit confirm, then per slot `GET /preset/locations` →
+`POST /preset/select` → `PUT /preset/blocks/:eid/params/:paramId` (the `continuous` flag sent
+explicitly) → `POST /preset/store`, restoring the origin preset at the end and aborting on the first
+error with the precise list of slots already written. **Destructive by design** — it overwrites slots,
+and the UI says so. Not yet reachable from a rail button (openable through its action). Still absent:
+**copy/paste a parameter value between blocks**.
 
 ### 2.12 Keyboard shortcut parity — **Partial**
 FM3-Edit is shortcut-rich (Cmd+S save, Cmd+M manage, P preset picker, A/B/C/D channels, Space
@@ -562,18 +578,31 @@ remain absent.
     **Performance pages** device-side storage (§2.2/§6.5), **Setlists/Songs** (§2.3/§6.7),
     **IR/cab management** (§2.5 — needs a hardware-verified multi-frame upload).
 
-**Next round — dispatched 2026-10-06** (orchestrator: Lykos; four parallel subagents, one git
-worktree each, all four Axis-only and offline-provable — no hardware, no new endpoint):
+**Round W1–W4 — merged 2026-10-06** (orchestrator: Lykos; four parallel subagents, one git worktree
+each, all four Axis-only and offline-provable — no hardware, no new endpoint). All four merged with
+**zero conflicts** and disjoint new members (no duplicate-definition hazard). Verification on the merged
+tree: forgefx-midi **83 suites** · ForgeFX **36 suites** · Axis **1520 unit tests / 144 files** ·
+`svelte-check` **0 errors** · Axis build **ok** · Playwright **135/136**.
 
-| # | Item | Shape of the work |
-|---|---|---|
-| W1 | **§2.7 Preset templates** | Save as Template / New from Template, Axis-local + local-only |
-| W2 | **§2.9 Move an entire row / column** | pure grid planner + SignalGrid border controls, over the existing grid endpoints |
-| W3 | **§2.11 Cross-preset batch parameter set** | "Set in multiple presets": `GET /preset/locations` → `POST /preset/select` → `PUT …/params/:pid` → `POST /preset/store`, with a dry-run preview. **Destructive — it overwrites slots** |
-| W4 | **§2.10 Channel ops** | set channel across all scenes; copy channel across blocks (pure planner + injectable IO, `sceneOps.ts` pattern) |
+| # | Item | Result | Commit |
+|---|---|---|---|
+| W1 | §2.7 Preset templates | Done — local-only `.axtpl.json` | `f9c1d8b` |
+| W2 | §2.9 Move a row / column | Done — pure planner + border controls (row axis only: a cross-column move would strand every wire) | `037aed6` |
+| W3 | §2.11 Batch-set a param across presets | Done — dry-run + confirm, destructive | `6c64b7e` |
+| W4 | §2.10 Channel ops | Done — across scenes / across blocks | `f4ec211` |
 
-The orchestrator integrates the four branches, de-duplicates merged members, and runs
-`verify-stack.sh` — a subagent's own green suite is a self-report, not proof of composition.
+**Integration defect no subagent could see** (found and fixed by the orchestrator, `ddca770`):
+components read the store through the **`EditorSurface` seam** (`editorSurface.ts`), so every new member
+had to be declared there — and `convertEditor`, which is typed as `EditorSurface`, must satisfy the
+shape too (it now models row/column shift over its in-memory layout and leaves the device-backed channel
+ops inert, like its other §2.10 stubs). svelte-check went **8 errors → 0**.
+
+**OPEN — one Playwright geometry assertion regressed:** `28-block-pane-and-search.spec.ts:246`
+("many matches are visible at once at 1280x800") — visible control-search rows 6 → **5** against a `>= 6`
+threshold; 1440x900 passes (7). Row heights are unchanged (44px), so this is a pane-height change, not a
+row-density one; the prime suspect is the new Signal Grid border bars taking ~20px inside the grid
+frame. **Needs one browser run (revert `SignalGrid.svelte` alone → measure → restore) to confirm before
+any fix** — do not guess a layout change without it.
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
