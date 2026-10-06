@@ -171,6 +171,8 @@
         <button class="act" disabled={!sel.pack || !editor.channelClip} onclick={() => editor.pasteChannel()} title="Paste the copied values onto the current channel">Paste CH</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetChannel()} title="Reset this channel to the model's defaults">Reset CH</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetBlock()} title="Reset all four channels to their models' defaults">Reset Block</button>
+        <button class="act lib" disabled={!sel.pack} onclick={() => editor.saveBlockToLibrary()} title="Save this block's model + active-channel values to the Block Library (Axis-local .axblk)">Save to Lib</button>
+        <button class="act lib" onclick={() => editor.openBlockLibrary()} title="Block Library — recall / rename / delete saved blocks, export/import a .axblk">Library…</button>
         <button
           class="act"
           disabled

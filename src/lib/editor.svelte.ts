@@ -19,6 +19,8 @@ import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
+import { blockLibrary } from './blockLibrary.svelte';
+import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
 import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
@@ -364,6 +366,7 @@ class EditorStore {
   presetPick = $state<((slot: number, name: string) => void) | null>(null);
   cabPickerOpen = $state(false);
   deviceToolsOpen = $state(false); // Device Tools modal (preset backup/restore/decode, firmware validate, modifier view)
+  blockLibraryOpen = $state(false); // Block Library modal (audit §2.6)
   toast = $state<{ text: string; accent: string } | null>(null);
 
   #toastT: ReturnType<typeof setTimeout> | null = null;
@@ -2071,6 +2074,65 @@ class EditorStore {
       }
     } catch {
       this.load();
+    }
+  };
+
+  // ── Block Library (audit §2.6) ────────────────────────────────────────────────────────────────
+  // FM3-Edit parity: save a placed block's model + parameter values as a NAMED local entry, recall it
+  // into any block instance. Axis-LOCAL format (.axblk JSON) — deliberately NOT byte-compatible with
+  // FM3-Edit's .blk (a Fractal container needing RE). Only the ACTIVE channel is captured, because
+  // blockParams(eid) serves one channel at a time (entries record which). Recall reuses the existing
+  // per-block write path (setType → setParam), exactly like block copy/paste.
+  openBlockLibrary = () => {
+    this.blockLibraryOpen = true;
+    void blockLibrary.load(); // pull backend entries (best-effort)
+  };
+
+  /** Save the selected block's model + its active-channel values as a new named library entry. */
+  saveBlockToLibrary = async (name?: string) => {
+    const c = this.selected;
+    if (!c || c.kind !== 'block' || c.effectId == null) {
+      this.showToast('Open a block first', '#f5a623');
+      return;
+    }
+    try {
+      const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
+      const entry = blockLibrary.add({
+        id: newEntryId(),
+        name: (name?.trim() || `${c.display} · CH ${c.channel ?? '?'}`),
+        block: c.display,
+        slug: r.slug ?? (c.pack ? c.pack.toLowerCase() : null),
+        type: r.type ?? null,
+        channel: c.channel ?? null,
+        named: r.named ?? [],
+        enums: r.enums ?? []
+      });
+      this.showToast(`Saved “${entry.name}” to Block Library (${entry.params.length} values)`, '#35c9d6');
+    } catch {
+      this.showToast('Save failed — device offline?', '#d6543f');
+    }
+  };
+
+  /** Recall a library entry into a block: model type first, then re-read the target's params (the
+   *  param set changes on retype) and write back every value the target exposes. Cross-family recalls
+   *  write only the shared paramIds — the same rule as channel paste. */
+  recallBlockEntry = async (entry: BlockLibraryEntry, cell?: Cell) => {
+    const c = cell ?? this.selected;
+    if (!c || c.kind !== 'block' || c.effectId == null) {
+      this.showToast('Select a block to recall into', '#f5a623');
+      return;
+    }
+    try {
+      if (entry.type) await forgefx.setType(c.effectId, entry.type.value).catch(() => {});
+      const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
+      const writes = recallWrites(entry, r.named ?? [], r.enums ?? []);
+      for (const w of writes) await forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous).catch(() => {});
+      history.checkpoint(`Recalled “${entry.name}” → ${c.display}`, false); // logged, not undoable (per-param)
+      if (this.selKey || this.selected === c) await this.#loadParams();
+      await this.load();
+      this.showToast(`Recalled “${entry.name}” — ${writes.length} values`, '#33c46b');
+    } catch {
+      this.showToast('Recall failed — device offline?', '#d6543f');
     }
   };
 
