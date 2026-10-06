@@ -187,7 +187,7 @@ export function layoutVariantSig(layout: DeviceLayout | null | undefined): strin
     0
   );
   return [
-    'db2',
+    'db3',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',

@@ -1190,12 +1190,53 @@
   // dropdown popover geometry
   const selMenu = $derived.by(() => {
     if (!openSelect) return null;
-    const w = find(openSelect);
+    // Resolve against the RENDERED list: when the board overflows the shown columns `viewWidgets` is the
+    // RE-PACKED list (packRows/packInto), so a widget's `x/y` there is where the card actually lands.
+    // Reading the un-packed `widgets` put the menu at the pre-pack row — it opened somewhere the user
+    // could not see (above the pane), so tapping the field looked like it did nothing.
+    const w = viewWidgets.find((x) => x.id === openSelect) ?? find(openSelect);
     const c = w && catByKey.get(w.key);
     const e = c && enm(c.id);
-    if (!w || !c || !e) return null;
-    const step = cell + GAP;
-    return { id: w.id, e, left: w.x * step, top: (w.y + w.h) * step + 2, width: Math.max(w.w * cell + (w.w - 1) * GAP, 160) };
+    return w && c && e ? { id: w.id, e } : null;
+  });
+  /** Measured placement for the open menu: anchored to the field's REAL box, flipped up when the pane
+   *  has no room below, and capped to the room that is actually there (a 45-entry cab-type list would
+   *  otherwise run far past the bottom of a short block editor). */
+  let menuPos = $state<{ left: number; top: number; width: number; maxH: number; flip: boolean } | null>(null);
+  $effect(() => {
+    const id = selMenu?.id;
+    if (!id || !boardEl) {
+      menuPos = null;
+      return;
+    }
+    const field = boardEl.querySelector<HTMLElement>(`[data-field="${id}"]`);
+    if (!field) {
+      menuPos = null;
+      return;
+    }
+    const br = boardEl.getBoundingClientRect();
+    const fr = field.getBoundingClientRect();
+    let pane: HTMLElement | null = null;
+    for (let p = boardEl.parentElement; p && p !== document.body; p = p.parentElement) {
+      const s = getComputedStyle(p);
+      if (s.overflowY === 'auto' || s.overflowY === 'scroll' || s.overflow === 'hidden') {
+        pane = p;
+        break;
+      }
+    }
+    const pr = pane?.getBoundingClientRect();
+    const paneTop = pr?.top ?? 0;
+    const paneBottom = pr?.bottom ?? window.innerHeight;
+    const below = paneBottom - fr.bottom;
+    const above = fr.top - paneTop;
+    const flip = below < Math.min(140, above); // open upward when there is more room above the field
+    menuPos = {
+      left: fr.left - br.left,
+      top: (flip ? fr.top : fr.bottom) - br.top,
+      width: Math.max(fr.width, 160),
+      maxH: Math.min(320, Math.max(56, (flip ? above : below) - 6)),
+      flip
+    };
   });
 
   // svg knob pointer transform
@@ -1521,7 +1562,7 @@
               {:else if c.kind === 'select'}
                 <div class="seltop">{c.label}</div>
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-                <div class="selfield" class:open={openSelect === w.id} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && (openSelect = openSelect === w.id ? null : w.id)}>
+                <div class="selfield" data-field={w.id} class:open={openSelect === w.id} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && (openSelect = openSelect === w.id ? null : w.id)}>
                   <span class="seltxt">{enm(c.id)?.options.find((o) => o.value === enm(c.id)?.value)?.label ?? '–'}</span>
                   <span class="caret">▾</span>
                 </div>
@@ -1595,7 +1636,15 @@
     {#if selMenu}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="selbg" onpointerdown={() => (openSelect = null)}></div>
-      <div class="selmenu" style:left="{selMenu.left}px" style:top="{selMenu.top}px" style:width="{selMenu.width}px">
+      <div
+        class="selmenu"
+        class:flip={menuPos?.flip}
+        style:left="{menuPos?.left ?? 0}px"
+        style:top="{menuPos?.top ?? 0}px"
+        style:width="{menuPos?.width ?? 160}px"
+        style:max-height="{menuPos?.maxH ?? 320}px"
+        style:overflow-y="auto"
+      >
         {#each selMenu.e.options as o (o.value)}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
           <div class="selopt" class:on={o.value === selMenu.e.value} onpointerdown={(e) => e.stopPropagation()} onclick={() => { editor.setEnum(selMenu!.e, o.value); openSelect = null; }}>{o.label}</div>
@@ -2660,6 +2709,10 @@
     position: absolute;
     inset: 0;
     z-index: 40;
+  }
+  /* opened upward because the pane had no room below the field — anchor the menu's BOTTOM to the field */
+  .selmenu.flip {
+    transform: translateY(-100%);
   }
   .selmenu {
     position: absolute;
