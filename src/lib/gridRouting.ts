@@ -161,3 +161,125 @@ export function planReplaceShunt(
     : `Placed ${block.display} on shunt r${target.row + 1}c${target.col + 1}`;
   return { ok: true, ops, label, newShunts: [], cables };
 }
+
+/**
+ * Every cable touching cell `(row,col)` — incoming (the cell's own feeders from col-1) followed by
+ * outgoing (cells in col+1 fed from this row). Returned 0-indexed like the rest of the planners.
+ */
+function cablesTouching(cells: RouteCell[], shunts: RouteCell[], row: number, col: number): CableSeg[] {
+  const all = [...cells, ...shunts];
+  const cell = all.find((c) => c.row === row && c.col === col);
+  const incoming = (cell?.fromRows ?? []).map((fr) => ({ srcRow: fr, srcCol: col - 1, destRow: row }));
+  const outgoing = all
+    .filter((c) => c.col === col + 1 && c.fromRows.includes(row))
+    .map((c) => ({ srcRow: row, srcCol: col, destRow: c.row }));
+  return [...incoming, ...outgoing];
+}
+
+/**
+ * FM3-Edit "Disconnect all cables" (Cmd+D): drop EVERY cable into and out of `(row,col)` in one
+ * undoable step. Emits one `cable … connect:false` op per touching wire; the composite is undone in
+ * reverse, so each is re-connected. Fails (ok:false) when the cell has no cables to remove.
+ */
+export function planDisconnectAll(cells: RouteCell[], shunts: RouteCell[], row: number, col: number): RoutePlan {
+  const segs = cablesTouching(cells, shunts, row, col);
+  if (!segs.length) return err('No cables to disconnect');
+  const ops: HistoryOp[] = segs.map((s) => ({ kind: 'cable', srcRow: s.srcRow, srcCol: s.srcCol, destRow: s.destRow, connect: false }));
+  return { ok: true, ops, label: `Disconnected all cables from r${row + 1}c${col + 1}`, newShunts: [], cables: segs };
+}
+
+/**
+ * FM3-Edit "Insert shunt" (Cmd+U): place an explicit routing (shunt) cell in an EMPTY grid cell.
+ * Unlike `planConnect` (which lays shunts as a side effect of routing), this is a standalone insert
+ * the user asked for. Allocates the lowest free shunt instance id so the device never dedupes it.
+ */
+export function planInsertShunt(cells: RouteCell[], shunts: RouteCell[], row: number, col: number, shuntBase: number): RoutePlan {
+  const all = [...cells, ...shunts];
+  if (all.find((c) => c.row === row && c.col === col)) return err('Cell is not empty');
+  const sid = shuntAllocator(all, shuntBase)();
+  const ops: HistoryOp[] = [{ kind: 'place', row, col, blockId: sid, display: 'Shunt' }];
+  return { ok: true, ops, label: `Inserted shunt at r${row + 1}c${col + 1}`, newShunts: [{ row, col, blockId: sid }], cables: [] };
+}
+
+/**
+ * FM3-Edit "Reset block / reset channel": re-initialize a block's parameters to the DEVICE DEFAULTS
+ * while keeping it in place and preserving its routing. Device-true mechanism: clear the cell and
+ * re-place the SAME effect id — a freshly placed block comes up with model defaults. The cell's
+ * feeder and downstream cables are captured on the remove op (for undo) and re-laid afterwards, so
+ * the topology is unchanged. One composite step (undo restores the pre-reset placement + wires; the
+ * old parameter VALUES are not snapshotted — same v1 limitation as the cab-change checkpoint).
+ */
+export function planResetBlock(cells: RouteCell[], shunts: RouteCell[], target: RouteCell, blockId: number, display: string): RoutePlan {
+  if (target.kind !== 'block') return err('Target is not a block');
+  const inputs = target.fromRows.slice();
+  const outputs = outgoingRows(cells, shunts, target.row, target.col);
+  const ops: HistoryOp[] = [
+    { kind: 'remove', row: target.row, col: target.col, blockId: target.effectId, display: target.display, inRows: inputs, outRows: outputs },
+    { kind: 'place', row: target.row, col: target.col, blockId, display }
+  ];
+  const cables: CableSeg[] = [];
+  for (const fr of inputs) {
+    ops.push({ kind: 'cable', srcRow: fr, srcCol: target.col - 1, destRow: target.row, connect: true });
+    cables.push({ srcRow: fr, srcCol: target.col - 1, destRow: target.row });
+  }
+  for (const dr of outputs) {
+    ops.push({ kind: 'cable', srcRow: target.row, srcCol: target.col, destRow: dr, connect: true });
+    cables.push({ srcRow: target.row, srcCol: target.col, destRow: dr });
+  }
+  return { ok: true, ops, label: `Reset ${display} at r${target.row + 1}c${target.col + 1}`, newShunts: [], cables };
+}
+
+/**
+ * FM3-Edit "drag a block onto a block to SWAP": exchange the two placed blocks between their cells.
+ * Cables are PRESERVED because the cell POSITIONS never move — each cell is re-wired with its OWN
+ * original input/output topology (the block instance carries its settings, the cell keeps its wires).
+ * Both cells are cleared first (wires carried on the removes for undo), then each block is placed
+ * into the other's cell and re-wired. One composite step.
+ */
+export function planSwap(cells: RouteCell[], shunts: RouteCell[], a: RouteCell, b: RouteCell): RoutePlan {
+  if (a.kind !== 'block' || b.kind !== 'block') return err('Swap needs two blocks');
+  if (a.row === b.row && a.col === b.col) return err('Same cell');
+  const inA = a.fromRows.slice();
+  const outA = outgoingRows(cells, shunts, a.row, a.col);
+  const inB = b.fromRows.slice();
+  const outB = outgoingRows(cells, shunts, b.row, b.col);
+
+  const ops: HistoryOp[] = [
+    { kind: 'remove', row: a.row, col: a.col, blockId: a.effectId, display: a.display, inRows: inA, outRows: outA },
+    { kind: 'remove', row: b.row, col: b.col, blockId: b.effectId, display: b.display, inRows: inB, outRows: outB },
+    // exchange the block instances between the two (now empty) cells
+    { kind: 'place', row: a.row, col: a.col, blockId: b.effectId, display: b.display },
+    { kind: 'place', row: b.row, col: b.col, blockId: a.effectId, display: a.display }
+  ];
+  const cables: CableSeg[] = [];
+  // re-lay each cell's own topology (the position keeps its wires; the block model merely swapped)
+  const wireIn = (rows: number[], col: number, destRow: number) => {
+    for (const fr of rows) {
+      ops.push({ kind: 'cable', srcRow: fr, srcCol: col - 1, destRow, connect: true });
+      cables.push({ srcRow: fr, srcCol: col - 1, destRow });
+    }
+  };
+  const wireOut = (rows: number[], row: number, col: number) => {
+    for (const dr of rows) {
+      ops.push({ kind: 'cable', srcRow: row, srcCol: col, destRow: dr, connect: true });
+      cables.push({ srcRow: row, srcCol: col, destRow: dr });
+    }
+  };
+  wireIn(inA, a.col, a.row);
+  wireOut(outA, a.row, a.col);
+  wireIn(inB, b.col, b.row);
+  wireOut(outB, b.row, b.col);
+
+  return { ok: true, ops, label: `Swapped ${a.display} and ${b.display}`, newShunts: [], cables };
+}
+
+/**
+ * FM3-Edit "Paste block": place a copied block instance into an EMPTY cell. The structural ops here
+ * are just the placement (undoable); the copied parameter values are written afterwards by the
+ * editor's paste path (like the cab-change checkpoint — old values aren't captured on an empty cell).
+ */
+export function planPasteBlock(cells: RouteCell[], shunts: RouteCell[], row: number, col: number, blockId: number, display: string): RoutePlan {
+  if ([...cells, ...shunts].find((c) => c.row === row && c.col === col)) return err('Cell is not empty');
+  return { ok: true, ops: [{ kind: 'place', row, col, blockId, display }], label: `Pasted ${display} at r${row + 1}c${col + 1}`, newShunts: [], cables: [] };
+}
+
