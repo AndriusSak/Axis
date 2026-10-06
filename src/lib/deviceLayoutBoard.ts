@@ -28,6 +28,9 @@ export interface SurfaceWidget {
   key2?: string;
   /** Source layout row index (device-authentic boards only) — drives row-preserving re-pack. */
   row?: number;
+  /** `view: 'header'` only — the device's own group label text (e.g. "CAB 1"). Headers bind no
+   *  parameter, so the renderer draws them on their own pass instead of looking up a catalog entry. */
+  text?: string;
 }
 export interface SurfaceBoard {
   pageOrder: string[];
@@ -207,6 +210,11 @@ function splitRowIntoBands(controls: readonly LayoutControl[]): LayoutControl[][
 const isSeparatorControl = (ctl: LayoutControl): boolean =>
   /seperator|separator/i.test(ctl.rawWidget ?? '') || /seperator|separator/i.test(ctl.label ?? '');
 
+/** A device group label (`labelBold` etc.) — carries display text but no live parameter. Used as a band
+ *  HEADER only when it opens a band of a multi-band row; elsewhere such labels stay gaps as before. */
+const isHeaderLabel = (ctl: LayoutControl): boolean =>
+  /^label/i.test(ctl.rawWidget ?? '') && !isSeparatorControl(ctl) && !!(ctl.label ?? '').trim();
+
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
  *  layout, so the Default board can be re-seeded (user boards keep their own storage).
  *
@@ -220,7 +228,7 @@ export function layoutVariantSig(layout: DeviceLayout | null | undefined): strin
     0
   );
   return [
-    'db4',
+    'db5',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',
@@ -275,13 +283,29 @@ export function buildDeviceLayoutBoard(
       // control — the FM3 Cab mic page splits cab 1 (x 303..647) from cab 2 (x 735..1077) with one at
       // x=733 — so honour it instead of re-flowing the whole row as one stream, which lands the second
       // cab's controls (and its 2×2 DynaCab tile) inside the first cab's band. See splitRowIntoBands.
-      for (const band of splitRowIntoBands(row.controls ?? [])) {
+      const bands = splitRowIntoBands(row.controls ?? []);
+      for (const [bandIndex, band] of bands.entries()) {
         let x = 0;
         let rowH = 1;
         let placed = false;
         // Tag lazily so bands that place nothing don't consume a slot: for a single-band layout the
         // tag equals the row index exactly as before (that is what the existing tests pin).
         let rowTag = -1;
+        // A multi-band row is a column structure, and the device names its columns with a label
+        // control at the head of each band ("CAB 1" / "CAB 2" on the FM3 cab mic page, rawWidget
+        // `labelBold`). Render that as a heading strip spanning the board width above the band, so the
+        // two columns are explicitly titled instead of being told apart by position alone. Single-band
+        // rows keep the old behaviour (the label advances the cursor as a gap), which keeps every
+        // other block's board byte-identical.
+        if (bandIndex > 0 || bands.length > 1) {
+          const head = band[0];
+          const text = (head?.label ?? '').trim();
+          if (text && isHeaderLabel(head!)) {
+            const hdrTag = bandSeq++;
+            widgets.push({ id: `h${hdrTag}`, key: `hdr:${hdrTag}`, x: 0, y: gridRow, w: columns, h: 1, view: 'header', text, row: hdrTag });
+            gridRow += 1;
+          }
+        }
         for (const ctl of band) {
           const r = resolveControl(ctl, byKey, byName);
           if (r === 'gap') {

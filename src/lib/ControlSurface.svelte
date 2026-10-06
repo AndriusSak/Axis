@@ -250,6 +250,9 @@
   );
   // board height = content extent, with `rows` as a minimum in arrange — grows downward, never sideways
   const viewRows = $derived(Math.max(editMode ? rows : 1, 1, ...viewWidgets.map((w) => w.y + w.h)));
+  // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
+  // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
+  const viewHeaders = $derived(viewWidgets.filter((w) => w.view === 'header'));
   const effCompact = $derived(compact || isMobile);
 
   // persisted global grid prefs
@@ -1432,6 +1435,10 @@
         <div class="ghost" class:bad={!drag.valid} style:grid-column="{drag.x + 1} / span {drag.w}" style:grid-row="{drag.y + 1} / span {drag.h}"></div>
       {/if}
 
+      {#each viewHeaders as h (h.id)}
+        <div class="grouphead" style:grid-column="{h.x + 1} / span {h.w}" style:grid-row="{h.y + 1} / span {h.h}">{h.text}</div>
+      {/each}
+
       {#each viewWidgets as w (w.id)}
         {@const c = catByKey.get(w.key)}
         {#if c}
@@ -2067,6 +2074,23 @@
     border-radius: 8px;
     border: 1px dashed var(--surface2);
     background: rgba(255, 255, 255, 0.012);
+  }
+  /* Device group heading ("CAB 1" / "CAB 2") — spans its band's width above the controls. Decorative:
+     it binds no parameter and must never intercept the drag/edit surface. */
+  .grouphead {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    padding: 0 2px;
+    overflow: hidden;
+    pointer-events: none;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font: 700 10px/1 var(--font-mono);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--textdim);
+    border-bottom: 1px solid var(--border);
   }
   .ghost {
     border-radius: 11px;

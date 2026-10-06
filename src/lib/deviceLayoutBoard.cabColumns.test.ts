@@ -144,4 +144,23 @@ describe('Cab mic page — cab 1 and cab 2 must not interleave', () => {
     expect(g1.key2).toBe('k97');
     expect(g2.key2).toBe('k98');
   });
+
+  it('titles each column with the device\'s own group label', () => {
+    const heads = ws.filter((w) => w.view === 'header');
+    expect(heads.map((h) => h.text)).toEqual(['CAB 1', 'CAB 2']);
+    // each heading sits directly above every control of its own cab, spanning the board width
+    const [h1, h2] = heads;
+    expect(h1.w).toBe(12);
+    expect(h1.x).toBe(0);
+    expect(h2.y).toBeGreaterThan(h1.y);
+    for (const w of cab1) expect(w.y).toBeGreaterThan(h1.y);
+    for (const w of cab2) expect(w.y).toBeGreaterThan(h2.y);
+  });
+
+  it('binds no parameter for a heading (own render pass, not a catalog lookup)', () => {
+    for (const h of ws.filter((w) => w.view === 'header')) {
+      expect(h.key.startsWith('hdr:')).toBe(true);
+      expect(h.id.startsWith('h')).toBe(true);
+    }
+  });
 });
