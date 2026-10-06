@@ -39,6 +39,7 @@
   import { notifyReady as otaNotifyReady, checkForUpdate as otaCheck } from '$lib/direct/ota';
   import { isAxisWorkbenchFeatureEnabled } from '$lib/axis-workbench/featureGate';
   import { pollIntervalsFor } from '$lib/pollIntervals';
+  import { resolveShortcut, isEditingTarget } from '$lib/shortcuts';
 
   // In the remote web build, gate the app behind sign-in + relay-connect; start the editor only once the
   // remote transport is live. In the desktop build (remoteBoot.active=false) it starts immediately.
@@ -79,65 +80,104 @@
     else startApp();
 
     const onResize = () => editor.setViewport(window.innerWidth, window.innerHeight);
+    // Central shortcut dispatch — the registry ($lib/shortcuts) owns the chord map; this switch binds
+    // each wired id to its action. Bare chords never fire while typing (isEditingTarget guard); chords
+    // that must reach a field (⌘K palette, ⌘S save) are flagged allowWhileEditing in the registry.
     const onKey = (e: KeyboardEvent) => {
-      // never hijack undo/redo while typing (rename fields, search inputs)
-      const t = e.target as HTMLElement | null;
-      const editing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable);
-      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
-        e.preventDefault();
-        editor.paletteMode = 'place';
-        editor.placeTarget = null;
-        editor.paletteOpen = true;
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
-        e.preventDefault();
-        void (e.shiftKey ? history.redo() : history.undo());
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
-        e.preventDefault();
-        void history.redo();
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
-        // FM3-Edit Cmd+D — disconnect all cables from the selected block
-        const c = editor.selected;
-        if (c) {
+
+      const def = resolveShortcut(e, isEditingTarget(e.target));
+      if (!def || def.status !== 'wired') return;
+      switch (def.id) {
+        case 'palette':
+          e.preventDefault();
+          editor.paletteMode = 'place';
+          editor.placeTarget = null;
+          editor.paletteOpen = true;
+          return;
+        case 'undo':
+          e.preventDefault();
+          void history.undo();
+          return;
+        case 'redo':
+          e.preventDefault();
+          void history.redo();
+          return;
+        case 'save':
+          e.preventDefault();
+          editor.openSave();
+          return;
+        case 'presetPicker':
+          if (editor.presetOpen) return;
+          e.preventDefault();
+          editor.presetOpen = true;
+          return;
+        // FM3-Edit A/B/C/D channel keys — apply to the selected block; do nothing (and DON'T swallow the
+        // key) when nothing is selected, so grid/keyboard navigation is unaffected.
+        case 'channelA': case 'channelB': case 'channelC': case 'channelD': {
+          if (!editor.selected) return;
+          e.preventDefault();
+          void editor.setChannel(def.id.slice(-1).toUpperCase());
+          return;
+        }
+        case 'bypass':
+          if (!editor.selected) return; // no selection → let Space scroll the page
+          e.preventDefault();
+          void editor.toggleBypass();
+          return;
+        case 'deleteBlock':
+          if (!editor.selected) return;
+          e.preventDefault();
+          void editor.removeSelected();
+          return;
+        case 'dismiss':
+          if (editor.tourActive) return; // Tour.svelte owns Escape while the tour is up
+          if (editor.tuner.active) editor.toggleTuner();
+          else if (history.panelOpen) history.panelOpen = false;
+          else if (editor.cabPickerOpen) editor.cabPickerOpen = false;
+          else if (editor.paletteOpen) editor.paletteOpen = false;
+          else if (convertScratch.open) convertScratch.close();
+          else if (convert.open) convert.close();
+          else if (editor.presetOpen) editor.presetOpen = false;
+          else if (editor.linkFrom) editor.cancelLink(); // disarm tap-to-connect before closing the editor
+          else if (editor.editorOpen) editor.closeEditor();
+          return;
+        // grid/structure ops (audit §2.9) — FM3-Edit Cmd+D/U/I/C/V
+        case 'disconnectCable': {
+          const c = editor.selected;
+          if (!c) return; // no selection → don't swallow the key
           e.preventDefault();
           void editor.disconnectAll(c.row, c.col);
+          return;
         }
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'u' || e.key === 'U')) {
-        // FM3-Edit Cmd+U — insert a shunt into the first empty cell
-        const t = editor.firstEmptyCell;
-        if (t) {
+        case 'insertShunt': {
+          const t = editor.firstEmptyCell;
+          if (!t) return;
           e.preventDefault();
           void editor.insertShunt(t.row, t.col);
+          return;
         }
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'i' || e.key === 'I')) {
-        // FM3-Edit Cmd+I — reset the selected block to device defaults
-        const c = editor.selected;
-        if (c && c.kind === 'block') {
+        case 'resetChannel': {
+          const c = editor.selected;
+          if (!c || c.kind !== 'block') return;
           e.preventDefault();
           void editor.resetBlock(c);
+          return;
         }
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
-        const c = editor.selected;
-        if (c && c.kind === 'block') {
+        case 'copyBlock': {
+          const c = editor.selected;
+          if (!c || c.kind !== 'block') return;
           e.preventDefault();
           void editor.copyBlock(c);
+          return;
         }
-      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
-        const t = editor.selected ?? editor.firstEmptyCell;
-        if (t) {
+        case 'pasteBlock': {
+          const t = editor.selected ?? editor.firstEmptyCell;
+          if (!t) return;
           e.preventDefault();
           void editor.pasteBlock(t.row, t.col);
+          return;
         }
-      } else if (e.key === 'Escape') {
-        if (editor.tourActive) return; // Tour.svelte owns Escape while the tour is up
-        if (editor.tuner.active) editor.toggleTuner();
-        else if (history.panelOpen) history.panelOpen = false;
-        else if (editor.cabPickerOpen) editor.cabPickerOpen = false;
-        else if (editor.paletteOpen) editor.paletteOpen = false;
-        else if (convertScratch.open) convertScratch.close();
-        else if (convert.open) convert.close();
-        else if (editor.presetOpen) editor.presetOpen = false;
-        else if (editor.linkFrom) editor.cancelLink(); // disarm tap-to-connect before closing the editor
-        else if (editor.editorOpen) editor.closeEditor();
+
       }
     };
     // Unsaved-changes guard, web mode only — in the desktop build the Electron main process owns the
