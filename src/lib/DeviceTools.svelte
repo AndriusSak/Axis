@@ -83,6 +83,10 @@
     finally { busy = false; }
   }
 
+  /** Open the Preset Templates modal (audit §2.7): Save as Template / New from Template — Axis-local,
+   *  local-only, never written to the device. */
+  function openTemplates() { editor.openPresetTemplates(); }
+
   async function restore(e: Event) {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -213,6 +217,14 @@
           {/if}
         </section>
       {/if}
+
+      <section>
+        <h3>Preset templates</h3>
+        <div class="line">
+          <span>Save the current preset as a reusable template / start a new edit from one (Axis-local, never written to the device)</span>
+          <button onclick={openTemplates} disabled={busy} title="Save the current preset as a reusable template, and start a new edit from one. Axis-local .axtpl.json, stored locally in this browser. Not written to the device.">Templates…</button>
+        </div>
+      </section>
 
       <section>
         <h3>Offline .syx browse</h3>

@@ -20,6 +20,8 @@ import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
 import { runSnapshotToFolder, SNAPSHOT_DIR } from './snapshotPreset';
+import { runSaveAsTemplate, templateBytes, TEMPLATE_DIR, type PresetTemplate } from './presetTemplate';
+import { presetTemplates } from './presetTemplates.svelte';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
 import { blockLibrary } from './blockLibrary.svelte';
 import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
@@ -369,6 +371,7 @@ class EditorStore {
   cabPickerOpen = $state(false);
   deviceToolsOpen = $state(false); // Device Tools modal (preset backup/restore/decode, firmware validate, modifier view)
   blockLibraryOpen = $state(false); // Block Library modal (audit §2.6)
+  presetTemplatesOpen = $state(false); // Preset Templates modal (audit §2.7)
   toast = $state<{ text: string; accent: string } | null>(null);
 
   #toastT: ReturnType<typeof setTimeout> | null = null;
@@ -2192,6 +2195,70 @@ class EditorStore {
       this.showToast(`Recalled “${entry.name}” — ${writes.length} values`, '#33c46b');
     } catch {
       this.showToast('Recall failed — device offline?', '#d6543f');
+    }
+  };
+
+  // ── Preset Templates (audit §2.7 remainder) ───────────────────────────────────────────────────
+  // FM3-Edit parity: Save as Template / New from Template, Axis-LOCAL and local-only. A template is an
+  // `.axtpl.json` document that EMBEDS the captured `.syx` bytes; the registry is localStorage (never
+  // the device, never a server store). Save captures via the SAME pair the Snapshot button uses
+  // (version-history/.syx export, or the active-buffer dump) — no second export path. Load reuses the
+  // EXISTING imported-file load-to-buffer path (forgefx.loadBytes → POST /preset/load).
+  openPresetTemplates = () => {
+    this.presetTemplatesOpen = true;
+  };
+
+  /** Save the CURRENT preset as a named template. `name` overrides the preset's own name. */
+  saveAsTemplate = async (name?: string) =>
+    runSaveAsTemplate({
+      capture: async () => {
+        const slot = this.preset?.number ?? -1;
+        const presetName = this.preset?.name || this.bufferSource?.name || 'template';
+        if (slot >= 0 && this.isV2) {
+          const { version } = await forgefx.snapshotPreset(slot); // version-history capture
+          const blob = await forgefx.versionSyx(version.id); // existing .syx export of that version
+          return { name: name?.trim() || presetName, bytes: new Uint8Array(await blob.arrayBuffer()) };
+        }
+        const b = await forgefx.presetBackup(slot >= 0 ? slot : undefined); // active buffer (caps backupDump)
+        return { name: name?.trim() || b.name || presetName, bytes: Uint8Array.from(b.bytes) };
+      },
+      folderReady: () => this.local.configured && this.local.exists && this.local.available,
+      mirrorToFolder: async (base, bytes, overwrite) => {
+        try {
+          const r = await forgefx.saveLocalPreset(base, [...bytes], { dir: TEMPLATE_DIR, overwrite });
+          return { path: r.path };
+        } catch (e) {
+          if (e instanceof ForgeError && e.status === 409) return 'exists';
+          throw e;
+        }
+      },
+      download: (filename, text) => {
+        const blob = new Blob([text], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      store: (entry) => void presetTemplates.add(entry),
+      confirmOverwrite: (base) => confirm(`“${base}.syx” already exists in Templates/ — overwrite?`),
+      toast: (t, a) => this.showToast(t, a)
+    });
+
+  /** New from Template: load the template's embedded `.syx` into the edit buffer via the existing
+   *  imported-file load path. No device slot is touched. */
+  loadPresetTemplate = async (t: PresetTemplate) => {
+    this.openBuild();
+    try {
+      const bytes = templateBytes(t);
+      if (!bytes.length) { this.showToast('Template has no preset bytes — export/import it again', '#f5a623'); return; }
+      await forgefx.loadBytes(bytes);
+      this.noteBufferReplaced(`Loaded template “${t.name}”`); // history barrier — undo can't cross the buffer swap
+      await this.load();
+      this.showToast(`Loaded template “${t.name}” — Save writes to disk or a slot`, '#35c9d6');
+    } catch {
+      this.showToast('Load template failed — device offline?', '#d6543f');
     }
   };
 
