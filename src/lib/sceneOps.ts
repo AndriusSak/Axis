@@ -16,6 +16,17 @@
 //
 // Extracted into a plain module because this repo's node-env vitest cannot mount .svelte components;
 // the panel (AxisSceneManagerPanel.svelte) only wires these functions to `forgefx` + the editor store.
+//
+// ── Per-scene CONTROL-SWITCH (CS) state is deliberately NOT here ──
+// The catalog carries 48 per-scene `PRESET_FC_SCENE<n>_CS<m>_MODE` rows (family PRESET, paramId
+// 1285..1332; enum ON/OFF/LAST) plus 3 action rows, but family PRESET has NO wire effectId
+// (`FM3_EFFECT_IDS.PRESET === null`; the built server's `familyForEffectId(57)` and
+// `familyForEffectId(200)` are both `undefined`). So there is no eid for `PUT
+// /preset/blocks/:eid/params/:paramId` to target and no served payload that carries CS state — the
+// rows live in the preset-dump/section space (sectionTag 57), whose host→device write-back does not
+// exist. Writing them would require inventing an eid (the candidate `ID_PRESET_FC`=200 is unverified
+// and excluded from the effectId table). See docs/axis-fm3edit-feature-parity-audit.md §2.1 / §6.8.
+
 
 export interface SceneStateBlock {
   effectId: number;
