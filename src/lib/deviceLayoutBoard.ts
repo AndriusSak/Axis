@@ -24,6 +24,8 @@ export interface SurfaceWidget {
   w: number;
   h: number;
   view: string;
+  /** Second bound catalog key — the DynaCab mic graph also drives the cab's Distance param. */
+  key2?: string;
   /** Source layout row index (device-authentic boards only) — drives row-preserving re-pack. */
   row?: number;
 }
@@ -53,6 +55,23 @@ const isBypassControl = (ctl: LayoutControl): boolean =>
  *  knob: the device's own editor lays it out as one control over the cab's Position parameter
  *  (CAP at centre → EDGE at the rim). We render it as the `dynacab` view instead of a dial. */
 const isDynaCabControl = (ctl: LayoutControl): boolean => ctl.rawWidget === 'dynaCabControl';
+
+/** The same cab's DynaCab DISTANCE param, resolved from the layout's own sibling control: the mic
+ *  graph binds `CABINET_DYNACAB_R<n>` and the Distance knob beside it binds `CABINET_DYNACAB_Z<n>`
+ *  (n = the cab slot). Returned as a catalog key so the graph tile can drive both axes, or undefined
+ *  when this block/slot has no Distance control (the tile then stays Position-only). */
+function dynaCabDistanceKey(
+  ctl: LayoutControl,
+  nameToPid: Map<string, number>,
+  byKey: Map<string, BoardCtl>
+): string | undefined {
+  const name = ctl.paramName ?? '';
+  const sibling = name.replace(/_R(\d*)$/, '_Z$1');
+  if (sibling === name) return undefined;
+  const pid = nameToPid.get(sibling);
+  if (pid == null) return undefined;
+  return byKey.has(`k${pid}`) ? `k${pid}` : undefined;
+}
 
 /** Pick the view for a control that resolved to a live catalog entry. Falls back to the entry's own
  *  default view (and only ever returns a view the entry actually supports) so an `unknown`/unmapped
@@ -119,7 +138,11 @@ function packSequential(ctls: BoardCtl[], cols: number): SurfaceWidget[] {
 }
 
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
- *  layout, so the Default board can be re-seeded (user boards keep their own storage). */
+ *  layout, so the Default board can be re-seeded (user boards keep their own storage).
+ *
+ *  The leading `db2` is the BOARD-BUILDER version: bump it whenever the builder changes what a seeded
+ *  board contains, so a board seeded by an older builder re-seeds once instead of silently missing the
+ *  new widget (e.g. the DynaCab tile's second bound param). */
 export function layoutVariantSig(layout: DeviceLayout | null | undefined): string {
   if (!layout) return '';
   const ctlCount = (layout.pages ?? []).reduce(
@@ -127,6 +150,7 @@ export function layoutVariantSig(layout: DeviceLayout | null | undefined): strin
     0
   );
   return [
+    'db2',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',
@@ -147,6 +171,12 @@ export function buildDeviceLayoutBoard(
   if (!layout?.pages?.length) return null;
   const columns = Math.max(1, cols);
   const byKey = new Map(catalog.map((c) => [c.key, c]));
+  // paramName → paramId across the whole layout, so a control can find its sibling by name
+  // (the DynaCab mic graph needs the same cab slot's Distance param).
+  const nameToPid = new Map<string, number>();
+  for (const pg of layout.pages)
+    for (const row of pg.rows ?? [])
+      for (const c of row.controls ?? []) if (c.paramName && c.paramId != null) nameToPid.set(c.paramName, c.paramId);
 
   // Page names key the {#each} in ControlSurface, so they MUST be unique — a layout can repeat a name
   // (this INPUT block ships three pages all named "Gate"); suffix any repeat.
@@ -196,7 +226,9 @@ export function buildDeviceLayoutBoard(
           rowH = 1;
         }
         seen.add(r.key);
-        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowIndex });
+        // The mic graph drives the same cab's Distance param too (the layout's sibling control).
+        const key2 = isGraph ? dynaCabDistanceKey(ctl, nameToPid, byKey) : undefined;
+        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowIndex, ...(key2 ? { key2 } : {}) });
         x += w;
         rowH = Math.max(rowH, h);
         placed = true;

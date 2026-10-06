@@ -5,9 +5,11 @@ import { bootCleanWorkbench } from './support/workbench';
  * DynaCab mic graph (FM3-Edit parity).
  *
  * The FM3's own editor layout gives the Cab block (fw > 6.03) a dedicated `dynaCabControl` widget
- * bound to the cab's Position parameter — a speaker cone with the mic placed by Position (CAP at the
- * centre → EDGE at the rim), NOT a dial. This drives the real render against a fully MOCKED backend
- * (one Cab block whose params carry that v2 layout) so nothing touches the operator's live FM3.
+ * bound to the cab's Position parameter — one tile that drives BOTH mic params: the cone face runs
+ * down the left with CAP at the top and EDGE at the bottom (so VERTICAL = Position), and the mic's
+ * HORIZONTAL standoff from the cone is the same cab's Distance (`CABINET_DYNACAB_Z<n>`, the layout's
+ * sibling control). This drives the real render against a fully MOCKED backend (one Cab block whose
+ * params carry that v2 layout) so nothing touches the operator's live FM3.
  *
  * Pre-change this rendered as a plain knob (the layout's explicit Position knob was de-duped away),
  * so there was no visual at all — that is the regression this spec pins.
@@ -145,24 +147,43 @@ test.describe('Cab DynaCab mic graph', () => {
     expect(ok.reachable, 'tile reachable (fits the pane or the pane scrolls)').toBe(true);
   });
 
-  test('dragging the mic out to the rim raises the Position value (CAP → EDGE)', async ({ page }) => {
+  test('dragging DOWN the tile raises Position (CAP at the top → EDGE at the bottom)', async ({ page }) => {
     await bootWithCab(page);
 
     const graph = page.locator('.dynabox');
-    const readValue = () => page.locator('.dynanum').first().innerText();
-    const before = await readValue();
+    const posVal = () => page.locator('.dynaval .dynanum').first().innerText();
+    const before = await posVal();
 
     const box = (await graph.boundingBox())!;
-    const cx = box.x + box.width / 2;
-    const cy = box.y + box.height / 2;
-    // Press at the centre (CAP) then drag out to the rim (EDGE) horizontally.
-    await page.mouse.move(cx, cy);
+    // Press at the top of the tile (CAP) then drag to the bottom (EDGE), keeping x constant.
+    await page.mouse.move(box.x + box.width / 2, box.y + 4);
     await page.mouse.down();
-    await page.mouse.move(cx + box.width * 0.46, cy, { steps: 8 });
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height - 4, { steps: 8 });
     await page.mouse.up();
 
-    const after = await readValue();
+    const after = await posVal();
     expect(parseFloat(after)).toBeGreaterThan(parseFloat(before));
     expect(parseFloat(after)).toBeGreaterThan(8); // ~0.9 of the 0..10 range
+  });
+
+  test('dragging RIGHT in the SAME tile raises Distance', async ({ page }) => {
+    await bootWithCab(page);
+
+    // The tile carries both readouts — Position first, then the bound Distance.
+    await expect(page.locator('.dynaval')).toContainText('Distance');
+    const graph = page.locator('.dynabox');
+    const distVal = () => page.locator('.dynaval .dynanum').nth(1).innerText();
+    const before = await distVal();
+
+    const box = (await graph.boundingBox())!;
+    // Press at the cone end then drag away from it, keeping y constant (Position untouched).
+    await page.mouse.move(box.x + 4, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width - 4, box.y + box.height / 2, { steps: 8 });
+    await page.mouse.up();
+
+    const after = await distVal();
+    expect(parseFloat(after)).toBeGreaterThan(parseFloat(before));
+    expect(parseFloat(after)).toBeGreaterThan(8); // driven to the far end of the range
   });
 });

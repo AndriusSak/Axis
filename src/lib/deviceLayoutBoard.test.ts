@@ -240,3 +240,67 @@ describe('buildDeviceLayoutBoard — DynaCab mic graph', () => {
     expect(find(board.boards['P'], 'k93').view).toBe('knob');
   });
 });
+
+// The mic graph drives TWO params in one tile (FM3-Edit places both in that one control): Position —
+// the control's own paramId, laid out vertically CAP (top) → EDGE (bottom) — and the SAME cab slot's
+// Distance, laid out horizontally as the mic's standoff. The device layout carries the pair as sibling
+// controls (`CABINET_DYNACAB_R<n>` for the graph, `CABINET_DYNACAB_Z<n>` for the Distance knob), so the
+// builder resolves the sibling by name and binds it as the widget's `key2`.
+describe('buildDeviceLayoutBoard — DynaCab graph binds the cab Distance param', () => {
+  const knobDyn = (id: number): BoardCtl => ({ key: `k${id}`, kind: 'cont', id, w: 1, h: 1, view: 'knob', views: ['knob', 'fader', 'slider', 'number', 'dynacab'] });
+  const cab = (graphPid: number, graphName: string, dist: { pid: number; name: string } | null) =>
+    buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('unknown', graphPid, 'DynaCab', { rawWidget: 'dynaCabControl', paramName: graphName }),
+                ...(dist ? [ctl('knob', dist.pid, 'Distance', { paramName: dist.name })] : []),
+              ],
+            },
+          ],
+        },
+      ]),
+      [knobDyn(graphPid), ...(dist ? [knobDyn(dist.pid)] : [])],
+      12
+    )!;
+
+  it('binds cab slot 1\u2019s Distance (_Z1) to the graph bound to _R1', () => {
+    const b = cab(93, 'CABINET_DYNACAB_R1', { pid: 97, name: 'CABINET_DYNACAB_Z1' });
+    expect(find(b.boards['Cab'], 'k93')).toMatchObject({ view: 'dynacab', key2: 'k97' });
+  });
+
+  it('binds cab slot 2 to ITS OWN Distance, not slot 1\u2019s', () => {
+    const b = cab(94, 'CABINET_DYNACAB_R2', { pid: 98, name: 'CABINET_DYNACAB_Z2' });
+    expect(find(b.boards['Cab'], 'k94').key2).toBe('k98');
+  });
+
+  it('leaves key2 unset when the layout has no sibling Distance control', () => {
+    const b = cab(93, 'CABINET_DYNACAB_R1', null);
+    expect(find(b.boards['Cab'], 'k93').key2).toBeUndefined();
+    expect(find(b.boards['Cab'], 'k93').view).toBe('dynacab');
+  });
+
+  it('leaves key2 unset when the Distance param is not in the live catalog', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('unknown', 93, 'DynaCab', { rawWidget: 'dynaCabControl', paramName: 'CABINET_DYNACAB_R1' }),
+                ctl('knob', 97, 'Distance', { paramName: 'CABINET_DYNACAB_Z1' }),
+              ],
+            },
+          ],
+        },
+      ]),
+      [knobDyn(93)], // slot 1's Distance (k97) is absent
+      12
+    )!;
+    expect(find(board.boards['Cab'], 'k93').key2).toBeUndefined();
+  });
+});
