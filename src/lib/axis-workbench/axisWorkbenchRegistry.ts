@@ -13,6 +13,7 @@ import AxisFcPanel from './panels/AxisFcPanel.svelte';
 import AxisHistoryDockPanel from './panels/AxisHistoryDockPanel.svelte';
 import AxisPlaceholderPanel from './panels/AxisPlaceholderPanel.svelte';
 import AxisPresetBrowserPanel from './panels/AxisPresetBrowserPanel.svelte';
+import AxisSceneManagerPanel from './panels/AxisSceneManagerPanel.svelte';
 import AxisSignalGridPanel from './panels/AxisSignalGridPanel.svelte';
 import AxisVirtualScreenPanel from './panels/AxisVirtualScreenPanel.svelte';
 import AxisBlockEditorModifierPanel from './panels/block-editor/AxisBlockEditorModifierPanel.svelte';
@@ -51,6 +52,7 @@ AXIS_WORKBENCH_BASE_PANEL_TYPES.forEach((type) => {
     type === 'axis.customPanel' ? AxisCustomPanel :
     type === 'axis.virtualScreen' ? AxisVirtualScreenPanel :
     type === 'axis.placeholder' ? AxisPlaceholderPanel :
+    type === 'axis.sceneManager' ? AxisSceneManagerPanel :
     type === 'axis.convertGrid' ? AxisConvertGridPanel :
     type === 'axis.convertBlockEditor' ? AxisConvertBlockEditorPanel :
     type === 'axis.convertMinimap' ? AxisConvertMinimapPanel :
@@ -152,15 +154,9 @@ registry.registerAction(
   createAxisNavigationPanelAction({
     actionId: 'axis.openScenes',
     panelId: 'axis.scenes',
-    panelType: 'axis.placeholder',
-    title: 'Scenes',
-    region: 'main',
-    state: {
-      glyph: '◪',
-      heading: 'Scenes',
-      description: 'Scene snapshots, per-scene bypass and level rides dock here in a later phase.',
-      meta: 'Meanwhile · switch scenes from the Scenes widget in the top bar'
-    }
+    panelType: 'axis.sceneManager',
+    title: 'Scene Manager',
+    region: 'main'
   })
 );
 registry.registerAction(

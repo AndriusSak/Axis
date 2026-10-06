@@ -31,6 +31,7 @@ describe('Axis Workbench integration contracts', () => {
       'axis.customPanel',
       'axis.virtualScreen',
       'axis.placeholder',
+      'axis.sceneManager',
       'axis.convertGrid',
       'axis.convertBlockEditor',
       'axis.convertMinimap',

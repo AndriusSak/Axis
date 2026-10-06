@@ -2085,6 +2085,11 @@ class EditorStore {
       this.scene = prev;
     }
   };
+  /** Public: re-read the ACTIVE scene's per-block bypass/channel from the device and re-apply it onto
+   *  the cached grid (lightweight, no preset dump) — the Scene Manager writes bypass/channel to the
+   *  active scene directly, so it calls this after a bulk/copy op to catch the grid badges up even when
+   *  no scene switch happened. Debounced like the other scene reflection paths. */
+  reflectSceneState = () => this.#scheduleSceneReload(0);
   /** Rename a scene (1-based) in the working buffer, then re-read to confirm the device took it.
    *  Optimistic; reverts on failure or if the read-back doesn't match. Not persisted to flash (store is separate). */
   renameScene = async (ui: number, name: string) => {
