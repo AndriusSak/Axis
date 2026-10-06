@@ -177,4 +177,119 @@ test.describe('Cab page M / S controls', () => {
     // Not merely "overlaps the pane": enough of the list must be on screen to actually pick an option.
     expect(geo.visibleH, `menu must be usable inside the pane: ${JSON.stringify(geo)}`).toBeGreaterThanOrEqual(56);
   });
+
+  // The reported symptom was "the search only shows Mute 1". The search renders EVERY catalog match as
+  // a card, so if the first fills the results area the rest are invisible — and unreachable if nothing
+  // in that area scrolls. Assert every match has real visible area (or a scrollable ancestor).
+  test('the control search makes EVERY match reachable, not just the first', async ({ page }) => {
+    await bootWithCab(page);
+    await page.locator('.csin').fill('mute');
+    await expect(page.locator('.seltop')).toHaveCount(2);
+
+    const info = await page.evaluate(() => {
+      const clip = (el: Element) => {
+        let r = el.getBoundingClientRect();
+        for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+          const s = getComputedStyle(p);
+          if (s.overflow === 'visible' && s.overflowY === 'visible') continue;
+          const pr = p.getBoundingClientRect();
+          const t = Math.max(r.top, pr.top);
+          const b = Math.min(r.bottom, pr.bottom);
+          const l = Math.max(r.left, pr.left);
+          const rr = Math.min(r.right, pr.right);
+          r = { ...r, top: t, bottom: b, left: l, right: rr, width: Math.max(0, rr - l), height: Math.max(0, b - t) } as DOMRect;
+        }
+        const winB = window.innerHeight;
+        const winR = window.innerWidth;
+        const t = Math.max(r.top, 0);
+        const b = Math.min(r.bottom, winB);
+        const l = Math.max(r.left, 0);
+        const rr = Math.min(r.right, winR);
+        return Math.max(0, b - t) * Math.max(0, rr - l);
+      };
+      const scrollable = (() => {
+        for (let p = document.querySelector('.boardwrap')?.parentElement ?? null; p && p !== document.body; p = p.parentElement) {
+          const s = getComputedStyle(p);
+          if ((s.overflowY === 'auto' || s.overflowY === 'scroll') && p.scrollHeight > p.clientHeight + 2) return true;
+        }
+        return false;
+      })();
+      return {
+        areas: Array.from(document.querySelectorAll('.seltop')).map((e) => Math.round(clip(e))),
+        labels: Array.from(document.querySelectorAll('.seltop')).map((e) => e.textContent?.trim() ?? ''),
+        scrollable
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log('SEARCH MATCHES ' + JSON.stringify(info));
+    const bothVisible = info.areas.every((a) => a > 200);
+    expect(bothVisible || info.scrollable, `a match is unreachable: ${JSON.stringify(info)}`).toBe(true);
+  });
+
+  // Existence is not enough: two widgets placed in the SAME grid cell stack on top of each other and
+  // the user sees one control. Assert both have real area and do not overlap.
+  test('the two state controls do not overlap each other', async ({ page }) => {
+    await bootWithCab(page);
+    const boxes = await page.locator('.selfield').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return { t: Math.round(r.top), b: Math.round(r.bottom), l: Math.round(r.left), r: Math.round(r.right) };
+      })
+    );
+    // eslint-disable-next-line no-console
+    console.log('FIELDS ' + JSON.stringify(boxes));
+    expect(boxes.length).toBe(2);
+    const [a, b] = boxes;
+    const overlap = a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    expect(overlap, `state controls overlap each other: ${JSON.stringify(boxes)}`).toBe(false);
+    for (const x of boxes) expect((x.r - x.l) * (x.b - x.t), `zero-area control ${JSON.stringify(x)}`).toBeGreaterThan(100);
+  });
+
+  // The Cab page is taller than the block-editor pane, so the LOWER cab slot's control only exists for
+  // the user if the pane actually scrolls. Dump the ancestor chain and assert reachability.
+  test('the lower cab-slot control is reachable, not clipped with no way to scroll', async ({ page }) => {
+    await bootWithCab(page);
+    const info = await page.evaluate(() => {
+      const bw = document.querySelector('.boardwrap') as HTMLElement | null;
+      const chain: {
+        tag: string;
+        cls: string;
+        oy: string;
+        o: string;
+        sh: number;
+        ch: number;
+        top: number;
+        bottom: number;
+      }[] = [];
+      for (let p = bw?.parentElement ?? null; p && p !== document.body; p = p.parentElement) {
+        const s = getComputedStyle(p);
+        const r = p.getBoundingClientRect();
+        chain.push({
+          tag: p.tagName,
+          cls: typeof p.className === 'string' ? p.className : '',
+          oy: s.overflowY,
+          o: s.overflow,
+          sh: p.scrollHeight,
+          ch: p.clientHeight,
+          top: Math.round(r.top),
+          bottom: Math.round(r.bottom)
+        });
+      }
+      const fields = Array.from(document.querySelectorAll('.selfield')) as HTMLElement[];
+      const last = fields[fields.length - 1];
+      const r = last?.getBoundingClientRect();
+      const scrollable = chain.some((c) => (c.oy === 'auto' || c.oy === 'scroll') && c.sh > c.ch + 2);
+      return {
+        chain,
+        lastField: r ? { t: Math.round(r.top), b: Math.round(r.bottom) } : null,
+        board: bw ? { h: Math.round(bw.getBoundingClientRect().height) } : null,
+        scrollable,
+        winH: window.innerHeight
+      };
+    });
+    // eslint-disable-next-line no-console
+    console.log('PANE CHAIN ' + JSON.stringify(info, null, 1));
+    const inWindow = !!info.lastField && info.lastField.t < info.winH && info.lastField.b > 0;
+    expect(inWindow || info.scrollable, `lower control unreachable: ${JSON.stringify(info)}`).toBe(true);
+  });
 });
