@@ -2504,7 +2504,27 @@
   .numrow {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* Number-view readout. `.kval` is absolutely positioned (`inset: 0`) to centre a readout over a WHOLE
+     tile — fine for the knob/fader/meter readouts, but inside the number row it must sit in the flex
+     FLOW between the −/＋ steppers. Left absolute it is removed from the flow and centres over the
+     entire tile, covering both buttons (Deck report: HEADROOM on the Amp block). Scoped to
+     `.numrow .kval` — a higher-specificity selector than `.kval` — so no other readout is affected. It
+     is the flexible middle child: it shrinks with an ellipsis rather than pushing the steppers out of
+     the tile at the smallest cell, and its font is sized to the row so a value still reads at the
+     ~120–150px tiles the board produces. */
+  .numrow .kval {
+    position: relative;
+    inset: auto;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 20px;
   }
   .step {
     width: 30px;
