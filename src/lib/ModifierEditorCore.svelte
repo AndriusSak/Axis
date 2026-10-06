@@ -10,7 +10,8 @@
   // but only written when the model exposes their pid (flagged "pending decode" otherwise).
   import { forgefx } from './forgefx';
   import { editor } from './editor.svelte';
-  import type { ModModel } from './types';
+  import { findModifierForTarget, modifiersInUse } from './modifierAssignments';
+  import type { ModModel, PresetModifier } from './types';
 
   const mob = $derived(editor.isMobile);
 
@@ -23,6 +24,7 @@
     targetParam = null,
     slot = 1,
     model = undefined,
+    modifiers = undefined,
     hasTarget = true,
     onClose
   }: {
@@ -39,6 +41,9 @@
     slot?: number;
     /** Pre-fetched address map; if omitted the editor fetches /mod/model on first open. */
     model?: ModModel | null;
+    /** Pre-fetched decoded modifier assignments (GET /preset/modifiers). Omit (undefined) to let the
+     *  editor fetch them itself; pass null/[] to disable read-back for this presentation. */
+    modifiers?: PresetModifier[] | null;
     /** Dock variant only: false renders the empty state (no parameter targeted). */
     hasTarget?: boolean;
     onClose?: () => void;
@@ -57,8 +62,18 @@
   // ── address map ──
   let fetched = $state<ModModel | null>(null);
   const mm = $derived(model ?? fetched);
-  // the chosen modifier slot's effectId (slot N = base + N-1); curve/field writes + binding go here
-  const eid = $derived((mm?.effectId ?? 3) + (Math.max(1, slot) - 1));
+
+  // ── read-back: the preset's decoded modifier assignments (GET /preset/modifiers). A prop wins (a
+  //    presentation may pass a pre-fetched list); otherwise fetch once while the editor is live. From
+  //    it we learn which parameter already has a modifier and which slot to read its curve values from. ──
+  let fetchedMods = $state<PresetModifier[] | null>(null);
+  const mods = $derived<PresetModifier[]>(modifiers ?? fetchedMods ?? []);
+  const modsInUse = $derived(modifiersInUse(mods));
+  const matchedMod = $derived(findModifierForTarget(mods, targetEffectId, targetParam));
+  // the slot to read/write: the decoded assignment's slot when the target is already modulated, else
+  // the requested/default slot. eid = modModel.effectId + (slot - 1).
+  const effectiveSlot = $derived(matchedMod?.slot ?? Math.max(1, slot));
+  const eid = $derived((mm?.effectId ?? 3) + (effectiveSlot - 1));
   // source list (name → ordinal) from the model, with an explicit None=0 at the top
   const SOURCES = $derived<{ name: string; ordinal: number }[]>([{ name: 'None', ordinal: 0 }, ...(mm?.sources ?? [])]);
   const canBind = $derived(targetEffectId != null && targetParam != null);
@@ -73,8 +88,19 @@
         .finally(() => (loading = false));
     }
   });
+  // Fetch the preset's decoded modifier assignments once (unless a list was passed in). 404/501 →
+  // capOptional resolves null → [] (old server / no read path): the editor just shows no assignments.
+  $effect(() => {
+    if (active && modifiers === undefined && fetchedMods === null) {
+      forgefx
+        .presetModifiers()
+        .then((r) => (fetchedMods = r?.modifiers ?? []))
+        .catch(() => (fetchedMods = []));
+    }
+  });
 
-  // ── local edit state (no read-back yet — sensible defaults from the design's defaultMod) ──
+  // ── local edit state (read back from the modifier slot's live params when possible; defaults from
+  //    the design's defaultMod) ──
   type Vals = {
     source: number;
     channel: number;
@@ -126,7 +152,7 @@
   let loadedKey = $state(''); // guards one load per (target, eid)
   $effect(() => {
     if (!active || !mm) return;
-    const key = `${eid}:${targetEffectId}:${targetParam}`;
+    const key = `${eid}:${targetEffectId}:${targetParam}:${matchedMod?.source ?? ''}`;
     if (loadedKey === key) return;
     loadedKey = key;
     forgefx
@@ -141,6 +167,13 @@
           if (k === 'pcReset') rec[k] = w >= 0.5;
           else if (f.kind === 'ordinal' || f.kind === 'ref') rec[k] = Math.round(w);
           else rec[k] = clamp(Math.round((w / WIRE_MAX) * 100));
+        }
+        // Prefill the SOURCE from the decoded assignment when this parameter already has a modifier, so
+        // the editor opens on "already modulated by X" instead of the None default. The slot read above
+        // (via effectiveSlot) supplies the curve values.
+        if (matchedMod) {
+          const so = SOURCES.find((s) => s.name === matchedMod.source);
+          if (so) next.source = so.ordinal;
         }
         m = next;
       })
@@ -260,7 +293,7 @@
       binding = true;
       bindMsg = '';
       forgefx
-        .modBind(slot, targetEffectId!, targetParam!, ordinal)
+        .modBind(effectiveSlot, targetEffectId!, targetParam!, ordinal)
         .then((r) => (bindMsg = r?.ok ? (ordinal ? 'assigned' : 'cleared') : `error: ${r?.error ?? 'failed'}`))
         .catch((e) => (bindMsg = `error: ${e?.message ?? e}`))
         .finally(() => (binding = false));
@@ -326,14 +359,22 @@
       <!-- flyout banner: live binding status -->
       <div class="banner" class:ok={canBind}>
         {#if canBind}
-          Modifier slot {slot} → <b>{label}</b>{#if bindMsg}<span class="bindmsg"> · {bindMsg}</span>{:else if binding}<span class="bindmsg"> · binding…</span>{/if}
+          Modifier slot {effectiveSlot} → <b>{label}</b>{#if bindMsg}<span class="bindmsg"> · {bindMsg}</span>{:else if binding}<span class="bindmsg"> · binding…</span>{/if}
         {:else}
-          Editing modifier slot {slot} (effect {eid}) — open from a control's ∿ to assign it to that control.
+          Editing modifier slot {effectiveSlot} (effect {eid}) — open from a control's ∿ to assign it to that control.
         {/if}
       </div>
     {/if}
 
     <div class="body">
+      {#if matchedMod}
+        <!-- Read-back: this parameter already has a modifier (parity audit §3.2). -->
+        <div class="existing">
+          <span class="ex-dot"></span>
+          <span>Already modulated by <b>{matchedMod.source}</b>{#if matchedMod.slot != null} · slot {matchedMod.slot}{/if}</span>
+        </div>
+      {/if}
+
       <!-- SOURCE / CHANNEL / PC RESET -->
       <div class="section src-section">
         <div>
@@ -430,6 +471,21 @@
           </div>
         </div>
       </div>
+
+      <!-- MODIFIERS IN USE (whole preset) — where every modifier is routed (parity audit §3.2) -->
+      {#if modsInUse.length}
+        <div class="section">
+          <div class="divider"><span></span><b>MODIFIERS IN USE</b><span></span></div>
+          <div class="modlist">
+            {#each modsInUse as mi (mi.slot ?? `${mi.targetEffectId}:${mi.param}`)}
+              <div class="modrow" class:sel={matchedMod === mi}>
+                <span class="mrsrc">{mi.source}</span>
+                <span class="mrtgt">{mi.target} · param {mi.param}{#if mi.slot != null} · slot {mi.slot}{/if}</span>
+              </div>
+            {/each}
+          </div>
+        </div>
+      {/if}
     </div>
 
     <!-- SOURCE MENU -->
@@ -866,5 +922,56 @@
   }
   .srcopt:hover {
     background: color-mix(in srgb, var(--text) 4%, transparent);
+  }
+  /* ── modifier read-back (§3.2): existing-assignment notice + "modifiers in use" list ── */
+  .existing {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 16px 0;
+    padding: 8px 11px;
+    border-radius: 9px;
+    background: var(--amber-tint);
+    border: 1px solid var(--amber-border);
+    font: 600 11px/1.3 'JetBrains Mono', monospace;
+    color: var(--amber);
+  }
+  .existing b {
+    color: var(--amber);
+  }
+  .ex-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    flex: none;
+    background: var(--amber);
+    box-shadow: 0 0 8px rgba(245, 166, 35, 0.8);
+  }
+  .modlist {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .modrow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 7px 10px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--surface2);
+  }
+  .modrow.sel {
+    border-color: var(--accent);
+    background: var(--accent-tint);
+  }
+  .mrsrc {
+    font-weight: 700;
+    font-size: 11px;
+    color: var(--text2);
+  }
+  .mrtgt {
+    font: 600 10px/1.2 'JetBrains Mono', monospace;
+    color: var(--textdim);
   }
 </style>
