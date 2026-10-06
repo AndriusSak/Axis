@@ -169,6 +169,8 @@
       <footer class="foot">
         <button class="act" disabled={!sel.pack} onclick={() => editor.copyChannel()} title="Copy the current channel's values">Copy CH</button>
         <button class="act" disabled={!sel.pack || !editor.channelClip} onclick={() => editor.pasteChannel()} title="Paste the copied values onto the current channel">Paste CH</button>
+        <button class="act" disabled={!editor.canPasteChannelAcrossBlocks} onclick={() => editor.pasteChannelAcrossBlocks()} title="Paste the copied channel into THIS block's current channel — the copy must have come from a different block">Paste CH → Block</button>
+        <button class="act" disabled={!sel.pack || !sel.channel || editor.sceneCount < 1} onclick={() => editor.setChannelAcrossScenes()} title="Set this block's channel in EVERY scene, then return to the current scene">CH → All Scenes</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetChannel()} title="Reset this channel to the model's defaults">Reset CH</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetBlock()} title="Reset all four channels to their models' defaults">Reset Block</button>
         <button class="act lib" disabled={!sel.pack} onclick={() => editor.saveBlockToLibrary()} title="Save this block's model + active-channel values to the Block Library (Axis-local .axblk)">Save to Lib</button>
