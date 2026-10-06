@@ -174,6 +174,39 @@ export function pageForViewMode(pageOrder: readonly string[], mode: 'basic' | 'a
   return pageOrder.find((p) => p === 'More') ?? pageOrder[pageOrder.length - 1]!;
 }
 
+/**
+ * Split one layout row into its visual BANDS.
+ *
+ * A device layout row is not necessarily a single line of controls. The FM3 Cab mic page is one row of
+ * 31 controls laid out as two side-by-side columns, and the device marks that break with a separator
+ * control (label/rawWidget `Seperator` — Fractal's own spelling — at x=733, between cab 1's x 303..647
+ * and cab 2's x 735..1077). Rendering the row as one flowing stream put cab 2's controls (and its 2×2
+ * DynaCab tile) inside cab 1's band: the reported "cab 2 shows up in cab 1 area".
+ *
+ * The separator is the device's own statement of where a column ends, so it is used as the delimiter
+ * rather than a heuristic on the pixel gaps (cab 1 has an internal 158px gap of its own which any
+ * threshold would misread as a column break). The separator control itself draws nothing — it is
+ * consumed as the delimiter.
+ *
+ * Rows with no separator return a single band, so layouts without a column structure keep the previous
+ * left→right behaviour exactly (pinned by the existing row-order tests).
+ */
+function splitRowIntoBands(controls: readonly LayoutControl[]): LayoutControl[][] {
+  if (!controls.some(isSeparatorControl)) return [controls as LayoutControl[]];
+  const bands: LayoutControl[][] = [[]];
+  for (const c of controls) {
+    if (isSeparatorControl(c)) {
+      if (bands[bands.length - 1]!.length) bands.push([]);
+      continue;
+    }
+    bands[bands.length - 1]!.push(c);
+  }
+  return bands.filter((b) => b.length > 0);
+}
+
+const isSeparatorControl = (ctl: LayoutControl): boolean =>
+  /seperator|separator/i.test(ctl.rawWidget ?? '') || /seperator|separator/i.test(ctl.label ?? '');
+
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
  *  layout, so the Default board can be re-seeded (user boards keep their own storage).
  *
@@ -187,7 +220,7 @@ export function layoutVariantSig(layout: DeviceLayout | null | undefined): strin
     0
   );
   return [
-    'db3',
+    'db4',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',
@@ -236,44 +269,56 @@ export function buildDeviceLayoutBoard(
     const widgets: SurfaceWidget[] = [];
     const seen = new Set<string>();
     let gridRow = 0;
-    (pg.rows ?? []).forEach((row, rowIndex) => {
-      let x = 0;
-      let rowH = 1;
-      let placed = false;
-      for (const ctl of row.controls ?? []) {
-        const r = resolveControl(ctl, byKey, byName);
-        if (r === 'gap') {
-          x += 1;
-          continue;
+    let bandSeq = 0; // dense row/band tag: one per band that actually places a widget
+    (pg.rows ?? []).forEach((row) => {
+      // A row can carry more than one visual band. The device marks its column break with a separator
+      // control — the FM3 Cab mic page splits cab 1 (x 303..647) from cab 2 (x 735..1077) with one at
+      // x=733 — so honour it instead of re-flowing the whole row as one stream, which lands the second
+      // cab's controls (and its 2×2 DynaCab tile) inside the first cab's band. See splitRowIntoBands.
+      for (const band of splitRowIntoBands(row.controls ?? [])) {
+        let x = 0;
+        let rowH = 1;
+        let placed = false;
+        // Tag lazily so bands that place nothing don't consume a slot: for a single-band layout the
+        // tag equals the row index exactly as before (that is what the existing tests pin).
+        let rowTag = -1;
+        for (const ctl of band) {
+          const r = resolveControl(ctl, byKey, byName);
+          if (r === 'gap') {
+            x += 1;
+            continue;
+          }
+          if (seen.has(r.key)) {
+            x += 1; // a param listed twice — keep the slot so neighbours don't shift left
+            continue;
+          }
+          const base = byKey.get(r.key);
+          if (!base) {
+            x += 1;
+            continue;
+          }
+          // The DynaCab mic graph needs room to read: give it a 2×2 tile (clamped to the board width).
+          const isGraph = r.view === 'dynacab';
+          const w = isGraph ? Math.min(2, columns) : Math.min(base.w, columns);
+          const h = isGraph ? 2 : base.h;
+          if (x + w > columns) {
+            // control doesn't fit the rest of this line — wrap onto a new grid line (still this band)
+            gridRow += rowH;
+            x = 0;
+            rowH = 1;
+          }
+          seen.add(r.key);
+          if (rowTag < 0) rowTag = bandSeq++;
+          // The mic graph drives the same cab's Distance param too (the layout's sibling control).
+          const key2 = isGraph ? dynaCabDistanceKey(ctl, nameToPid, byKey) : undefined;
+          widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowTag, ...(key2 ? { key2 } : {}) });
+          x += w;
+          rowH = Math.max(rowH, h);
+          placed = true;
         }
-        if (seen.has(r.key)) {
-          x += 1; // a param listed twice — keep the slot so neighbours don't shift left
-          continue;
-        }
-        const base = byKey.get(r.key);
-        if (!base) {
-          x += 1;
-          continue;
-        }
-        // The DynaCab mic graph needs room to read: give it a 2×2 tile (clamped to the board width).
-        const isGraph = r.view === 'dynacab';
-        const w = isGraph ? Math.min(2, columns) : Math.min(base.w, columns);
-        const h = isGraph ? 2 : base.h;
-        if (x + w > columns) {
-          // control doesn't fit the rest of this line — wrap onto a new grid line (still this row)
-          gridRow += rowH;
-          x = 0;
-          rowH = 1;
-        }
-        seen.add(r.key);
-        // The mic graph drives the same cab's Distance param too (the layout's sibling control).
-        const key2 = isGraph ? dynaCabDistanceKey(ctl, nameToPid, byKey) : undefined;
-        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowIndex, ...(key2 ? { key2 } : {}) });
-        x += w;
-        rowH = Math.max(rowH, h);
-        placed = true;
+        // Bands are stacked: the next band starts on a fresh grid line, never beside this one.
+        if (placed) gridRow += rowH;
       }
-      if (placed) gridRow += rowH; // next layout row starts below the tallest widget of this one
     });
     if (!widgets.length) continue;
     const name = uniqName(pg.name?.trim() || `Page ${pageOrder.length + 1}`);
