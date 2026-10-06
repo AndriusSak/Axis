@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type BoardCtl, type SurfaceWidget } from './deviceLayoutBoard';
+import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type BoardCtl, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
 import type { DeviceLayout, LayoutControl, LayoutWidget } from './types';
 
 // ── catalog builders (mirror ControlSurface's live catalog entries) ──
@@ -203,5 +203,168 @@ describe('overflowsColumns — the responsive re-pack trigger', () => {
     const wide = Array.from({ length: 12 }, (_, i) => ({ id: `w${i}`, key: `k${i}`, x: i, y: 0, w: 1, h: 1, view: 'knob', row: 0 }));
     expect(overflowsColumns(wide, 8)).toBe(true);
     expect(overflowsColumns(packRows(wide, 8), 8)).toBe(false);
+  });
+});
+
+// The Cab block's DynaCab page (FM3 fw > 6.03) carries the device's own `dynaCabControl` — a
+// graphical mic-position widget bound to the cab's Position parameter, NOT a dial. FM3-Edit draws it
+// as a speaker cone with the mic placed by Position (CAP at centre → EDGE at the rim); the builder
+// must map it to the `dynacab` view (and give it room) instead of falling back to a knob.
+describe('buildDeviceLayoutBoard — DynaCab mic graph', () => {
+  const knobDyn = (id: number): BoardCtl => ({ key: `k${id}`, kind: 'cont', id, w: 1, h: 1, view: 'knob', views: ['knob', 'fader', 'slider', 'number', 'dynacab'] });
+  const dyna = (id = 93, cols = 12) =>
+    buildDeviceLayoutBoard(
+      layout([{ name: 'Cab', rows: [{ controls: [ctl('unknown', id, 'DynaCab', { rawWidget: 'dynaCabControl' })] }] }]),
+      [knobDyn(id)],
+      cols
+    )!;
+
+  it('maps the device dynaCabControl to the mic-graph view, not a knob', () => {
+    expect(find(dyna().boards['Cab'], 'k93').view).toBe('dynacab');
+  });
+
+  it('gives the graph a 2x2 tile so the cone is readable', () => {
+    expect(find(dyna().boards['Cab'], 'k93')).toMatchObject({ w: 2, h: 2 });
+  });
+
+  it('clamps the graph footprint to a narrow board', () => {
+    expect(find(dyna(93, 1).boards['Cab'], 'k93').w).toBe(1);
+  });
+
+  it('a plain unknown widget still falls back to its catalog view (no regression)', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([{ name: 'P', rows: [{ controls: [ctl('unknown', 93, 'Position')] }] }]),
+      [knobDyn(93)],
+      12
+    )!;
+    expect(find(board.boards['P'], 'k93').view).toBe('knob');
+  });
+});
+
+// The mic graph drives TWO params in one tile (FM3-Edit places both in that one control): Position —
+// the control's own paramId, laid out vertically CAP (top) → EDGE (bottom) — and the SAME cab slot's
+// Distance, laid out horizontally as the mic's standoff. The device layout carries the pair as sibling
+// controls (`CABINET_DYNACAB_R<n>` for the graph, `CABINET_DYNACAB_Z<n>` for the Distance knob), so the
+// builder resolves the sibling by name and binds it as the widget's `key2`.
+describe('buildDeviceLayoutBoard — DynaCab graph binds the cab Distance param', () => {
+  const knobDyn = (id: number): BoardCtl => ({ key: `k${id}`, kind: 'cont', id, w: 1, h: 1, view: 'knob', views: ['knob', 'fader', 'slider', 'number', 'dynacab'] });
+  const cab = (graphPid: number, graphName: string, dist: { pid: number; name: string } | null) =>
+    buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('unknown', graphPid, 'DynaCab', { rawWidget: 'dynaCabControl', paramName: graphName }),
+                ...(dist ? [ctl('knob', dist.pid, 'Distance', { paramName: dist.name })] : []),
+              ],
+            },
+          ],
+        },
+      ]),
+      [knobDyn(graphPid), ...(dist ? [knobDyn(dist.pid)] : [])],
+      12
+    )!;
+
+  it('binds cab slot 1\u2019s Distance (_Z1) to the graph bound to _R1', () => {
+    const b = cab(93, 'CABINET_DYNACAB_R1', { pid: 97, name: 'CABINET_DYNACAB_Z1' });
+    expect(find(b.boards['Cab'], 'k93')).toMatchObject({ view: 'dynacab', key2: 'k97' });
+  });
+
+  it('binds cab slot 2 to ITS OWN Distance, not slot 1\u2019s', () => {
+    const b = cab(94, 'CABINET_DYNACAB_R2', { pid: 98, name: 'CABINET_DYNACAB_Z2' });
+    expect(find(b.boards['Cab'], 'k94').key2).toBe('k98');
+  });
+
+  it('leaves key2 unset when the layout has no sibling Distance control', () => {
+    const b = cab(93, 'CABINET_DYNACAB_R1', null);
+    expect(find(b.boards['Cab'], 'k93').key2).toBeUndefined();
+    expect(find(b.boards['Cab'], 'k93').view).toBe('dynacab');
+  });
+
+  it('leaves key2 unset when the Distance param is not in the live catalog', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('unknown', 93, 'DynaCab', { rawWidget: 'dynaCabControl', paramName: 'CABINET_DYNACAB_R1' }),
+                ctl('knob', 97, 'Distance', { paramName: 'CABINET_DYNACAB_Z1' }),
+              ],
+            },
+          ],
+        },
+      ]),
+      [knobDyn(93)], // slot 1's Distance (k97) is absent
+      12
+    )!;
+    expect(find(board.boards['Cab'], 'k93').key2).toBeUndefined();
+  });
+});
+
+// The FM3 cab page's per-cab M / S buttons carry pseudo paramIds (65286…65289) that the device never
+// serves; the state they drive is the `MUTE<n>` enum the block DOES serve (`-- / MUTE / SOLO`). Without
+// a re-resolve by name the buttons vanish and the Cab page offers no way to mute/solo a cab.
+describe('buildDeviceLayoutBoard — pseudo-param buttons (cab M/S)', () => {
+  const muteEnum = (id: number, label: string): BoardCtl => ({ key: `e${id}`, kind: 'select', id, w: 2, h: 1, view: 'select', views: ['select'], label });
+  const cabBtns = (catalog: BoardCtl[]): SurfaceBoard | null =>
+    buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('button', 65286, 'M', { rawWidget: 'btnSquare', paramName: 'CABINET_BTN_MUTE1' }),
+                ctl('button', 65288, 'S', { rawWidget: 'btnSquare', paramName: 'CABINET_BTN_SOLO1' }),
+              ],
+            },
+          ],
+        },
+      ]),
+      catalog,
+      12
+    );
+
+  it('binds the cab M button (pseudo-id 65286) to the served MUTE1 param', () => {
+    const b = cabBtns([muteEnum(24, 'MUTE1')]);
+    expect(find(b!.boards['Cab'], 'e24')).toMatchObject({ view: 'select' });
+  });
+
+  it('collapses the M/S pair onto the single state param they both drive', () => {
+    const b = cabBtns([muteEnum(24, 'MUTE1')]);
+    expect(b!.boards['Cab']).toHaveLength(1); // the S button has no param of its own
+  });
+
+  it('gaps a pseudo-param the block does not serve', () => {
+    expect(cabBtns([muteEnum(24, 'SOMETHING_ELSE')])).toBeNull(); // nothing renderable
+  });
+});
+
+// The top bar's Basic/Advanced View toggle drives `editor.globalMode`; this is the contract it documents
+// ("blocks open on Ideal / Advanced") re-pointed at the board pages that replaced the old tab strip.
+describe('pageForViewMode — Basic/Advanced open-on choice', () => {
+  it('basic opens the block on its first page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp', 'More'], 'basic')).toBe('Cab');
+  });
+
+  it('advanced opens on the full-parameter sweep page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp', 'More'], 'advanced')).toBe('More');
+  });
+
+  it('advanced falls back to the last page when the block has no sweep page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp'], 'advanced')).toBe('Preamp');
+  });
+
+  it('the fallback board reads its own Main/Advanced pages', () => {
+    expect(pageForViewMode(['Main', 'Advanced'], 'basic')).toBe('Main');
+    expect(pageForViewMode(['Main', 'Advanced'], 'advanced')).toBe('Advanced');
+  });
+
+  it('an empty page list is safe', () => {
+    expect(pageForViewMode([], 'advanced')).toBe('');
   });
 });

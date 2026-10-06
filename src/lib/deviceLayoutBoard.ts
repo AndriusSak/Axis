@@ -24,6 +24,8 @@ export interface SurfaceWidget {
   w: number;
   h: number;
   view: string;
+  /** Second bound catalog key — the DynaCab mic graph also drives the cab's Distance param. */
+  key2?: string;
   /** Source layout row index (device-authentic boards only) — drives row-preserving re-pack. */
   row?: number;
 }
@@ -44,10 +46,35 @@ export interface BoardCtl {
   h: number;
   view: string;
   views: readonly string[];
+  /** The param's served name (ControlSurface sets it from `p.name`/`e.name`). Needed to re-resolve a
+   *  layout control whose paramId is a device pseudo-id — see `btnPseudoParamKey`. */
+  label?: string;
 }
 
 const isBypassControl = (ctl: LayoutControl): boolean =>
   /bypass/i.test(ctl.rawWidget ?? '') || /bypass/i.test(ctl.label ?? '') || /bypass/i.test(ctl.paramName ?? '');
+
+/** FM3-Edit's DynaCab mic graph — a dedicated visual widget (`rawWidget: "dynaCabControl"`), not a
+ *  knob: the device's own editor lays it out as one control over the cab's Position parameter
+ *  (CAP at centre → EDGE at the rim). We render it as the `dynacab` view instead of a dial. */
+const isDynaCabControl = (ctl: LayoutControl): boolean => ctl.rawWidget === 'dynaCabControl';
+
+/** The same cab's DynaCab DISTANCE param, resolved from the layout's own sibling control: the mic
+ *  graph binds `CABINET_DYNACAB_R<n>` and the Distance knob beside it binds `CABINET_DYNACAB_Z<n>`
+ *  (n = the cab slot). Returned as a catalog key so the graph tile can drive both axes, or undefined
+ *  when this block/slot has no Distance control (the tile then stays Position-only). */
+function dynaCabDistanceKey(
+  ctl: LayoutControl,
+  nameToPid: Map<string, number>,
+  byKey: Map<string, BoardCtl>
+): string | undefined {
+  const name = ctl.paramName ?? '';
+  const sibling = name.replace(/_R(\d*)$/, '_Z$1');
+  if (sibling === name) return undefined;
+  const pid = nameToPid.get(sibling);
+  if (pid == null) return undefined;
+  return byKey.has(`k${pid}`) ? `k${pid}` : undefined;
+}
 
 /** Pick the view for a control that resolved to a live catalog entry. Falls back to the entry's own
  *  default view (and only ever returns a view the entry actually supports) so an `unknown`/unmapped
@@ -66,17 +93,40 @@ function viewForWidget(widget: string, base: BoardCtl): string {
   return base.views.includes(candidate) ? candidate : base.view;
 }
 
+/** Some device layouts reach for a control the param table does not name under that id: the FM3 cab
+ *  page's per-cab M / S buttons carry `CABINET_BTN_MUTE<n>` / `CABINET_BTN_SOLO<n>` pseudo-ids
+ *  (65286…65289) that are never live parameters, while the state they drive lives in `MUTE<n>` — the
+ *  enum the block DOES serve, with options `-- / MUTE / SOLO`. Resolve by the served NAME after the
+ *  `_BTN_` infix so those controls render instead of vanishing; the M/S pair collapses onto the one
+ *  state control it really is (the board de-dupes by key). Unresolvable pseudo-params still gap. */
+function btnPseudoParamKey(ctl: LayoutControl, byName: Map<string, BoardCtl>): string | undefined {
+  const suffix = (ctl.paramName ?? '').split('_BTN_')[1];
+  if (!suffix) return undefined;
+  return byName.get(suffix)?.key;
+}
+
 type Resolved = { key: string; view: string } | 'gap';
 
 /** Resolve one layout control to a catalog key + view, or `'gap'` (advance the cursor, draw nothing —
  *  spacers, labels, and parameters the device did not surface as a knob/enum). */
-function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>): Resolved {
+function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>, byName: Map<string, BoardCtl>): Resolved {
   if (ctl.widget === 'spacer') return 'gap';
   // A live param → its catalog entry (knob `k<id>` or enum `e<id>`), refined by the widget hint.
   if (ctl.paramId != null) {
     const knobKey = `k${ctl.paramId}`;
     const enumKey = `e${ctl.paramId}`;
     const base = byKey.get(knobKey) ?? byKey.get(enumKey);
+    if (base) {
+      // The device's DynaCab mic graph renders as its own view; everything else refines from the hint.
+      if (isDynaCabControl(ctl)) return { key: base.key, view: 'dynacab' };
+      return { key: base.key, view: viewForWidget(ctl.widget, base) };
+    }
+  }
+  // A pseudo-param id the device never serves under that number (the cab page's M/S buttons) — bind it
+  // to the real param of the same name so the control renders rather than disappearing.
+  const btnKey = btnPseudoParamKey(ctl, byName);
+  if (btnKey) {
+    const base = byKey.get(btnKey);
     if (base) return { key: base.key, view: viewForWidget(ctl.widget, base) };
   }
   // No live param → the block-level catalog entries the widget hint points at.
@@ -109,8 +159,27 @@ function packSequential(ctls: BoardCtl[], cols: number): SurfaceWidget[] {
   return out;
 }
 
+/** Which page a block should OPEN on for the given View mode — the top bar's Basic/Advanced toggle.
+ *
+ *  This is the contract the editor store documents for `setGlobalMode` ("blocks open on Ideal /
+ *  Advanced"), re-pointed at the board model that replaced the old Ideal/Advanced tab strip:
+ *    • Basic    → the block's FIRST page (device-authentic: the device's own main page; fallback
+ *                 board: "Main").
+ *    • Advanced → the full-parameter sweep: the "More" page the builder collects unreferenced params
+ *                 onto, else the last page (fallback board: its own "Advanced" page).
+ *  So the toggle is meaningful for both board kinds — which is why it is wired rather than removed. */
+export function pageForViewMode(pageOrder: readonly string[], mode: 'basic' | 'advanced'): string {
+  if (!pageOrder.length) return '';
+  if (mode !== 'advanced') return pageOrder[0]!;
+  return pageOrder.find((p) => p === 'More') ?? pageOrder[pageOrder.length - 1]!;
+}
+
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
- *  layout, so the Default board can be re-seeded (user boards keep their own storage). */
+ *  layout, so the Default board can be re-seeded (user boards keep their own storage).
+ *
+ *  The leading `db2` is the BOARD-BUILDER version: bump it whenever the builder changes what a seeded
+ *  board contains, so a board seeded by an older builder re-seeds once instead of silently missing the
+ *  new widget (e.g. the DynaCab tile's second bound param). */
 export function layoutVariantSig(layout: DeviceLayout | null | undefined): string {
   if (!layout) return '';
   const ctlCount = (layout.pages ?? []).reduce(
@@ -118,6 +187,7 @@ export function layoutVariantSig(layout: DeviceLayout | null | undefined): strin
     0
   );
   return [
+    'db3',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',
@@ -138,6 +208,15 @@ export function buildDeviceLayoutBoard(
   if (!layout?.pages?.length) return null;
   const columns = Math.max(1, cols);
   const byKey = new Map(catalog.map((c) => [c.key, c]));
+  // paramName → paramId across the whole layout, so a control can find its sibling by name
+  // (the DynaCab mic graph needs the same cab slot's Distance param).
+  const nameToPid = new Map<string, number>();
+  for (const pg of layout.pages)
+    for (const row of pg.rows ?? [])
+      for (const c of row.controls ?? []) if (c.paramName && c.paramId != null) nameToPid.set(c.paramName, c.paramId);
+  // Served param NAME → catalog entry, for layout controls carrying a pseudo-param id.
+  const byName = new Map<string, BoardCtl>();
+  for (const c of catalog) if (c.label) byName.set(c.label, c);
 
   // Page names key the {#each} in ControlSurface, so they MUST be unique — a layout can repeat a name
   // (this INPUT block ships three pages all named "Gate"); suffix any repeat.
@@ -162,7 +241,7 @@ export function buildDeviceLayoutBoard(
       let rowH = 1;
       let placed = false;
       for (const ctl of row.controls ?? []) {
-        const r = resolveControl(ctl, byKey);
+        const r = resolveControl(ctl, byKey, byName);
         if (r === 'gap') {
           x += 1;
           continue;
@@ -176,7 +255,10 @@ export function buildDeviceLayoutBoard(
           x += 1;
           continue;
         }
-        const w = Math.min(base.w, columns);
+        // The DynaCab mic graph needs room to read: give it a 2×2 tile (clamped to the board width).
+        const isGraph = r.view === 'dynacab';
+        const w = isGraph ? Math.min(2, columns) : Math.min(base.w, columns);
+        const h = isGraph ? 2 : base.h;
         if (x + w > columns) {
           // control doesn't fit the rest of this line — wrap onto a new grid line (still this row)
           gridRow += rowH;
@@ -184,9 +266,11 @@ export function buildDeviceLayoutBoard(
           rowH = 1;
         }
         seen.add(r.key);
-        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h: base.h, view: r.view, row: rowIndex });
+        // The mic graph drives the same cab's Distance param too (the layout's sibling control).
+        const key2 = isGraph ? dynaCabDistanceKey(ctl, nameToPid, byKey) : undefined;
+        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowIndex, ...(key2 ? { key2 } : {}) });
         x += w;
-        rowH = Math.max(rowH, base.h);
+        rowH = Math.max(rowH, h);
         placed = true;
       }
       if (placed) gridRow += rowH; // next layout row starts below the tallest widget of this one

@@ -38,6 +38,9 @@ export interface EditorSurface {
   cabPickerOpen: boolean;
   params: NamedParam[];
   enums: EnumParam[];
+  /** Basic/Advanced View mode (the top bar's View widget). Selects which page a block opens on —
+   *  see `pageForViewMode` in deviceLayoutBoard. */
+  readonly globalMode: 'basic' | 'advanced';
 
   // ── responsive / mobile grid ──
   readonly isMobile: boolean;

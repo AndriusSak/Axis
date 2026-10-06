@@ -12,7 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
-  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
+  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
   import {
@@ -45,9 +45,9 @@
   }: { slug?: string; accent?: string; eqBands?: EQBand[]; eqGainRange?: number; eqTitle?: string; hideIds?: number[] } = $props();
 
   const GAP = 8;
-  const CONT_VIEWS = ['knob', 'fader', 'slider', 'number'] as const;
+  const CONT_VIEWS = ['knob', 'fader', 'slider', 'number', 'dynacab'] as const;
   const TOG_VIEWS = ['button', 'switch'] as const;
-  const VIEW_ICON: Record<string, string> = { knob: '◉', fader: '⇕', slider: '⇔', number: '#', button: '⏻', switch: '⊙', select: '▾', eq: '∿', action: '⏼', meter: '▊', wave: '⌇' };
+  const VIEW_ICON: Record<string, string> = { knob: '◉', fader: '⇕', slider: '⇔', number: '#', dynacab: '◎', button: '⏻', switch: '⊙', select: '▾', eq: '∿', action: '⏼', meter: '▊', wave: '⌇' };
   const workbench = getOptionalWorkbenchContext();
   const workbenchCanPin = $derived(!!workbench?.registry.hasAction(AXIS_PIN_SELECTED_PARAMETERS_ACTION));
 
@@ -443,7 +443,21 @@
       if (!meta) meta = { active: 'Default', names: ['Default', 'Blank'] };
       profileMeta = { ...profileMeta, [slug]: meta };
     }
-    bySlug = { ...bySlug, [slug]: loadProfileBoard(slug, meta.active) };
+    const loaded = loadProfileBoard(slug, meta.active);
+    // The View toggle (Basic/Advanced) picks which page a block OPENS on — see pageForViewMode.
+    bySlug = { ...bySlug, [slug]: { ...loaded, page: pageForViewMode(loaded.pageOrder, editor.globalMode) } };
+  });
+
+  // …and it applies immediately when the toggle is used while a block is already open, mirroring the
+  // editor store's contract ("blocks open on Ideal / Advanced"). Only a MODE CHANGE acts, so this never
+  // fights a manual tab click.
+  let lastViewMode = editor.globalMode;
+  $effect(() => {
+    const m = editor.globalMode;
+    if (m === lastViewMode) return;
+    lastViewMode = m;
+    if (!slug || !board) return;
+    setPage(pageForViewMode(board.pageOrder, m));
   });
 
   // arrange is a desktop affordance — never leave it on when we drop to the phone layout
@@ -695,6 +709,7 @@
   // ── gestures (temp state in plain refs; not reactive) ──
   let vd: { id: number; sy: number; sn: number } | null = null; // cont vertical drag
   let tk: { id: number; rect: DOMRect; vertical: boolean } | null = null; // track drag
+  let dyn: { id: number; dist: number | null; rect: DOMRect } | null = null; // DynaCab mic graph 2-D drag
   let mv: { id: string; w: number; h: number; grabDX: number; grabDY: number; left: number; top: number; armed: boolean } | null = null; // move (grabDX/Y = px from tile's top-left to the grab point)
   let rz: { id: string; sx: number; sy: number; ow: number; oh: number } | null = null; // resize
   let sw: { sx: number; moved: boolean } | null = null; // page swipe
@@ -731,6 +746,22 @@
     if (!tk) return;
     const frac = tk.vertical ? clamp(1 - (e.clientY - tk.rect.top) / tk.rect.height, 0, 1) : clamp((e.clientX - tk.rect.left) / tk.rect.width, 0, 1);
     setNorm(tk.id, frac);
+  }
+  // DynaCab mic graph: a 2-D pad laid out like FM3-Edit's. VERTICAL is the mic's place on the cone
+  // (CAP at the top → EDGE at the bottom = the device's Position param, whose scale runs CAP 0 → EDGE 1);
+  // HORIZONTAL is the mic's standoff from the cone face (= the same cab's Distance param). `dist` is the
+  // Distance param id the board builder bound to this tile, or null when the slot has no Distance control.
+  function onDynaDown(e: PointerEvent, pid: number, dist: number | null) {
+    if (editMode) return;
+    e.stopPropagation();
+    dyn = { id: pid, dist, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() };
+    dynMove(e);
+  }
+  function dynMove(e: PointerEvent) {
+    if (!dyn) return;
+    const { rect } = dyn;
+    setNorm(dyn.id, clamp((e.clientY - rect.top) / rect.height, 0, 1));
+    if (dyn.dist != null) setNorm(dyn.dist, clamp((e.clientX - rect.left) / rect.width, 0, 1));
   }
   function onResizeDown(e: PointerEvent, id: string) {
     e.stopPropagation();
@@ -802,6 +833,11 @@
         trackMove(e);
         return;
       }
+      if (dyn) {
+        e.preventDefault();
+        dynMove(e);
+        return;
+      }
       if (vd) {
         e.preventDefault();
         setNorm(vd.id, vd.sn + (vd.sy - e.clientY) * 0.005);
@@ -833,6 +869,7 @@
         if (effCompact) setWidgets(packList(widgets));
       }
       tk = null;
+      dyn = null;
       if (vd) {
         vd = null;
         dragging = false;
@@ -1153,12 +1190,53 @@
   // dropdown popover geometry
   const selMenu = $derived.by(() => {
     if (!openSelect) return null;
-    const w = find(openSelect);
+    // Resolve against the RENDERED list: when the board overflows the shown columns `viewWidgets` is the
+    // RE-PACKED list (packRows/packInto), so a widget's `x/y` there is where the card actually lands.
+    // Reading the un-packed `widgets` put the menu at the pre-pack row — it opened somewhere the user
+    // could not see (above the pane), so tapping the field looked like it did nothing.
+    const w = viewWidgets.find((x) => x.id === openSelect) ?? find(openSelect);
     const c = w && catByKey.get(w.key);
     const e = c && enm(c.id);
-    if (!w || !c || !e) return null;
-    const step = cell + GAP;
-    return { id: w.id, e, left: w.x * step, top: (w.y + w.h) * step + 2, width: Math.max(w.w * cell + (w.w - 1) * GAP, 160) };
+    return w && c && e ? { id: w.id, e } : null;
+  });
+  /** Measured placement for the open menu: anchored to the field's REAL box, flipped up when the pane
+   *  has no room below, and capped to the room that is actually there (a 45-entry cab-type list would
+   *  otherwise run far past the bottom of a short block editor). */
+  let menuPos = $state<{ left: number; top: number; width: number; maxH: number; flip: boolean } | null>(null);
+  $effect(() => {
+    const id = selMenu?.id;
+    if (!id || !boardEl) {
+      menuPos = null;
+      return;
+    }
+    const field = boardEl.querySelector<HTMLElement>(`[data-field="${id}"]`);
+    if (!field) {
+      menuPos = null;
+      return;
+    }
+    const br = boardEl.getBoundingClientRect();
+    const fr = field.getBoundingClientRect();
+    let pane: HTMLElement | null = null;
+    for (let p = boardEl.parentElement; p && p !== document.body; p = p.parentElement) {
+      const s = getComputedStyle(p);
+      if (s.overflowY === 'auto' || s.overflowY === 'scroll' || s.overflow === 'hidden') {
+        pane = p;
+        break;
+      }
+    }
+    const pr = pane?.getBoundingClientRect();
+    const paneTop = pr?.top ?? 0;
+    const paneBottom = pr?.bottom ?? window.innerHeight;
+    const below = paneBottom - fr.bottom;
+    const above = fr.top - paneTop;
+    const flip = below < Math.min(140, above); // open upward when there is more room above the field
+    menuPos = {
+      left: fr.left - br.left,
+      top: (flip ? fr.top : fr.bottom) - br.top,
+      width: Math.max(fr.width, 160),
+      maxH: Math.min(320, Math.max(56, (flip ? above : below) - 6)),
+      flip
+    };
   });
 
   // svg knob pointer transform
@@ -1171,6 +1249,12 @@
     <svg width="15" height="15" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10.8 10.8 L14.5 14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
     <input class="csin" placeholder="Find a control…" bind:value={q} />
     {#if searching}<button class="csx" aria-label="Clear search" onclick={() => { q = ''; resSel = null; }}>✕</button>{/if}
+    <!-- How many controls match. The results are laid out as full control cards, so in a short block
+         pane only the first is visible — without this count "one card on screen" reads as "one match"
+         (the reported "the search only shows Mute 1" while MUTE2 was in fact served and matched). -->
+    {#if searching}
+      <span class="cscount" title="Controls in this block matching “{q}”">{matches.length} {matches.length === 1 ? 'match' : 'matches'}</span>
+    {/if}
   </div>
   {#if !searching}
     {#if board}
@@ -1428,6 +1512,50 @@
                   <button class="step" onpointerdown={(e) => e.stopPropagation()} onclick={() => nudge(c.id, 1)}>＋</button>
                 </div>
                 <div class="lbl">{c.label}</div>
+              {:else if c.kind === 'cont' && w.view === 'dynacab'}
+                {@const nrm = knob(c.id)?.norm ?? 0}
+                {@const did = w.key2 ? Number(w.key2.replace(/^[ke]/, '')) : null}
+                {@const dnrm = did != null ? knob(did)?.norm ?? 0 : 0}
+                <!-- DynaCab mic graph — FM3-Edit parity, ONE tile for both mic params. Seen from the
+                     side: the cone face runs down the left with CAP at the top and EDGE at the bottom,
+                     so the mic's VERTICAL place is the device's Position param. Its HORIZONTAL standoff
+                     from the cone is the same cab's Distance param. Drag anywhere to set both. -->
+                <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+                <div
+                  class="dynabox"
+                  title={did != null
+                    ? 'Mic — up/down: Position (CAP→EDGE), left/right: Distance'
+                    : 'Mic position — CAP (top) to EDGE (bottom)'}
+                  onpointerdown={(e) => onDynaDown(e, c.id, did)}
+                  ondblclick={(e) => { if (!editMode) showTip(e.currentTarget as HTMLElement, c.id, true); }}
+                  onmouseenter={(e) => { if (!isMobile && !editMode) showTip(e.currentTarget as HTMLElement, c.id, false); }}
+                  onmouseleave={() => { if (!dragging && !tip?.edit) tip = null; }}
+                >
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="dynasvg">
+                    <rect x="8" y="14" width="22" height="70" rx="11" style="fill:var(--surface2);stroke:var(--border2)" stroke-width="1.6" />
+                    <line x1="8" y1="49" x2="30" y2="49" style="stroke:var(--border2)" stroke-width="1" stroke-dasharray="2 3" />
+                    <line
+                      x1="30" y1={14 + 70 * nrm}
+                      x2={38 + 56 * dnrm} y2={14 + 70 * nrm}
+                      style="stroke:var(--border3)" stroke-width="1" stroke-dasharray="2 3"
+                    />
+                    <g transform="translate({38 + 56 * dnrm} {14 + 70 * nrm})">
+                      <circle r="8" fill={accent} opacity="0.16" />
+                      <rect x="-1" y="-2.6" width="7" height="5.2" rx="2.6" style="fill:var(--surface);stroke:{accent}" stroke-width="1.4" />
+                      <rect x="-6.4" y="-3.4" width="6" height="6.8" rx="3.4" fill={accent} />
+                    </g>
+                    <text x="19" y="11" text-anchor="middle" class="dynalab">CAP</text>
+                    <text x="19" y="97" text-anchor="middle" class="dynalab">EDGE</text>
+                  </svg>
+                  <div class="dynaval">
+                    <span class="dynanum mono">{valText(c.id)}</span>
+                    <span class="dynacap">{c.label}</span>
+                    {#if did != null}
+                      <span class="dynanum mono">{valText(did)}</span>
+                      <span class="dynacap">Distance</span>
+                    {/if}
+                  </div>
+                </div>
               {:else if c.kind === 'toggle' && w.view === 'button'}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
                 <div class="onoff" class:on={togOn(c.id)} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && toggleEnum(c.id)} title={togLabel(c.id)}>
@@ -1440,7 +1568,7 @@
               {:else if c.kind === 'select'}
                 <div class="seltop">{c.label}</div>
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-                <div class="selfield" class:open={openSelect === w.id} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && (openSelect = openSelect === w.id ? null : w.id)}>
+                <div class="selfield" data-field={w.id} class:open={openSelect === w.id} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && (openSelect = openSelect === w.id ? null : w.id)}>
                   <span class="seltxt">{enm(c.id)?.options.find((o) => o.value === enm(c.id)?.value)?.label ?? '–'}</span>
                   <span class="caret">▾</span>
                 </div>
@@ -1514,7 +1642,15 @@
     {#if selMenu}
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="selbg" onpointerdown={() => (openSelect = null)}></div>
-      <div class="selmenu" style:left="{selMenu.left}px" style:top="{selMenu.top}px" style:width="{selMenu.width}px">
+      <div
+        class="selmenu"
+        class:flip={menuPos?.flip}
+        style:left="{menuPos?.left ?? 0}px"
+        style:top="{menuPos?.top ?? 0}px"
+        style:width="{menuPos?.width ?? 160}px"
+        style:max-height="{menuPos?.maxH ?? 320}px"
+        style:overflow-y="auto"
+      >
         {#each selMenu.e.options as o (o.value)}
           <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
           <div class="selopt" class:on={o.value === selMenu.e.value} onpointerdown={(e) => e.stopPropagation()} onclick={() => { editor.setEnum(selMenu!.e, o.value); openSelect = null; }}>{o.label}</div>
@@ -2086,6 +2222,54 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  /* DynaCab mic graph — fills the tile; the SVG keeps the cone round at any tile aspect. */
+  .dynabox {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .dynasvg {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: block;
+    overflow: visible;
+  }
+  .dynaval {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    pointer-events: none;
+  }
+  .dynanum {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .dynacap {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--textfaint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dynalab {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    fill: var(--textfaint);
+  }
   .vtrack {
     position: relative;
     width: 14px;
@@ -2532,6 +2716,10 @@
     inset: 0;
     z-index: 40;
   }
+  /* opened upward because the pane had no room below the field — anchor the menu's BOTTOM to the field */
+  .selmenu.flip {
+    transform: translateY(-100%);
+  }
   .selmenu {
     position: absolute;
     z-index: 50;
@@ -2667,6 +2855,16 @@
     border: 1px solid var(--border);
     color: var(--textfaint);
     min-width: 140px;
+  }
+  /* match-count chip: keeps "how many matched" visible even when only the first result card fits */
+  .cscount {
+    flex: none;
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--textfaint);
+    white-space: nowrap;
   }
   .csearch.active {
     flex: 1;
