@@ -3,6 +3,7 @@
   import { forgefx } from './forgefx';
   import { catFor, shade } from './catalog';
   import { categoryOf, packFor } from './blocks';
+  import { matchPaletteTypes, matchPaletteFamilies, type PaletteRow } from './paletteRows';
 
   const CAT_LABEL: Record<string, string> = { amp: 'Amp', cab: 'Cab', drive: 'Drive', eq: 'EQ', dynamics: 'Dynamics', mod: 'Mod', time: 'Time', pitch: 'Pitch', util: 'Util' };
   const catOf = (name: string) => categoryOf(packFor(name) ?? name);
@@ -132,22 +133,15 @@
     }
   });
 
-  const typeLabel = (t: TypeOpt) =>
-    realNames && (t.basedOn || t.manufacturer) ? `${t.manufacturer ?? ''} ${t.basedOn ?? ''}`.trim() : t.name;
-
+  // Row building lives in a pure module (unit-tested without mounting this component). It must not
+  // truncate: the roster is the whole catalogue (FM3: 331 amp models) and the header count below is
+  // derived from it, so a cap would both hide models and misreport the total. See paletteRows.ts.
   const results = $derived.by(() => {
     const q = query.trim().toLowerCase();
-    if (retype) {
-      const list = q
-        ? types.filter((t) => (t.name + ' ' + (t.manufacturer ?? '') + ' ' + (t.basedOn ?? '')).toLowerCase().includes(q))
-        : types;
-      return list.slice(0, 80).map((t) => ({ key: String(t.value), name: typeLabel(t), sub: t.name, kind: 'Model', value: t.value, page: 0, mfr: t.manufacturer ?? '' }));
-    }
-    const list = q ? families.filter((f) => (f.name + ' ' + f.slug).toLowerCase().includes(q)) : families;
-    return list.slice(0, 80).map((f) => ({ key: f.slug, name: f.name, sub: f.slug, kind: 'Block', value: 0, page: f.page, mfr: '' }));
+    return retype ? matchPaletteTypes(types, q, realNames) : matchPaletteFamilies(families, q);
   });
 
-  type Row = { key: string; name: string; sub: string; kind: string; value: number; page: number; mfr: string; fi: number };
+  type Row = PaletteRow & { fi: number };
   // sectioned view: query overrides; retype = Fav/Recent/All of models (or brand-filtered);
   // block-mode = Fav/Recent/All of blocks (or category-filtered)
   const view = $derived.by(() => {
