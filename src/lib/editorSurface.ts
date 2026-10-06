@@ -14,6 +14,7 @@ import type { Cell, Layout } from './grid';
 import type { NamedParam, EnumParam, DetectResult, DeviceLayout, LiveMonitor, CabState } from './types';
 import type { SwipeCtrl } from './layouts';
 import type { ChannelClip } from './blockOps';
+import type { BlockLibraryEntry } from './blockLibrary';
 
 export const EDITOR_SURFACE_KEY = Symbol('axis.editorSurface');
 
@@ -88,6 +89,14 @@ export interface EditorSurface {
   pasteChannel: () => Promise<void>;
   /** Toggle the block's served "Scene Ignore" flag. */
   setSceneIgnore: (on: boolean) => Promise<void>;
+
+  // ── Block Library (audit §2.6) ──
+  blockLibraryOpen: boolean;
+  openBlockLibrary: () => void;
+  /** Save the selected block's model + active-channel values as a named library entry. */
+  saveBlockToLibrary: (name?: string) => Promise<void>;
+  /** Recall a library entry into a block (defaults to the selected one). */
+  recallBlockEntry: (entry: BlockLibraryEntry, cell?: Cell) => Promise<void>;
 
   // ── block / params mutators (incl. device-only cabState, routed through the surface) ──
   setParam: (p: NamedParam, v: number) => void;

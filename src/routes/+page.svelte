@@ -20,6 +20,7 @@
   import { convertScratch } from '$lib/convertScratch.svelte';
   import PresetPicker from '$lib/PresetPicker.svelte';
   import SaveDialog from '$lib/SaveDialog.svelte';
+  import BlockLibraryPanel from '$lib/BlockLibraryPanel.svelte';
   import TunerOverlay from '$lib/TunerOverlay.svelte';
   import CachePrompt from '$lib/CachePrompt.svelte';
   import DeviceDefsPrompt from '$lib/DeviceDefsPrompt.svelte';
@@ -239,6 +240,7 @@
   <HistoryPanel />
   <PresetPicker />
   <SaveDialog />
+  <BlockLibraryPanel />
   <TunerOverlay />
   <CachePrompt />
   <DeviceDefsPrompt />

@@ -23,6 +23,7 @@ import type { Cell, Layout } from './grid';
 import type { EditorSurface } from './editorSurface';
 import type { NamedParam, EnumParam, DetectResult, DeviceLayout, LiveMonitor, CabState } from './types';
 import type { SwipeCtrl } from './layouts';
+import type { BlockLibraryEntry } from './blockLibrary';
 
 const SHUNT_BASE = 1024; // gen-3 routing/shunt base effect id (matches editor.svelte.ts SHUNT_ID)
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
@@ -356,6 +357,17 @@ class ConvertEditor {
   };
   setSceneIgnore = async (_on: boolean): Promise<void> => {
     /* Scene Ignore is a device flag — not modeled on the offline convert surface */
+  };
+  // Block Library is device-backed (it reads/writes the live block's params); inert offline.
+  blockLibraryOpen = false;
+  openBlockLibrary = (): void => {
+    this.showToast('Block Library is device-backed — not available offline', '#f5a623');
+  };
+  saveBlockToLibrary = async (_name?: string): Promise<void> => {
+    /* device-backed capture — not modeled on the offline convert surface */
+  };
+  recallBlockEntry = async (_entry: BlockLibraryEntry): Promise<void> => {
+    /* device-backed recall — not modeled on the offline convert surface */
   };
 
   // ── cables (in-memory for grid targets; gated for slot/chain — see canGridRoute) ──
