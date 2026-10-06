@@ -108,6 +108,29 @@ test.describe('phone emulation (390x844)', () => {
   });
 
   /**
+   * FINDING (expected-to-fail): in phone EDIT mode the widgets-only rail is
+   * forced visible (`shouldRenderRail` returns true while editing) as a 64px
+   * static left strip, shrinking `.aw-frame` to 326px. The bottom bar then cannot
+   * fit its own content (measured: bar scrollWidth 349 vs clientWidth 326) and,
+   * because edit mode disables the zone overflow chip (`overflow: visible`), the
+   * surplus is clipped rather than shelved: the nav entries Scenes/Live/Setup/
+   * Theme/Axis Cloud, the "+" add-page control and scene buttons 4–8 all measure
+   * a ZERO visible area (rects x=300..484 against a 390px viewport) with no
+   * scrollable ancestor. Root causes are shared with F1/F2 and live in
+   * NavigationHost.svelte / WidgetZone.svelte (owned by other workstreams).
+   */
+  test('phone edit mode: no bottom-bar control is unreachable', async ({ page }) => {
+    test.fail(true, 'edit mode forces the 64px rail strip + disables the overflow chip on phone; bottom-bar controls clip to zero visible area (NavigationHost/WidgetZone, owned)');
+    await installGridMock(page);
+    await bootCleanWorkbench(page);
+    await page.waitForTimeout(600);
+    await enterEditMode(page);
+    await page.waitForTimeout(400);
+    const r = await probeInvariants(page, { root: '.aw-bottombar' });
+    expect(r.unreachable.map((o) => o.label), 'unreachable controls in the phone edit-mode bottom bar').toEqual([]);
+  });
+
+  /**
    * FINDING (expected-to-fail): the `⋯` overflow chip menu on phone opens
    * DOWNWARD from the bottom bar and lands entirely below the viewport (measured:
    * chip at 352,806 43x30; menu rect 352,852 270x159 with visibleH=0 against a
