@@ -1249,6 +1249,12 @@
     <svg width="15" height="15" viewBox="0 0 16 16"><circle cx="7" cy="7" r="5" fill="none" stroke="currentColor" stroke-width="1.6" /><path d="M10.8 10.8 L14.5 14.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" /></svg>
     <input class="csin" placeholder="Find a control…" bind:value={q} />
     {#if searching}<button class="csx" aria-label="Clear search" onclick={() => { q = ''; resSel = null; }}>✕</button>{/if}
+    <!-- How many controls match. The results are laid out as full control cards, so in a short block
+         pane only the first is visible — without this count "one card on screen" reads as "one match"
+         (the reported "the search only shows Mute 1" while MUTE2 was in fact served and matched). -->
+    {#if searching}
+      <span class="cscount" title="Controls in this block matching “{q}”">{matches.length} {matches.length === 1 ? 'match' : 'matches'}</span>
+    {/if}
   </div>
   {#if !searching}
     {#if board}
@@ -2849,6 +2855,16 @@
     border: 1px solid var(--border);
     color: var(--textfaint);
     min-width: 140px;
+  }
+  /* match-count chip: keeps "how many matched" visible even when only the first result card fits */
+  .cscount {
+    flex: none;
+    margin-left: auto;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: var(--textfaint);
+    white-space: nowrap;
   }
   .csearch.active {
     flex: 1;

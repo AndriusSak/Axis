@@ -292,4 +292,19 @@ test.describe('Cab page M / S controls', () => {
     const inWindow = !!info.lastField && info.lastField.t < info.winH && info.lastField.b > 0;
     expect(inWindow || info.scrollable, `lower control unreachable: ${JSON.stringify(info)}`).toBe(true);
   });
+
+  // "The search only shows Mute 1" was read as "Mute 2 does not exist". The matches render as full
+  // control cards, so in a short block pane only the first is on screen — the count must therefore
+  // state how many controls matched, or a single visible card reads as a single result.
+  test('the search reports HOW MANY controls matched, not just the ones that fit', async ({ page }) => {
+    await bootWithCab(page);
+    await expect(page.locator('.cscount')).toHaveCount(0); // only while searching
+    await page.locator('.csin').fill('mute');
+    await expect(page.locator('.cscount')).toBeVisible();
+    await expect(page.locator('.cscount')).toHaveText('2 matches');
+    await page.locator('.csin').fill('dynacab mic1');
+    await expect(page.locator('.cscount')).toHaveText('1 match');
+    await page.locator('.csin').fill('zzz no such control');
+    await expect(page.locator('.cscount')).toHaveText('0 matches');
+  });
 });
