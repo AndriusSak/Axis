@@ -317,6 +317,24 @@ custom label, live read-back. Missing (grep for `csMidi|layoutLink|perPreset|sta
 - **Silent-drop gates are the recurring defect class here** (`KNOB_UNITS`, enum length caps). Two of
   this audit's "candidate gaps" (§3.7) are that same class — verify before building UI for them.
 
+### 5.1 Silent list truncation (same family of defect — found on 2026-10-06)
+
+**Rule: a rendered list must never be silently capped.** These surfaces truncate a rendered list; the
+user-visible count must either be the real total or the cap must be disclosed in the header.
+
+| Site | Cap | Disclosed? | Status |
+|---|---|---|---|
+| `CommandPalette.svelte` model + block rows | `list.slice(0, 80)` | **No** — and the header count came off the *truncated* array, so the FM3's 331 amp models showed as "80 results" | **FIXED** on `local/palette-model-cap` (rows moved to `paletteRows.ts`; source guard test in `paletteRows.test.ts`) |
+| `CabPicker.svelte:92` | `CAP = 250` | **Yes** — "showing 250 of N, search to narrow" | OK as-is (1024 factory IRs) |
+| `PresetPicker.svelte:149` | `300` | **Yes** — "+N more — type a number or name to filter" | OK as-is (512 slots) |
+| `AxisHistoryDockPanel.svelte:5` | `80` (history holds up to 200) | **No** | **Open** — older edits vanish with no hint |
+| `AxisFcPartPanel.svelte:220` | `64` (flat configs) | **No** | **Open** — harmless today (FM3 config count is small); verify per device |
+| `presetBrowserWorkbenchLayout.ts:19` | `AXIS_PB_SOFT_ROW_CAP` | Partial (soft cap) | **Open** — tracked as T12 in the rework plan (virtualize/paginate) |
+
+Also note the *diagnostic* half of this class: when a param is dropped by an allowlist gate, the UI
+shows nothing rather than "hidden because …". `GET /diag/ranges` exists (`ForgeFX` route) but is not
+surfaced — see §3.6 item 3.
+
 ---
 
 ## 6. Uncertain / needs verification (probe list, no guessing)
