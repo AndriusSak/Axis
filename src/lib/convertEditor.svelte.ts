@@ -16,6 +16,7 @@ import { scratchToLayout, keyAt, EMPTY_LAYOUT } from './convertScratchAdapter';
 import { gridLayoutFromScratch, effectKeyMap, isGridTarget, keyForGridCell } from './convertGridAdapter';
 import { connectOnLayout, disconnectOnLayout, moveOnLayout, removeAtOnLayout, bypassOnLayout, applyRouteOps } from './convertGridEdit';
 import { planDisconnectAll, planInsertShunt, planResetBlock, planSwap, type RouteCell } from './gridRouting';
+import { planGridShiftRow, planGridShiftColumn } from './gridShift';
 import { applyGridEditsToState } from './convertGridSerialize';
 import { paramValue } from './format';
 import { buildParams, buildEnums } from './convertParams';
@@ -355,6 +356,20 @@ class ConvertEditor {
   pasteChannel = async (): Promise<void> => {
     /* channel ops are device-backed — not modeled on the offline convert surface */
   };
+  /** Channel state is device-only here (no scene model offline), so the cross-scene/block channel ops
+   *  are inert exactly like copyChannel/pasteChannel above. */
+  get sceneCount(): number {
+    return 0;
+  }
+  get canPasteChannelAcrossBlocks(): boolean {
+    return false;
+  }
+  setChannelAcrossScenes = async (): Promise<void> => {
+    /* channel ops are device-backed — not modeled on the offline convert surface */
+  };
+  pasteChannelAcrossBlocks = async (): Promise<void> => {
+    /* channel ops are device-backed — not modeled on the offline convert surface */
+  };
   setSceneIgnore = async (_on: boolean): Promise<void> => {
     /* Scene Ignore is a device flag — not modeled on the offline convert surface */
   };
@@ -475,6 +490,33 @@ class ConvertEditor {
     const layout = this.#ensureGrid();
     if (!layout) return;
     this.#applyPlan(planSwap(toRoute(layout.cells), toRoute(layout.shunts), toRoute([a])[0], toRoute([b])[0]));
+  };
+  /** Move an entire row one position — modeled offline like the other §2.9 grid ops, bounded by the
+   *  offline layout's own shape (never a hardcoded 4x12/4x14). */
+  shiftRow = async (row: number, dir: -1 | 1): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Grid editing coming soon', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    this.#applyPlan(
+      planGridShiftRow(toRoute(layout.cells), toRoute(layout.shunts), row, dir, { rows: layout.rows, cols: layout.cols }),
+      '#9a9aa3'
+    );
+  };
+  /** Move an entire column one position — see shiftRow. */
+  shiftColumn = async (col: number, dir: -1 | 1): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Grid editing coming soon', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    this.#applyPlan(
+      planGridShiftColumn(toRoute(layout.cells), toRoute(layout.shunts), col, dir, { rows: layout.rows, cols: layout.cols }),
+      '#9a9aa3'
+    );
   };
   copyBlock = async (_cell?: Cell): Promise<void> => {
     this.showToast('Copy is not available offline', '#f5a623');

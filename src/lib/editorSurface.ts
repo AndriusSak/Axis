@@ -74,6 +74,10 @@ export interface EditorSurface {
   swap: (a: Cell, b: Cell) => Promise<void>;
   copyBlock: (cell?: Cell) => Promise<void>;
   pasteBlock: (row: number, col: number) => Promise<void>;
+  /** Move an entire grid row / column one position (audit §2.9 grid border sliders). Bounded by the
+   *  decoded device grid shape; refuses off-edge shifts through the planner. */
+  shiftRow: (row: number, dir: -1 | 1) => Promise<void>;
+  shiftColumn: (col: number, dir: -1 | 1) => Promise<void>;
   armLink: (c: Cell) => void;
   cancelLink: () => void;
   completeLink: (row: number, col: number) => Promise<void>;
@@ -87,6 +91,13 @@ export interface EditorSurface {
   channelClip: ChannelClip | null;
   copyChannel: () => void;
   pasteChannel: () => Promise<void>;
+  /** Channel ops that span scenes / blocks (audit §2.10 remainder) — see `channelOps.ts`. */
+  readonly sceneCount: number;
+  readonly canPasteChannelAcrossBlocks: boolean;
+  /** Set the open block's channel in EVERY scene, then return to the origin scene. */
+  setChannelAcrossScenes: () => Promise<void>;
+  /** Paste the copied channel onto the open block (only when the clip came from a different block). */
+  pasteChannelAcrossBlocks: () => Promise<void>;
   /** Toggle the block's served "Scene Ignore" flag. */
   setSceneIgnore: (on: boolean) => Promise<void>;
 
