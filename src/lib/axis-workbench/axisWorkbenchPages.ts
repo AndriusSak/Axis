@@ -132,15 +132,9 @@ export const AXIS_SECONDARY_PAGE_SPECS: AxisPagePanelSpec[] = [
     pageId: AXIS_PAGE_SCENES,
     label: NAV_LABELS.scenes,
     panelId: 'axis.scenes',
-    panelType: 'axis.placeholder',
-    panelTitle: 'Scenes',
-    singletonKey: 'axis.scenes',
-    state: {
-      glyph: '◪',
-      heading: 'Scenes',
-      description: 'Scene snapshots, per-scene bypass and level rides dock here in a later phase.',
-      meta: 'Meanwhile · switch scenes from the Scenes widget in the top bar'
-    }
+    panelType: 'axis.sceneManager',
+    panelTitle: 'Scene Manager',
+    singletonKey: 'axis.scenes'
   },
   {
     pageId: AXIS_PAGE_LIVE,
@@ -431,5 +425,23 @@ export function ensureAxisConvertPage(doc: WorkbenchDocument): WorkbenchDocument
   return doc;
 }
 
-// Re-exported for tests / callers that want to introspect the active seed page.
+/**
+ * Heal the Scenes page panel on persisted documents: the Scenes panel shipped as an `axis.placeholder`
+ * stub and is now the real Scene Manager (`axis.sceneManager`, parity audit §2.1). Marker-free and
+ * idempotent (like `ensureAxisConvertPage`) — retypes the stale panel and drops its placeholder `state`,
+ * but only touches a panel still carrying the placeholder type, so a user's own retype is left alone.
+ * Runs in the normalization chain so an already-persisted document self-heals without a version bump.
+ */
+export function ensureAxisSceneManagerPanel(doc: WorkbenchDocument): WorkbenchDocument {
+  for (const layout of Object.values(doc.layouts ?? {})) {
+    if (!layout || typeof layout !== 'object') continue;
+    const panel = layout.panels?.['axis.scenes'];
+    if (panel && panel.type === 'axis.placeholder') {
+      panel.type = 'axis.sceneManager';
+      panel.title = 'Scene Manager';
+      delete panel.state;
+    }
+  }
+  return doc;
+}
 export { activeWorkbenchPage, selectActiveLayout, specForPage, specForPanel };

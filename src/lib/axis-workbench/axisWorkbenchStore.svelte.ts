@@ -15,7 +15,7 @@ import {
 } from './axisWorkbenchBackups';
 import { registerAxisWorkbenchBindings } from './axisWorkbenchBindings';
 import { createAxisWorkbenchDefaultDocument, ensureAxisGridControlWidgets, pruneAxisRetiredRailWidgets } from './axisWorkbenchDefaults';
-import { ensureAxisConvertPage, ensureAxisSeedPages } from './axisWorkbenchPages';
+import { ensureAxisConvertPage, ensureAxisSceneManagerPanel, ensureAxisSeedPages } from './axisWorkbenchPages';
 import { AXIS_MOBILE_PROFILE_ID } from './axisWorkbenchLayoutActions';
 
 export const AXIS_WORKBENCH_CONFIG_DOC = 'workbench';
@@ -63,7 +63,9 @@ export function normalizeAxisWorkbenchDocument(input: unknown): WorkbenchDocumen
   // runs after ensureAxisSeedPages so a pre-Pages doc already has its `pages` map, and is idempotent.
   return ensureAxisMobileBottomNav(
     pruneAxisRetiredRailWidgets(
-      ensureAxisGridControlWidgets(ensureAxisConvertPage(ensureAxisSeedPages(migrateWorkbenchDocument(input))))
+      ensureAxisSceneManagerPanel(
+        ensureAxisGridControlWidgets(ensureAxisConvertPage(ensureAxisSeedPages(migrateWorkbenchDocument(input))))
+      )
     )
   );
 }

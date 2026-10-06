@@ -81,20 +81,25 @@ Verified present and wired:
 
 Ordered roughly by user value on an FM3.
 
-### 2.1 Scene Manager — **Absent** (whole surface)
+### 2.1 Scene Manager — **Done (v1 — bypass/channel)** · 2026-10-06
 FM3-Edit has a dedicated **Scene Manager** and a Scenes dropdown with **copy / paste / swap scenes,
-engage-all / bypass-all blocks per scene**; the FM3 hardware has the same operations. Axis only
-*switches* and *renames* scenes (`editor.selectScene`, `editor.renameScene`; grep for
-`copyScene|pasteScene|swapScene|engageAll|bypassAll` in `src/lib` → **0 hits**).
-- The workbench **Scenes page is a placeholder** (`axisWorkbenchPages.ts:132-144` →
-  `axis.placeholder`, `AxisPlaceholderPanel.svelte`) — text says "dock here in a later phase".
-- Also missing: **Scene Ignore per block** (see §3.1) and **scene-level "Set all CS" / control-switch
-  state per scene** (catalog carries `PRESET_FC_SCENE*_CS*_MODE`, 51 params — reachable via the
-  generic codec but no UI).
-- **Next step:** scenes page → real panel: 8 named scene cards with copy/paste/swap, per-scene
-  bypass/channel matrix from `GET /preset/scene-state`, and bulk engage/bypass writes. Device writes
-  go through existing `POST /scene` + per-block `POST /preset/blocks/:eid/bypass` (needs `setScene`
-  expanded or a new scene-ops endpoint — see §6.3).
+engage-all / bypass-all blocks per scene**; the FM3 hardware has the same operations. Axis now ships a
+real **Scene Manager** page: 8 named scene cards with copy / paste / swap (within the preset), a
+per-scene bypass+channel matrix from `GET /preset/scene-state`, and bulk engage-all / bypass-all per
+scene. All device work is a **client-side sequence over the existing endpoints** — no new route:
+`POST /scene` (switch), `GET /preset/scene-state` (read the active scene), `POST
+/preset/blocks/:eid/bypass` + `/channel` (write) — composed in `src/lib/sceneOps.ts`
+(`planSceneApply` / `copyScene` / `swapScenes` / `bulkBypass` / `scanSceneMatrix`), wired by
+`AxisSceneManagerPanel.svelte` (panel type `axis.sceneManager`). On Fractal hardware a scene IS a
+per-block bypass + channel (X/Y) map, so this sequence is a faithful copy/swap — §6.3 is resolved
+without new ops or a preset-binary parser.
+- ~~The workbench Scenes page is a placeholder~~ — replaced by the real panel; a persisted document's
+  stale `axis.placeholder` Scenes panel self-heals via `ensureAxisSceneManagerPanel` (marker-free).
+- Still missing: **scene-level "Set all CS" / control-switch state per scene** (catalog carries
+  `PRESET_FC_SCENE*_CS*_MODE`, 51 params — reachable via the generic codec but no UI), and
+  **scene-controller / per-scene param values** beyond bypass+channel (scene controllers are surfaced
+  by the Controllers screen; a whole-scene param dump needs the §6.4 preset-binary parser).
+- Scene Ignore per block is **done** (see §3.1).
 
 ### 2.2 Perform / Live view — **Absent** (whole surface)
 FM3-Edit exposes **Global Performance pages** and **Per-Preset Performance pages** (assign any
@@ -245,8 +250,9 @@ read-back yet — sensible defaults from the design's defaultMod)"* (line ~78).
 - **Next step:** the modifier state lives in the preset body; a read path over the mod virtual effect
   (or the preset-binary parser, §6.4) is the blocker.
 
-### 3.3 Scenes page & Live page — **Stub**
-Placeholder panels only (§2.1, §2.2). No dead-end (the no-dead-nav rule is honoured) but no feature.
+### 3.3 Scenes page & Live page — **Scenes done, Live stub**
+The Scenes page is now the real Scene Manager (§2.1). The Live page remains a placeholder panel (§2.2).
+No dead-end (the no-dead-nav rule is honoured).
 
 ### 3.4 Preset browser device-slot actions — **Stub**
 `PresetBrowser.svelte:519` `const SOON = new Set(['duplicate', 'removeDevice', 'delete'])` — the
@@ -370,7 +376,11 @@ not surfaced — see §3.6 item 3.
    `unverified` pids; open Setup on a clean store and diff the rendered controls against the catalog.
 3. **Scene ops over the wire.** `setScene` is deliberately fire-and-forget (`BACKLOG.md` W1.1: scene is
    not in the write-protocol op table). Copy/swap/bulk scenes need a plan: either new ops (verify they
-   exist) or a client-side dump→store sequence.
+   exist) or a client-side dump→store sequence. **RESOLVED 2026-10-06 (§2.1):** no wire op is needed —
+   a scene IS a per-block bypass+channel (X/Y) map, so copy/paste/swap/engage-all/bypass-all are
+   client-side sequences over the EXISTING `POST /scene` + `GET /preset/scene-state` +
+   `POST /preset/blocks/:eid/bypass|channel` (see `src/lib/sceneOps.ts`). A whole-scene param dump
+   (beyond bypass/channel) still needs the preset-binary model below.
 4. ~~**Is a preset-binary parser in scope?**~~ **ANSWERED 2026-10-06: it already exists.** `forgefx-midi/
    src/devices/gen3/presetDump.ts` handles the 0x77/0x78/0x79 read chain and `presetBody.ts` decodes
    grid / channels / types / amp knobs / **modifiers** / scene controllers; `ForgeFX` exposes it via
@@ -399,7 +409,9 @@ not surfaced — see §3.6 item 3.
    `GET /diag/ranges` in the UI) is still **open** — cheap, no new endpoint.
 
 **Moderate (new endpoints / structured UI)**
-7. **Scene Manager page** (§2.1) with copy/swap/bulk engage — needs §6.3 resolved.
+7. ~~**Scene Manager page** (§2.1) with copy/swap/bulk engage~~ — **DONE 2026-10-06**
+   (`sceneOps.ts` + `AxisSceneManagerPanel.svelte`, panel type `axis.sceneManager`); §6.3 resolved via
+   client-side sequences over the existing endpoints (no new route).
 8. **Setup expansion**: MIDI/Remote tables + FC config (§2.8) — needs §6.2 and possibly new ops.
 9. **FC Edit completion**: per-preset switches, layout links, CS MIDI, devices/config, layout
    import/export (§3.8).

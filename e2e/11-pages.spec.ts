@@ -41,7 +41,9 @@ const SEED_PAGES: { entry: string; pageId: string; probe: (page: import('@playwr
     entry: 'scenes',
     pageId: 'axis.page.scenes',
     probe: async (page) => {
-      await expect(page.locator('.aw-tabstack[data-region="main"] .aw-pane-tab').filter({ hasText: 'Scenes' })).toHaveCount(1);
+      // The Scenes page is the real Scene Manager (parity audit §2.1), not the placeholder.
+      await expect(page.locator('.aw-tabstack[data-region="main"] .aw-pane-tab').filter({ hasText: 'Scene Manager' })).toHaveCount(1);
+      await expect(page.locator('.scene-mgr')).toHaveCount(1);
     }
   },
   {
