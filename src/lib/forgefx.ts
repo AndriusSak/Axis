@@ -38,6 +38,7 @@ import type {
   ConvertExportResponse,
   ConverterPreset
 } from './types';
+import { rangeQuery, type RangeTrace } from './rangeTrace';
 
 const BASE = import.meta.env.VITE_FORGEFX_BASE ?? '/api';
 
@@ -389,6 +390,10 @@ export const forgefx = {
     req<FcReadState>(`/fc/state?layout=${layout}&view=${view}&switch=${sw}`),
   // ── telemetry / diagnostics ──
   diag: () => req<unknown>('/diag'),
+  /** Read-only range trace: per paramId, the row that SERVES it vs the static CATALOGUE row. Answers
+   *  "why is this control missing?" — a served-vs-null `serving` means an allowlist gate (KNOB_UNITS)
+   *  dropped it, not that the profile is missing it. See rangeTrace.ts. */
+  diagRanges: (family?: string, pid?: number) => req<RangeTrace>(rangeQuery(family, pid)),
   telemetryStatus: () => req<TelemetryStatus>('/telemetry/status'),
   /** Device-telemetry polling-mode config (META-17). Transport-agnostic — routes through req() so it
    *  works in local/remote/direct automatically. 404/501 on OLD servers → treat as unsupported. */
