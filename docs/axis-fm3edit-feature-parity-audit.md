@@ -101,16 +101,27 @@ without new ops or a preset-binary parser.
   by the Controllers screen; a whole-scene param dump needs the §6.4 preset-binary parser).
 - Scene Ignore per block is **done** (see §3.1).
 
-### 2.2 Perform / Live view — **Absent** (whole surface)
+### 2.2 Perform / Live view — **Done (v1 — locally-persisted page)** · 2026-10-06
 FM3-Edit exposes **Global Performance pages** and **Per-Preset Performance pages** (assign any
-parameter to a big performance knob/switch). Axis's **Live page is a placeholder**
-(`axisWorkbenchPages.ts:146-158`), and the legacy rail's **Perform** entry is a "coming soon" toast
-(`ToolRail.svelte:11, 68-69`). No performance-page data model anywhere.
-- **Next step:** scope as a *view* over params (a page definition = an ordered list of
-  `(family, paramId)` bindings), persisted per-preset or globally. The workbench widget system
-  (`axis.paramControl`, pinning) already supplies most of the rendering; what's missing is the page
-  model + a full-screen presentation + device-side persistence story (whether FM3 stores performance
-  pages in the preset binary — **needs RE**, see §6.4).
+parameter to a big performance knob/switch). Axis's Live page was a placeholder
+(`axisWorkbenchPages.ts`), and the legacy rail's **Perform** entry is a "coming soon" toast
+(`ToolRail.svelte:11, 68-69`). Axis now ships a real **Performance / Live** page: an ordered list of
+`(family, paramId)` bindings rendered full-screen as **large, Deck-friendly tap targets** (− / + step
+for knobs, tap-to-cycle for enums), plus quick access to scenes, preset prev/next, the tuner, and tap
+tempo. Built on the workbench widget machinery's pinned-control path (`editor.setPinnedParam` /
+`setPinnedEnum` + `registerPinnedBlock`), so a bound block reads/writes live even while another block
+is open. The model + helpers live in `src/lib/performancePage.ts` (unit-tested); the panel is
+`panels/AxisLivePanel.svelte` (+ `PerformanceTile.svelte`), panel type `axis.live`, wired through the
+page spec / registry / normalization chain with a marker-free self-heal (`ensureAxisLivePanel`) for
+persisted placeholder docs.
+- **Persistence is LOCAL ONLY.** Whether the FM3 stores performance pages in the preset binary or in
+  system memory is **unknown** (see §6.5) — so the page definition is persisted in `localStorage`
+  (`axis.performancePage.v1`), is **never written to the device**, and the UI says so explicitly. No
+  endpoint was invented.
+- The legacy rail's **Perform** entry (§ToolRail) is still a toast — it is a separate legacy surface
+  from the workbench Live page and was left untouched.
+- **Next step:** device-side storage needs RE (§6.5). If it turns out the FM3 stores Global/Per-Preset
+  performance pages, this local model is what would be serialised into that region.
 
 ### 2.3 Sets & Songs (Setlists) — **Absent** (whole surface)
 FM3 firmware ≥ 9 exposes **Setlists/Songs** (custom preset/scene order for live use) and FM3-Edit has
@@ -250,9 +261,9 @@ read-back yet — sensible defaults from the design's defaultMod)"* (line ~78).
 - **Next step:** the modifier state lives in the preset body; a read path over the mod virtual effect
   (or the preset-binary parser, §6.4) is the blocker.
 
-### 3.3 Scenes page & Live page — **Scenes done, Live stub**
-The Scenes page is now the real Scene Manager (§2.1). The Live page remains a placeholder panel (§2.2).
-No dead-end (the no-dead-nav rule is honoured).
+### 3.3 Scenes page & Live page — **Scenes done, Live done**
+The Scenes page is now the real Scene Manager (§2.1). The Live page is now the real Performance / Live
+page (§2.2). No dead-end (the no-dead-nav rule is honoured).
 
 ### 3.4 Preset browser device-slot actions — **Stub**
 `PresetBrowser.svelte:519` `const SOON = new Set(['duplicate', 'removeDevice', 'delete'])` — the

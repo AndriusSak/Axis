@@ -51,7 +51,10 @@ const SEED_PAGES: { entry: string; pageId: string; probe: (page: import('@playwr
     entry: 'live',
     pageId: 'axis.page.live',
     probe: async (page) => {
+      // The Live page is the real Performance / Live panel (parity audit §2.2), not the placeholder —
+      // the TAB keeps the established page label 'Live' (NAV_LABELS.live).
       await expect(page.locator('.aw-tabstack[data-region="main"] .aw-pane-tab').filter({ hasText: 'Live' })).toHaveCount(1);
+      await expect(page.locator('.perf')).toHaveCount(1);
     }
   },
   {

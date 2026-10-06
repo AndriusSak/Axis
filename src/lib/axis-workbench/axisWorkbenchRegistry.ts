@@ -11,6 +11,7 @@ import AxisCustomPanel from './panels/AxisCustomPanel.svelte';
 import AxisDockActionPanel from './panels/AxisDockActionPanel.svelte';
 import AxisFcPanel from './panels/AxisFcPanel.svelte';
 import AxisHistoryDockPanel from './panels/AxisHistoryDockPanel.svelte';
+import AxisLivePanel from './panels/AxisLivePanel.svelte';
 import AxisPlaceholderPanel from './panels/AxisPlaceholderPanel.svelte';
 import AxisPresetBrowserPanel from './panels/AxisPresetBrowserPanel.svelte';
 import AxisSceneManagerPanel from './panels/AxisSceneManagerPanel.svelte';
@@ -53,6 +54,7 @@ AXIS_WORKBENCH_BASE_PANEL_TYPES.forEach((type) => {
     type === 'axis.virtualScreen' ? AxisVirtualScreenPanel :
     type === 'axis.placeholder' ? AxisPlaceholderPanel :
     type === 'axis.sceneManager' ? AxisSceneManagerPanel :
+    type === 'axis.live' ? AxisLivePanel :
     type === 'axis.convertGrid' ? AxisConvertGridPanel :
     type === 'axis.convertBlockEditor' ? AxisConvertBlockEditorPanel :
     type === 'axis.convertMinimap' ? AxisConvertMinimapPanel :
@@ -163,15 +165,9 @@ registry.registerAction(
   createAxisNavigationPanelAction({
     actionId: 'axis.openLive',
     panelId: 'axis.live',
-    panelType: 'axis.placeholder',
+    panelType: 'axis.live',
     title: 'Live',
-    region: 'main',
-    state: {
-      glyph: '⏺',
-      heading: 'Live',
-      description: 'The performance / setlist view docks here in a later phase.',
-      meta: 'Meanwhile · use the Footswitches editor for live control'
-    }
+    region: 'main'
   })
 );
 registry.registerAction(createAxisPinSelectedParametersAction());
