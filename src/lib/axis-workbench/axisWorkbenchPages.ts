@@ -140,15 +140,9 @@ export const AXIS_SECONDARY_PAGE_SPECS: AxisPagePanelSpec[] = [
     pageId: AXIS_PAGE_LIVE,
     label: NAV_LABELS.live,
     panelId: 'axis.live',
-    panelType: 'axis.placeholder',
+    panelType: 'axis.live',
     panelTitle: 'Live',
-    singletonKey: 'axis.live',
-    state: {
-      glyph: '⏺',
-      heading: 'Live',
-      description: 'The performance / setlist view docks here in a later phase.',
-      meta: 'Meanwhile · use the Footswitches editor for live control'
-    }
+    singletonKey: 'axis.live'
   },
   {
     pageId: AXIS_PAGE_SETUP,
@@ -439,6 +433,26 @@ export function ensureAxisSceneManagerPanel(doc: WorkbenchDocument): WorkbenchDo
     if (panel && panel.type === 'axis.placeholder') {
       panel.type = 'axis.sceneManager';
       panel.title = 'Scene Manager';
+      delete panel.state;
+    }
+  }
+  return doc;
+}
+
+/**
+ * Heal the Live page panel on persisted documents: the Live panel shipped as an `axis.placeholder`
+ * stub and is now the real Performance / Live page (`axis.live`, parity audit §2.2). Marker-free and
+ * idempotent (like `ensureAxisSceneManagerPanel`) — retypes the stale panel and drops its placeholder
+ * `state`, but only touches a panel still carrying the placeholder type, so a user's own retype is
+ * left alone. Runs in the normalization chain so an already-persisted document self-heals.
+ */
+export function ensureAxisLivePanel(doc: WorkbenchDocument): WorkbenchDocument {
+  for (const layout of Object.values(doc.layouts ?? {})) {
+    if (!layout || typeof layout !== 'object') continue;
+    const panel = layout.panels?.['axis.live'];
+    if (panel && panel.type === 'axis.placeholder') {
+      panel.type = 'axis.live';
+      panel.title = 'Live';
       delete panel.state;
     }
   }
