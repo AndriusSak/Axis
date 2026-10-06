@@ -129,6 +129,7 @@
   let containerEl = $state<HTMLElement | null>(null);
   let boardEl = $state<HTMLElement | null>(null);
   let containerW = $state(900);
+  let containerH = $state(0);
   let vw = $state(typeof window !== 'undefined' ? window.innerWidth : 1100);
   let cols = $state(12);
   let rows = $state(4);
@@ -233,7 +234,7 @@
   );
   // cell = exactly the width split across the shown columns, so the board ALWAYS fills the width
   // (fewer cols = bigger tiles). Min keeps tiles legible; the col count drops before tiles get tiny.
-  const cell = $derived(Math.max(isMobile ? 60 : 48, Math.floor((containerW - (displayCols - 1) * GAP) / displayCols)));
+  // (The final `cell` is computed below, after `viewRows`, so it can also honour a height fit.)
   // a device-authentic Default board tags its widgets with a source `row`; the free-arranged boards don't
   const rowGrouped = $derived(widgets.some((w) => w.row != null));
   // re-pack the arranged widgets into the shown columns whenever the arrangement doesn't fit them.
@@ -250,6 +251,20 @@
   );
   // board height = content extent, with `rows` as a minimum in arrange — grows downward, never sideways
   const viewRows = $derived(Math.max(editMode ? rows : 1, 1, ...viewWidgets.map((w) => w.y + w.h)));
+  // cell = exactly the width split across the shown columns, so the board ALWAYS fills the width
+  // (fewer cols = bigger tiles). Min keeps tiles legible; the col count drops before tiles get tiny.
+  const widthCell = $derived(Math.max(isMobile ? 60 : 48, Math.floor((containerW - (displayCols - 1) * GAP) / displayCols)));
+  // Fit-to-view (height): the pane the board sits in is short (a docked drawer). If the width-sized
+  // cell would make the board taller than the pane, shrink the cell so the WHOLE board fits and does
+  // not scroll — the board is the point of the editor; a slightly smaller tile beats a hidden row.
+  // Skipped in arrange mode (the user is choosing real cell sizes) and before any measurement.
+  const heightCell = $derived.by(() => {
+    if (editMode || containerH <= 0) return Infinity;
+    const usable = containerH - 32; // .content padding (16px each side)
+    if (usable <= 0) return Infinity;
+    return Math.floor((usable - (viewRows - 1) * GAP) / viewRows);
+  });
+  const cell = $derived(Math.max(isMobile ? 60 : 48, Math.min(widthCell, heightCell)));
   // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
   // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
   const viewHeaders = $derived(viewWidgets.filter((w) => w.view === 'header'));
@@ -483,7 +498,9 @@
     if (!containerEl || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       const w = (containerEl?.clientWidth ?? 0) - 32;
+      const h = containerEl?.clientHeight ?? 0;
       if (w > 0 && Math.abs(w - containerW) > 1) containerW = w;
+      if (h > 0 && Math.abs(h - containerH) > 1) containerH = h;
     });
     ro.observe(containerEl);
     return () => ro.disconnect();
@@ -1306,14 +1323,14 @@
 </div>
 
 {#if searching}
-  <!-- live search results: every matching control, flat, ignoring tabs -->
+  <!-- live search results: a COMPACT single-column list — one row per match, so a short pane shows
+       many matches instead of one full control card. Each row keeps a working, inline control. -->
   <div class="content scroll">
     <div class="results">
       {#each matches as c (c.key)}
         {@const view = viewOf(c)}
         <div
-          class="restile"
-          class:wide={c.kind === 'select' || (c.kind === 'cont' && view === 'slider')}
+          class="resrow"
           class:nobg={c.kind === 'action'}
           role="group"
           aria-label={c.label}
@@ -1322,71 +1339,87 @@
           use:longPress={{ onLongPress: (d) => onPinLongPress(c, d) }}
         >
           {#if c.kind === 'cont' && view === 'knob'}
-            <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-            <div class="dialwrap" style:width="60px" style:height="60px"
-              onpointerdown={(e) => resKnobDown(e, c.id)}
-              onmouseenter={(e) => { if (!isMobile) showTip(e.currentTarget, c.id, false); }}
-              onmouseleave={() => { if (!dragging && !tip?.edit) tip = null; }}
-              ondblclick={(e) => showTip(e.currentTarget, c.id, true)}>
-              <svg width="60" height="60" viewBox="0 0 64 64" style="display:block">
-                <circle cx="32" cy="32" r="25" fill="none" style="stroke:var(--border2)" stroke-width="5" stroke-linecap="round" stroke-dasharray="117.8 300" transform="rotate(135 32 32)" />
-                <circle cx="32" cy="32" r="25" fill="none" stroke={accent} stroke-width="5" stroke-linecap="round" stroke-dasharray="{((pct(c.id) / 100) * 117.8).toFixed(1)} 300" transform="rotate(135 32 32)" />
-                <circle cx="32" cy="32" r="15" style="fill:var(--surface2)" stroke="#000" stroke-width="1" />
-                <g transform="rotate({knobRot(pct(c.id))} 32 32)"><circle cx="32" cy="20" r="2.8" fill="#f5a623" /></g>
-              </svg>
-            </div>
-            <div class="lbl">{c.label}</div>
-          {:else if c.kind === 'cont' && view === 'fader'}
-            {#if editingKey === c.key}
-              <input id="cs-input" class="kinput rel" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
-            {:else}
+            <span class="reslbl" title={c.label}>{c.label}</span>
+            <span class="resctl">
               <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-              <div class="kval rel" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
-            {/if}
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="vtrack" onpointerdown={(e) => onTrackDown(e, c.key, c.id, true)}>
-              <div class="vfill" style:height="{pct(c.id)}%"></div>
-              <div class="vhandle" style:bottom="calc({pct(c.id)}% - 8px)"></div>
-            </div>
-            <div class="lbl">{c.label}</div>
-          {:else if c.kind === 'cont' && view === 'number'}
-            <div class="numrow">
-              <button class="step" onclick={() => nudge(c.id, -1)}>−</button>
+              <div class="dialwrap resdial"
+                onpointerdown={(e) => resKnobDown(e, c.id)}
+                onmouseenter={(e) => { if (!isMobile) showTip(e.currentTarget, c.id, false); }}
+                onmouseleave={() => { if (!dragging && !tip?.edit) tip = null; }}
+                ondblclick={(e) => showTip(e.currentTarget, c.id, true)}>
+                <svg width="34" height="34" viewBox="0 0 64 64" style="display:block">
+                  <circle cx="32" cy="32" r="25" fill="none" style="stroke:var(--border2)" stroke-width="6" stroke-linecap="round" stroke-dasharray="117.8 300" transform="rotate(135 32 32)" />
+                  <circle cx="32" cy="32" r="25" fill="none" stroke={accent} stroke-width="6" stroke-linecap="round" stroke-dasharray="{((pct(c.id) / 100) * 117.8).toFixed(1)} 300" transform="rotate(135 32 32)" />
+                  <circle cx="32" cy="32" r="15" style="fill:var(--surface2)" stroke="#000" stroke-width="1" />
+                  <g transform="rotate({knobRot(pct(c.id))} 32 32)"><circle cx="32" cy="20" r="3.4" fill="#f5a623" /></g>
+                </svg>
+              </div>
               {#if editingKey === c.key}
-                <input id="cs-input" class="kinput big" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
+                <input id="cs-input" class="kinput rel" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
               {:else}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-                <div class="kval big" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
+                <div class="kval rel" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
               {/if}
-              <button class="step" onclick={() => nudge(c.id, 1)}>＋</button>
-            </div>
-            <div class="lbl">{c.label}</div>
+            </span>
+          {:else if c.kind === 'cont' && view === 'fader'}
+            <span class="reslbl" title={c.label}>{c.label}</span>
+            <span class="resctl">
+              {#if editingKey === c.key}
+                <input id="cs-input" class="kinput rel" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
+              {:else}
+                <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+                <div class="kval rel" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
+              {/if}
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="vtrack" onpointerdown={(e) => onTrackDown(e, c.key, c.id, true)}>
+                <div class="vfill" style:height="{pct(c.id)}%"></div>
+                <div class="vhandle" style:bottom="calc({pct(c.id)}% - 8px)"></div>
+              </div>
+            </span>
+          {:else if c.kind === 'cont' && view === 'number'}
+            <span class="reslbl" title={c.label}>{c.label}</span>
+            <span class="resctl">
+              <div class="numrow">
+                <button class="step" onclick={() => nudge(c.id, -1)}>−</button>
+                {#if editingKey === c.key}
+                  <input id="cs-input" class="kinput big" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
+                {:else}
+                  <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+                  <div class="kval big" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
+                {/if}
+                <button class="step" onclick={() => nudge(c.id, 1)}>＋</button>
+              </div>
+            </span>
           {:else if c.kind === 'cont'}
             <!-- slider (default for cont) -->
-            <div class="srow">
-              <span class="slbl">{c.label}</span>
+            <span class="reslbl" title={c.label}>{c.label}</span>
+            <span class="resctl">
               {#if editingKey === c.key}
                 <input id="cs-input" class="kinput" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => (e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null)} onblur={() => commitType(c.id)} />
               {:else}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
                 <div class="kval cy" ondblclick={() => startType(c.key, c.id)} title="Double-click to type">{valText(c.id)}</div>
               {/if}
-            </div>
-            <!-- svelte-ignore a11y_no_static_element_interactions -->
-            <div class="htrack" onpointerdown={(e) => onTrackDown(e, c.key, c.id, false)}>
-              <div class="hfill" style:width="{pct(c.id)}%"></div>
-              <div class="hhandle" style:left="calc({pct(c.id)}% - 8px)"></div>
-            </div>
+              <!-- svelte-ignore a11y_no_static_element_interactions -->
+              <div class="htrack" onpointerdown={(e) => onTrackDown(e, c.key, c.id, false)}>
+                <div class="hfill" style:width="{pct(c.id)}%"></div>
+                <div class="hhandle" style:left="calc({pct(c.id)}% - 8px)"></div>
+              </div>
+            </span>
           {:else if c.kind === 'toggle' && view === 'switch'}
-            <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-            <div class="switch" class:on={togOn(c.id)} onclick={() => toggleEnum(c.id)}><div class="snob"></div></div>
-            <div class="lbl">{c.label}</div>
+            <span class="reslbl" title={c.label}>{c.label}</span>
+            <span class="resctl">
+              <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+              <div class="switch" class:on={togOn(c.id)} onclick={() => toggleEnum(c.id)}><div class="snob"></div></div>
+            </span>
           {:else if c.kind === 'toggle'}
-            <!-- button (default for toggle) -->
-            <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-            <div class="onoff" class:on={togOn(c.id)} onclick={() => toggleEnum(c.id)} title={togLabel(c.id)}>
-              <span class="dot"></span><span class="onoff-l">{c.label}</span>
-            </div>
+            <!-- button (default for toggle) — the label lives inside the control -->
+            <span class="resctl grow">
+              <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+              <div class="onoff" class:on={togOn(c.id)} onclick={() => toggleEnum(c.id)} title={togLabel(c.id)}>
+                <span class="dot"></span><span class="onoff-l">{c.label}</span>
+              </div>
+            </span>
           {:else if c.kind === 'select'}
             <div class="seltop">{c.label}</div>
             <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
@@ -2013,7 +2046,12 @@
     color: var(--accentbright);
   }
   .content {
-    flex: 1 1 auto;
+    /* `flex-basis: 380px` (≈ a three-row board) is load-bearing: with a bare `auto` basis the basis
+       collapses to the current board height, so a small board never bids for space and the auxiliary
+       GridMap keeps whatever it wants — the board then stays small in a fixed point. A fixed basis
+       makes the board compete for the pane; the map's high shrink factor lets it fall back to its
+       header first. Grow still lets the board fill a tall pane. */
+    flex: 1 1 380px;
     /* Floor, not just `min-height: 0`: this is the pane's primary content (the dial board). With a bare
        `flex: 1; min-height: 0` it was the only shrinkable child of the editor card, so in a short pane it
        absorbed the whole deficit and collapsed to a 32px strip — every dial clipped away while the
@@ -2917,36 +2955,82 @@
     cursor: pointer;
     font-size: 11px;
   }
-  /* results = a flat wrap of control tiles (same look as the board cells), respecting each view */
+  /* results = a COMPACT single-column list — one row per match, so a short pane shows many matches
+     instead of one full control card. Rows reuse each control's own view, just laid out horizontally. */
   .results {
     display: flex;
-    flex-wrap: wrap;
-    gap: 10px;
+    flex-direction: column;
+    gap: 6px;
     width: 100%;
     align-content: flex-start;
   }
-  .restile {
-    flex: none;
-    width: 118px;
-    min-height: 112px;
-    box-sizing: border-box;
+  .resrow {
     display: flex;
-    flex-direction: column;
     align-items: center;
-    justify-content: center;
-    gap: 6px;
-    padding: 10px;
-    border-radius: 11px;
+    gap: 12px;
+    width: 100%;
+    min-height: 42px;
+    box-sizing: border-box;
+    padding: 4px 12px;
+    border-radius: 9px;
     background: linear-gradient(180deg, var(--surface), var(--bg2));
     border: 1px solid var(--surface2);
     overflow: visible;
   }
-  .restile.wide {
-    width: 240px;
-  }
-  .restile.nobg {
+  .resrow.nobg {
     background: transparent;
     border-color: transparent;
+    padding: 2px 0;
+  }
+  .reslbl {
+    flex: none;
+    width: 38%;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text2);
+  }
+  .resctl {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+  }
+  .resctl.grow {
+    flex: 1 1 100%;
+  }
+  .resctl .htrack {
+    flex: 1 1 auto;
+    width: auto;
+  }
+  /* selects keep their own label field (.seltop) — make it sit inline in the compact row */
+  .resrow .seltop {
+    flex: none;
+    width: 38%;
+    min-width: 0;
+    align-self: center;
+    margin-bottom: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .resrow .selfield {
+    flex: 1 1 auto;
+    min-width: 0;
+    width: auto;
+  }
+  .resrow .action {
+    flex: none;
+    margin-left: auto;
+  }
+  .resdial {
+    flex: none;
   }
   .nores {
     width: 100%;

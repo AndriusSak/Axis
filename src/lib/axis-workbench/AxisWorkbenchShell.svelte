@@ -19,6 +19,10 @@
     decideAxisMobileBlockFlow,
     type AxisMobileBlockFlowMemory
   } from './axisMobileBlockFlow';
+  import {
+    AXIS_DESKTOP_BLOCK_EXPAND_RATIO,
+    AXIS_MOBILE_BLOCK_EXPAND_RATIO
+  } from './axisMobileBlockFlowConstants';
 
   // Ensure the tablet/mobile profiles exist (seeded from their presets) so the
   // profile switcher always has a layout to show. Idempotent.
@@ -37,13 +41,14 @@
     void axisWorkbenchInit();
   });
 
-  // ── Phone-profile block flow (operator T31 / R9d) ────────────────────────────
-  // On the phone profile only: when a block is active the block editor expands to
-  // ~75% of the height with the grid in map mode above it; when minimized we return
-  // to the column layout. Pure decision core lives in axisMobileBlockFlow.ts; this
-  // effect is the thin wiring — it observes the profile + editor selection and
-  // dispatches the returned commands through the controller (so persistence/undo
-  // stay coherent). Memory is component-local, NOT persisted on the document.
+  // ── Block-open editor flow (phone T31 / R9d; tablet+desktop drawer too) ──────
+  // When a block is active the block editor expands (phone: ~75% of the height with the grid in map
+  // mode above it; tablet/desktop: a smaller share, grid left visible). When the block closes we
+  // return to the seeded layout. Pure decision core lives in axisMobileBlockFlow.ts; this effect is
+  // the thin wiring — it observes the profile + editor selection and dispatches the returned commands
+  // through the controller (so persistence/undo stay coherent). Memory is component-local, NOT
+  // persisted on the document. The desktop/tablet block pane was too short to show a device board
+  // (chrome ate most of the card) — this gives the primary content the height it needs on open.
   let flowMemory: AxisMobileBlockFlowMemory = createAxisMobileBlockFlowMemory();
 
   const profileIsPhone = $derived($axisWorkbenchController.activeProfile?.breakpoint === 'phone');
@@ -59,7 +64,14 @@
     const heightPx = typeof window !== 'undefined' ? window.innerHeight : 0;
 
     const decision = decideAxisMobileBlockFlow(
-      { profileIsPhone: isPhone, blockOpen: open, workbenchHeightPx: heightPx, doc },
+      {
+        profileIsPhone: isPhone,
+        expandEnabled: true,
+        expandRatio: isPhone ? AXIS_MOBILE_BLOCK_EXPAND_RATIO : AXIS_DESKTOP_BLOCK_EXPAND_RATIO,
+        blockOpen: open,
+        workbenchHeightPx: heightPx,
+        doc
+      },
       flowMemory
     );
     flowMemory = decision.memory;
