@@ -48,6 +48,8 @@
         {/if}
       </p>
       <p class="beta mono">⚠ Destructive — overwrites this slot on the unit.</p>
+      <button class="btn revert" onclick={() => { editor.saveOpen = false; void editor.revertPreset(); }}
+        title="Discard all unsaved edits and reload the stored preset from the device">↺ Revert to stored preset — discard edits</button>
       <div class="actions">
         <button class="btn cancel" onclick={() => (editor.saveOpen = false)}>Cancel</button>
         <button class="btn save" onclick={() => editor.save(target)}>{src ? `Save to device ${pad(target)}` : `Save to ${pad(target)}`}</button>
@@ -224,6 +226,23 @@
     flex: 1;
     height: 1px;
     background: var(--border-2, var(--border2));
+  }
+  /* revert-to-stored (discard unsaved edits) — full width, secondary to Save */
+  .revert {
+    display: block;
+    width: 100%;
+    margin: 0 0 14px;
+    background: var(--surface);
+    border: 1px solid var(--border-2, var(--border2));
+    color: var(--text-dim);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .revert:hover {
+    border-color: var(--border-strong, var(--border2));
+    color: var(--text);
   }
   .body b.mono {
     color: var(--accent);

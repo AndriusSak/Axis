@@ -24,7 +24,10 @@
       </header>
 
       {#if !editor.layout.crcValid}
-        <div class="dirty">Edit buffer differs from the stored preset — Save to keep your changes.</div>
+        <div class="dirty">
+          <span class="dirtytext">Edit buffer differs from the stored preset — Save to keep your changes.</span>
+          <button class="rvp" title="Discard all unsaved edits and reload the stored preset from the device" onclick={() => void editor.revertPreset()}>↺ Revert preset</button>
+        </div>
       {/if}
 
       {#if rows.length === 0}
@@ -73,8 +76,12 @@
   .x { width: 26px; height: 26px; border: 0; border-radius: 7px; background: transparent; color: var(--text-mut, #9a9aa3);
     cursor: pointer; font-size: 13px; }
   .x:hover { background: var(--surface-2, #26272c); }
-  .dirty { flex: none; margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
+  .dirty { flex: none; display: flex; align-items: center; gap: 10px; margin-top: 10px; padding: 8px 10px; border-radius: 8px; font-size: 11.5px;
     background: rgba(245, 166, 35, 0.12); border: 1px solid rgba(245, 166, 35, 0.35); color: #f5a623; }
+  .dirtytext { flex: 1; min-width: 0; }
+  .rvp { flex: none; border: 1px solid rgba(245, 166, 35, 0.5); border-radius: 6px; background: transparent; color: #f5a623;
+    font-size: 11px; padding: 3px 8px; cursor: pointer; white-space: nowrap; }
+  .rvp:hover { background: rgba(245, 166, 35, 0.16); }
   .empty { padding: 26px 4px; text-align: center; color: var(--text-mut, #9a9aa3); font-size: 12.5px; }
   .list { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; padding: 10px 0; }
   .row, .mark { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px; font-size: 12.5px; }
