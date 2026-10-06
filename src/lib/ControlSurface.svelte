@@ -129,7 +129,6 @@
   let containerEl = $state<HTMLElement | null>(null);
   let boardEl = $state<HTMLElement | null>(null);
   let containerW = $state(900);
-  let containerH = $state(0);
   let vw = $state(typeof window !== 'undefined' ? window.innerWidth : 1100);
   let cols = $state(12);
   let rows = $state(4);
@@ -254,17 +253,16 @@
   // cell = exactly the width split across the shown columns, so the board ALWAYS fills the width
   // (fewer cols = bigger tiles). Min keeps tiles legible; the col count drops before tiles get tiny.
   const widthCell = $derived(Math.max(isMobile ? 60 : 48, Math.floor((containerW - (displayCols - 1) * GAP) / displayCols)));
-  // Fit-to-view (height): the pane the board sits in is short (a docked drawer). If the width-sized
-  // cell would make the board taller than the pane, shrink the cell so the WHOLE board fits and does
-  // not scroll — the board is the point of the editor; a slightly smaller tile beats a hidden row.
-  // Skipped in arrange mode (the user is choosing real cell sizes) and before any measurement.
-  const heightCell = $derived.by(() => {
-    if (editMode || containerH <= 0) return Infinity;
-    const usable = containerH - 32; // .content padding (16px each side)
-    if (usable <= 0) return Infinity;
-    return Math.floor((usable - (viewRows - 1) * GAP) / viewRows);
-  });
-  const cell = $derived(Math.max(isMobile ? 60 : 48, Math.min(widthCell, heightCell)));
+  // NO height-based "fit-to-view" cell shrink. It was tried and reverted the same day (2026-10-06):
+  // on a tall board (the Amp page's 6+ rows) the height cap clamped the cell to its 48px floor, which
+  // (a) dropped the dials to ~30px — unreadable on the Deck, (b) left the board ~half the pane width
+  // with a large empty gutter (the board only fills the width when the cell IS the width split), and
+  // (c) STILL overflowed the pane — so the shrink bought nothing and cost legibility. A tall board
+  // simply scrolls: the CARD is the scroll container (`.card { overflow-y: auto }`), so the footer
+  // actions stay reachable. The "pane too short" defect is solved by the drawer expansion + GridMap
+  // yielding, never by a smaller tile. Measured: 6-row board @1280×800 went 48px cell / 30px dials /
+  // 440px board in a 672px pane → back to the width split (77px cell, 39px dials, 672px board).
+  const cell = $derived(widthCell);
   // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
   // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
   const viewHeaders = $derived(viewWidgets.filter((w) => w.view === 'header'));
@@ -498,9 +496,7 @@
     if (!containerEl || typeof ResizeObserver === 'undefined') return;
     const ro = new ResizeObserver(() => {
       const w = (containerEl?.clientWidth ?? 0) - 32;
-      const h = containerEl?.clientHeight ?? 0;
       if (w > 0 && Math.abs(w - containerW) > 1) containerW = w;
-      if (h > 0 && Math.abs(h - containerH) > 1) containerH = h;
     });
     ro.observe(containerEl);
     return () => ro.disconnect();

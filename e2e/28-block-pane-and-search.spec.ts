@@ -120,44 +120,123 @@ const visibleRectFn = `
     return { w: Math.max(0, rr - l), h: Math.max(0, b - t) };
   }`;
 
-test.describe('block pane fits a device board without scrolling', () => {
+// ── Mock C: a TALL board (6 rows x 6 knobs) — the Amp "Ideal" page shape. This is the case where a
+// height-based cell cap BINDS. The 3-row Cab board never exercised it, which is exactly how the
+// "everything shrunk" regression shipped: the cap clamped the cell to its 48px floor → 30px dials,
+// the board at ~half the pane width (large empty gutter) AND it still scrolled. ──
+const TALL_ROWS = 6;
+const TALL_AMP = {
+  block: 'Amp', slug: 'amp', page: 12,
+  named: Array.from({ length: TALL_ROWS * 6 }, (_, i) => named(i, `Knob ${i}`)),
+  enums: [],
+  type: { value: 1, name: 'USA MK IV' },
+  layout: {
+    editorName: 'Amp', family: 'AMP', variantName: 'Type', variantValue: 'USA MK IV',
+    pages: [{
+      name: 'Ideal',
+      rows: Array.from({ length: TALL_ROWS }, (_, r) => ({
+        section: 'parameters',
+        controls: [0, 1, 2, 3, 4, 5].map((c) => knobCtl(`Knob ${r * 6 + c}`, r * 6 + c))
+      }))
+    }]
+  }
+};
+
+/**
+ * The invariants that matter for the block board (replaces the old "the board must not scroll"
+ * assertion — that is what drove the shrink-to-illegible regression):
+ *  - dials stay READABLE (a legibility floor on the dial width),
+ *  - the board FILLS the pane width (a shrunken cell leaves a dead gutter),
+ *  - the editor footer stays REACHABLE by scrolling (the card is the scroll container).
+ */
+async function measureBoard(page: Page) {
+  const m = await page.evaluate((visSrc) => {
+    const visible = eval(visSrc) as (el: Element) => { w: number; h: number };
+    const content = document.querySelector('.card .content') as HTMLElement;
+    const card = document.querySelector('.card') as HTMLElement;
+    const board = document.querySelector('.boardwrap') as HTMLElement;
+    const paneW = content.clientWidth;
+    const tpl = getComputedStyle(document.querySelector('.gridlayer') as HTMLElement).gridTemplateColumns;
+    const cell = Math.round(parseFloat(tpl.split(' ')[0]));
+    const dials = [...document.querySelectorAll('.dialwrap, .knob')].map((d) => d.getBoundingClientRect().width);
+    return {
+      paneW,
+      boardW: Math.round(board.getBoundingClientRect().width),
+      boardVisibleW: Math.round(visible(board).w),
+      cell,
+      dialMin: dials.length ? Math.round(Math.min(...dials)) : 0,
+      dialCount: dials.length,
+      // measured at the INITIAL scroll position (before any scrolling)
+      fields: [...document.querySelectorAll('.selfield')].map((f) => {
+        const v = visible(f);
+        return { area: Math.round(v.w * v.h) };
+      }),
+      contentScroll: content.scrollHeight,
+      contentClient: content.clientHeight
+    };
+  }, visibleRectFn);
+  // Reachability of the footer: scroll the card to the end and re-measure.
+  const foot = await page.evaluate(async () => {
+    const card = document.querySelector('.card') as HTMLElement;
+    card.scrollTop = card.scrollHeight;
+    await new Promise((r) => setTimeout(r, 120));
+    const btns = [...document.querySelectorAll('footer.foot button.act')];
+    const vis = (el: Element) => {
+      const b = el.getBoundingClientRect();
+      const c = (document.querySelector('.card') as HTMLElement).getBoundingClientRect();
+      return { w: Math.max(0, Math.min(b.right, c.right) - Math.max(b.left, c.left)), h: Math.max(0, Math.min(b.bottom, c.bottom) - Math.max(b.top, c.top)) };
+    };
+    return { footer: btns.map((b) => Math.round(vis(b).h)) };
+  });
+  return { ...m, ...foot };
+}
+
+test.describe('block board stays legible and fills the pane', () => {
   for (const vp of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
-    test(`whole Cab board + footer visible, both M/S controls usable at ${vp.width}x${vp.height}`, async ({ page }) => {
+    test(`Cab board legible + full width + footer reachable at ${vp.width}x${vp.height}`, async ({ page }) => {
       await bootBlock(page, vp, 'Cab', '4x12 Recto', CAB_PARAMS);
-
-      const m = await page.evaluate((visSrc) => {
-        const visible = eval(visSrc) as (el: Element) => { w: number; h: number };
-        const content = document.querySelector('.card .content') as HTMLElement;
-        const card = document.querySelector('.card') as HTMLElement;
-        const board = document.querySelector('.boardwrap') as HTMLElement;
-        const footBtns = [...document.querySelectorAll('footer.foot button.act')];
-        const fields = [...document.querySelectorAll('.selfield')];
-        return {
-          contentClient: content.clientHeight,
-          contentScroll: content.scrollHeight,
-          cardClient: card.clientHeight,
-          cardScroll: card.scrollHeight,
-          boardH: Math.round(board.getBoundingClientRect().height),
-          boardVisibleH: Math.round(visible(board).h),
-          footer: footBtns.map((b) => Math.round(visible(b).h)),
-          fields: fields.map((f) => ({ area: Math.round(visible(f).w * visible(f).h), h: Math.round(visible(f).h) }))
-        };
-      }, visibleRectFn);
-
+      const m = await measureBoard(page);
       // eslint-disable-next-line no-console
-      console.log('BOARD FIT ' + vp.width + 'x' + vp.height + ' ' + JSON.stringify(m));
+      console.log('BOARD CAB ' + vp.width + 'x' + vp.height + ' ' + JSON.stringify(m));
 
-      // The board's scroller must NOT scroll — the whole board is on screen.
-      expect(m.contentScroll, `board scroller overflows (client=${m.contentClient} scroll=${m.contentScroll})`).toBeLessThanOrEqual(m.contentClient + 2);
-      // The card must not scroll either (that was the "chrome eats the card" symptom).
-      expect(m.cardScroll).toBeLessThanOrEqual(m.cardClient + 2);
-      // The board is fully visible inside the pane.
-      expect(m.boardVisibleH, `board only ${m.boardVisibleH}px of ${m.boardH}px visible`).toBeGreaterThanOrEqual(m.boardH - 2);
-      // The editor's own footer actions stay visible.
+      // Readability floor: dials must not be shrunk into unreadable specks.
+      expect(m.dialMin, `smallest dial ${m.dialMin}px`).toBeGreaterThanOrEqual(36);
+      // The board fills the pane width (no dead gutter from a shrunken cell).
+      expect(m.boardVisibleW, `board ${m.boardVisibleW}px of ${m.paneW}px pane`).toBeGreaterThanOrEqual(m.paneW * 0.9);
+      // Both cab-slot M/S controls are REACHABLE with real area (a readable board is taller than a
+      // short pane, so scrolling is expected — the invariant is reachability, not initial visibility).
+      const reach = await page.evaluate(async () => {
+        const card = document.querySelector('.card') as HTMLElement;
+        const c = card.getBoundingClientRect();
+        const out: number[] = [];
+        for (const f of [...document.querySelectorAll('.selfield')]) {
+          (f as HTMLElement).scrollIntoView({ block: 'center' });
+          await new Promise((r) => setTimeout(r, 80));
+          const b = f.getBoundingClientRect();
+          const w = Math.max(0, Math.min(b.right, c.right) - Math.max(b.left, c.left));
+          const h = Math.max(0, Math.min(b.bottom, c.bottom) - Math.max(b.top, c.top));
+          out.push(Math.round(w * h));
+        }
+        return out;
+      });
+      expect(reach.length).toBe(2);
+      for (const a of reach) expect(a, `M/S control reachable area ${a}`).toBeGreaterThan(200);
+      // Footer actions are reachable (after scrolling the card to its end).
       for (const h of m.footer) expect(h).toBeGreaterThan(4);
-      // Both cab-slot M/S state controls have real, visible area in the pane.
-      expect(m.fields.length).toBe(2);
-      for (const f of m.fields) expect(f.area).toBeGreaterThan(200);
+    });
+
+    test(`TALL board keeps dials legible + fills the pane at ${vp.width}x${vp.height}`, async ({ page }) => {
+      await bootBlock(page, vp, 'Amp', 'USA MK IV', TALL_AMP);
+      const m = await measureBoard(page);
+      // eslint-disable-next-line no-console
+      console.log('BOARD TALL ' + vp.width + 'x' + vp.height + ' ' + JSON.stringify(m));
+
+      // The regression: a height-based cell cap clamped the cell to 48px and dials to ~30px here.
+      expect(m.cell, `cell ${m.cell}px`).toBeGreaterThanOrEqual(60);
+      expect(m.dialMin, `smallest dial ${m.dialMin}px`).toBeGreaterThanOrEqual(36);
+      expect(m.boardVisibleW, `board ${m.boardVisibleW}px of ${m.paneW}px pane`).toBeGreaterThanOrEqual(m.paneW * 0.9);
+      // A tall board may scroll — that is fine — but the footer must stay reachable.
+      for (const h of m.footer) expect(h).toBeGreaterThan(4);
     });
   }
 });
