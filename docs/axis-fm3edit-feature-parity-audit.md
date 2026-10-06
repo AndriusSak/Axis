@@ -295,9 +295,12 @@ read-back yet — sensible defaults from the design's defaultMod)"* (line ~78).
 The Scenes page is now the real Scene Manager (§2.1). The Live page is now the real Performance / Live
 page (§2.2). No dead-end (the no-dead-nav rule is honoured).
 
-### 3.4 Preset browser device-slot actions — **Stub**
-`PresetBrowser.svelte:519` `const SOON = new Set(['duplicate', 'removeDevice', 'delete'])` — the
-context menu renders them but they do nothing. See §2.4.
+### 3.4 Preset browser device-slot actions — **Wired (duplicate/swap), honest stubs for the rest**
+The DEVICE-row context menu now wires **Duplicate** and **Swap with slot** (round 2/3) over the
+copy-by-store sequence in `presetSlotOps.ts`; **Move** and **Delete everywhere** render **disabled with
+a reason** (the FM3 wire protocol has no slot-erase op — see §2.4). The remaining `SOON` set
+(`PresetBrowser.svelte` `['removeDevice','move','delete']`) is only the legacy toast fallback for
+NON-device rows (converted/cloud/local entries). See §2.4.
 
 ### 3.5 Setup / Controllers depend on the virtual-effect mechanism — **Partial**
 Setup = GLOBAL only; Controllers = CONTROLLERS block only. Both are gated on
@@ -306,10 +309,11 @@ screen disappears**. FM3-Edit's Setup is broader (MIDI/Remote, FC config, utilit
 
 ### 3.6 Known UX defects already logged (still open)
 From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"):
-1. **Block pane too short** — at 1440×900 the card is 323 px with 226 px of chrome; a 471 px Cab board
-   is scrolled. Candidate fixes listed there (fold search into the tab row / raise the bottom region /
-   fit-to-view cell scale).
-2. **Control search renders full control cards**, so a short pane shows one match.
+1. **Block pane too short** — **ADDRESSED** (drawer expands on open + GridMap yields). NOTE the
+   "fit-to-view cell scale" candidate was tried and **reverted the same day**: it shrank dials to
+   ~30px on tall boards. The accepted behaviour is a board that always fills the pane width and
+   **scrolls** (the card is the scroll container). See `ControlSurface.svelte`.
+2. **Control search renders full control cards** — **DONE** (compact `.resrow` list; many matches visible).
 3. **`GET /diag/ranges` not surfaced in the UI** — the endpoint that would end the
    "profile-vs-catalogue" guessing class is CLI-only. (It lives in `server/src/app.ts`, NOT in
    `runtime/router.ts` — grep BOTH route files before concluding an endpoint is missing.)
@@ -319,7 +323,10 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
 4. **Pseudo-params (`CABINET_BTN_MUTE<n>`) resolved client-side** by matching a served NAME — fragile;
    the driver could rewrite them server-side.
 5. **Touch targets**: 53 sub-40 px interactive elements at 1280×800 (preset arrows 24×36, slot chips
-   21×22) — a deliberate design decision, not yet taken.
+   21×22) — **ADDRESSED** (already shipped): `AxisWorkbenchWidget.svelte` scopes an enlarged hit area to
+   `@media (pointer: coarse)` via transparent `::after` overlays, leaving desktop density untouched;
+   guarded by `e2e/23-touch-targets.spec.ts` (asserts the coarse hit area grows AND the fine-pointer
+   boxes are unchanged).
 6. **DynaCab 2-axis pad** (Position/Distance sibling binding) verified in e2e only, not on the Deck.
 
 ### 3.7 Unverified device writes / calls (need hardware confirmation)
