@@ -10,8 +10,11 @@
 //   - rename      → editor.renameStoredPreset    (device slots, gated on canRenamePresets)
 //   - cloudUpload → editor.backupPreset+cloudSync (signed in; "Back up"/"Upload"/"Re-upload" by sync state)
 //   - cloudDownload → runtime cloud-version load  (signed in; outdated/cloudOnly rows)
-// The design's Duplicate / Convert / Export-to-disk / Delete-everywhere are NOT emitted here — they are
+// The design's Convert / Export-to-disk / Delete-everywhere are NOT emitted here — they are
 // "Coming soon" or monolith-only flows with no workbench backing yet (see report/deferrals).
+// Duplicate/Swap ARE emitted (audit §2.4) — the copy-by-store sequence (src/lib/presetSlotOps.ts,
+// editor.duplicateStoredPreset/swapStoredPresets) backs them; Move/Delete stay honest DISABLED stubs
+// (no slot-erase primitive exists in the FM3 protocol) so the menu never lies.
 import type { WorkbenchMenuItem } from '../../workbench/svelte/contextMenu';
 
 export type AxisPbMenuActionId =
@@ -19,11 +22,22 @@ export type AxisPbMenuActionId =
   | 'audition'
   | 'favorite'
   | 'rename'
+  | 'duplicate'
+  | 'swap'
+  | 'move'
+  | 'delete'
   | 'crossConvert'
   | 'openConverter'
   | 'deleteConverted'
   | 'cloudUpload'
   | 'cloudDownload';
+
+/** Honest reason shared by Move and Delete everywhere: the wire protocol can't clear a slot. */
+export const AXIS_PB_NO_ERASE_REASON =
+  'Not available — the device protocol has no slot-erase op, so a preset can’t be cleared or moved off a slot from here.';
+/** Reason shown on Duplicate/Swap when the device lacks the dump + edit-buffer-load + store primitives. */
+export const AXIS_PB_NO_COPY_REASON =
+  'Duplicate/swap unavailable — this server or device lacks the dump + edit-buffer-load + store primitives.';
 
 // The subset of an entry the menu builder needs (keeps it decoupled from the full summary type).
 export interface AxisPbMenuEntry {
@@ -44,6 +58,8 @@ export interface AxisPbMenuCaps {
   canRename: boolean;
   /** cloud enabled AND signed in — gates the cloud up/down actions. */
   cloudOn: boolean;
+  /** editor.canCopySlots — device exposes dump + edit-buffer-load + store (src/lib/presetSlotOps). */
+  canCopySlots: boolean;
 }
 
 export interface AxisPbMenuAction {
@@ -51,6 +67,10 @@ export interface AxisPbMenuAction {
   label: string;
   hint?: string;
   danger?: boolean;
+  /** Rendered disabled (no-op) with `reason` as its tooltip — an honest stub, never a silent lie. */
+  disabled?: boolean;
+  /** Human reason surfaced as the item tooltip when `disabled`. */
+  reason?: string;
   separatorBefore?: boolean;
 }
 
@@ -91,6 +111,15 @@ export function buildAxisPbMenuActions(entry: AxisPbMenuEntry, caps: AxisPbMenuC
   if (entry.deviceSlot && !entry.cloudOnly) {
     actions.push({ id: 'audition', label: 'Audition (edit buffer)' });
     if (caps.canRename) actions.push({ id: 'rename', label: 'Rename & save…' });
+    // Device-slot librarian (audit §2.4). Duplicate/Swap are backed by the copy-by-store sequence
+    // (presetSlotOps → editor.duplicateStoredPreset/swapStoredPresets); gated on the device exposing
+    // the dump + edit-buffer-load + store primitives. Move/Delete need a slot-erase op the FM3 wire
+    // protocol does NOT expose, so they render DISABLED carrying the honest reason.
+    const slotGate = (): Pick<AxisPbMenuAction, 'disabled' | 'reason'> =>
+      caps.canCopySlots ? {} : { disabled: true, reason: AXIS_PB_NO_COPY_REASON };
+    actions.push({ id: 'duplicate', label: 'Duplicate to slot…', ...slotGate() });
+    actions.push({ id: 'swap', label: 'Swap with slot…', ...slotGate() });
+    actions.push({ id: 'move', label: 'Move to slot…', disabled: true, reason: AXIS_PB_NO_ERASE_REASON });
   }
   // Cross-device converter (M4): available for every entry — the flow reads the row's .syx and opens the
   // convert dialog seeded with it. Not gated on caps (the converter is best-effort + offline).
@@ -103,6 +132,17 @@ export function buildAxisPbMenuActions(entry: AxisPbMenuEntry, caps: AxisPbMenuC
   if (caps.cloudOn) {
     const cloud = cloudActionFor(entry);
     if (cloud) actions.push(cloud);
+  }
+  // "Delete everywhere" would clear the device slot too → not provable (no erase op) for device rows.
+  if (entry.deviceSlot && !entry.cloudOnly) {
+    actions.push({
+      id: 'delete',
+      label: 'Delete everywhere',
+      danger: true,
+      disabled: true,
+      reason: AXIS_PB_NO_ERASE_REASON,
+      separatorBefore: true
+    });
   }
   return actions;
 }
@@ -117,7 +157,9 @@ export function toWorkbenchMenuItems(
     id: action.id,
     label: action.label,
     hint: action.hint,
+    title: action.reason,
     danger: action.danger,
+    disabled: action.disabled,
     separatorBefore: action.separatorBefore,
     run: () => dispatch(action.id)
   }));
