@@ -23,6 +23,7 @@ import { runSnapshotToFolder, SNAPSHOT_DIR } from './snapshotPreset';
 import { runSaveAsTemplate, templateBytes, TEMPLATE_DIR, type PresetTemplate } from './presetTemplate';
 import { presetTemplates } from './presetTemplates.svelte';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
+import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { blockLibrary } from './blockLibrary.svelte';
 import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
 import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
@@ -168,6 +169,9 @@ class EditorStore {
   blockType = $state<{ value: number; name: string } | null>(null);
   /** Clipboard for "copy channel → paste channel" (footer channel ops). Null until a copy. */
   channelClip = $state<ChannelClip | null>(null);
+  /** Which block the channel clipboard came from — the across-blocks paste only applies to a
+   *  DIFFERENT block, so this is what the footer's enablement is gated on. Null until a copy. */
+  channelClipFrom = $state<{ effectId: number; block: string } | null>(null);
   blockSlug = $state<string | null>(null); // catalog slug of the open block (from blockParams) — gates the looper poll
   /** Looper page telemetry for the open Looper block: waveform envelope (0..1) + playhead + level. */
   looperWave = $state<{ wave: number[]; position: number | null; level: number | null } | null>(null);
@@ -1687,6 +1691,7 @@ class EditorStore {
     const c = this.selected;
     if (!c?.pack) return;
     this.channelClip = captureChannel(c.display, c.channel ?? null, this.params, this.enums);
+    this.channelClipFrom = { effectId: c.effectId, block: c.display };
     const n = this.channelClip.knobs.length + this.channelClip.enums.length;
     this.showToast(`Copied channel ${c.channel ?? '?'} — ${n} values`, '#35c9d6');
   };
@@ -1706,6 +1711,70 @@ class EditorStore {
     history.checkpoint(`Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}`, false); // logged, not undoable (per-param history is noisy)
     await this.#loadParams();
     this.showToast(`Pasted ${writes.length} values from channel ${clip.channel ?? '?'}`, '#33c46b');
+  };
+
+  /** True when a copied channel exists AND it came from a DIFFERENT block than the open one — the
+   *  across-blocks paste is only meaningful then (there is nothing to copy across otherwise). */
+  get canPasteChannelAcrossBlocks(): boolean {
+    const c = this.selected;
+    return !!c?.pack && !!this.channelClip && !!this.channelClipFrom && this.channelClipFrom.effectId !== c.effectId;
+  }
+
+  // ── channel ops that span scenes / blocks (parity audit §2.10 remainder) ────────────────────────
+  // Pure planners + injectable IO live in channelOps.ts; these bind them to `forgefx`. Both report
+  // exactly what was written and what was not.
+
+  /** Set the open block's channel in EVERY scene, then return to the scene the user was on.
+   *  Sequence: POST /scene per scene + POST /preset/blocks/:eid/channel; ALWAYS restores the origin
+   *  scene, reporting honestly when the restore itself fails. */
+  setChannelAcrossScenes = async () => {
+    const c = this.selected;
+    const channel = c?.channel ?? null;
+    if (!c?.pack || !channel || this.sceneCount < 1) return;
+    const origin = this.scene - 1; // UI scene is 1-based; the device is 0-based
+    const plan = planSetChannelAcrossScenes(c.effectId, channel, this.sceneCount);
+    const report = await applySetChannelAcrossScenes(
+      plan,
+      { setScene: (i) => forgefx.setScene(i), setChannel: (eid, ch) => forgefx.setChannel(eid, ch) },
+      origin
+    );
+    if (report.written.length) history.checkpoint(`Channel ${channel} → ${report.written.length} scene(s)`, false);
+    if (!report.restoreOk) {
+      this.showToast(`Channel set, but could NOT return to scene ${this.scene}`, '#d6543f');
+    } else if (report.failed.length) {
+      this.showToast(`Channel ${channel}: ${report.written.length} scene(s) set, ${report.failed.length} failed`, '#f5a623');
+    } else {
+      this.showToast(`Channel ${channel} set in all ${report.written.length} scenes`, '#33c46b');
+    }
+    await this.#refreshScene(); // re-read the (restored) scene's per-block channel
+  };
+
+  /** Paste the copied channel onto the open block's CURRENT channel — but only when the clipboard came
+   *  from a DIFFERENT block. Reuses blockOps' pasteChannelWrites via channelOps.ts and reports what was
+   *  written, what the target block cannot take (dropped), and what the device rejected. */
+  pasteChannelAcrossBlocks = async () => {
+    const c = this.selected;
+    const clip = this.channelClip;
+    const from = this.channelClipFrom;
+    if (!c?.pack || !clip || !from) return;
+    const plan = planCopyChannelAcrossBlocks(clip, from.effectId, c.effectId, c.channel ?? null, this.params, this.enums);
+    if (plan.sameBlock) {
+      this.showToast('Copy the channel from a different block first', '#f5a623');
+      return;
+    }
+    if (!plan.writes.length) {
+      this.showToast('This block exposes none of the copied values', '#f5a623');
+      return;
+    }
+    const report = await applyCopyChannelAcrossBlocks(plan, {
+      setParam: (eid, paramId, value, continuous) => forgefx.setParam(eid, paramId, value, continuous)
+    });
+    history.checkpoint(`Pasted channel ${clip.channel ?? '?'} (${from.block}) → ${c.display}/${c.channel ?? '?'}`, false);
+    await this.#loadParams();
+    const bits = [`${report.ok} written`];
+    if (report.dropped) bits.push(`${report.dropped} not exposed`);
+    if (report.failed) bits.push(`${report.failed} failed`);
+    this.showToast(`Pasted into ${c.display}: ${bits.join(', ')}`, report.failed ? '#f5a623' : '#33c46b');
   };
 
   /** Toggle the block's served "Scene Ignore" flag (bypass state is not recalled per scene).
