@@ -272,6 +272,9 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
 3. **`GET /diag/ranges` not surfaced in the UI** — the endpoint that would end the
    "profile-vs-catalogue" guessing class is CLI-only. (It lives in `server/src/app.ts`, NOT in
    `runtime/router.ts` — grep BOTH route files before concluding an endpoint is missing.)
+   **ADDRESSED:** the Device Tools modal now has a "Range trace" panel
+   (`src/lib/DeviceTools.svelte` + `src/lib/rangeTrace.ts`) that queries the endpoint by family/pid
+   and shows, per paramId, the row that serves it vs the catalogue row.
 4. **Pseudo-params (`CABINET_BTN_MUTE<n>`) resolved client-side** by matching a served NAME — fragile;
    the driver could rewrite them server-side.
 5. **Touch targets**: 53 sub-40 px interactive elements at 1280×800 (preset arrows 24×36, slot chips

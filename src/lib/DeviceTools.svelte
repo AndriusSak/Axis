@@ -5,6 +5,7 @@
   // Legacy v1 fallback: an AM4 on a pre-v2 server keeps the old /am4/* routes behind the same UI.
   import { editor } from './editor.svelte';
   import { forgefx } from './forgefx';
+  import { describeSpan, classifyRow, isMismatch, summarize, type RangeTrace } from './rangeTrace';
   import type { SyxDecodeResult } from './types';
 
   // Loose display view over BOTH modifier-model DTOs (unified gen-3 ModModel + legacy Am4ModifierModel).
@@ -25,6 +26,11 @@
   let modModel = $state<ModView | null>(null);
   let modOpen = $state(false);
   let storeLoc = $state(0);
+  // Range trace (read-only): family/pid inputs + the last trace result.
+  let traceFamily = $state('CABINET');
+  let tracePid = $state<number | ''>('');
+  let trace = $state<RangeTrace | null>(null);
+  const traceStats = $derived(trace ? summarize(trace.rows) : null);
 
   const caps = $derived(editor.caps);
   const legacyAm4 = $derived(!editor.isV2 && editor.isAm4); // v1 fallback path (old /am4/* routes)
@@ -135,6 +141,16 @@
     } catch (e) { say('Store failed: ' + (e as Error).message, false); }
     finally { busy = false; }
   }
+
+  /** Read-only: fetch the `/diag/ranges` trace for a family (and one pid, or the whole family). */
+  async function loadTrace() {
+    busy = true; say('');
+    try {
+      trace = await forgefx.diagRanges(traceFamily, tracePid === '' ? undefined : Number(tracePid));
+      if (!trace.count) say(`No range rows for ${trace.family}.`, false);
+    } catch (e) { trace = null; say('Range trace failed: ' + (e as Error).message, false); }
+    finally { busy = false; }
+  }
 </script>
 
 {#if editor.deviceToolsOpen}
@@ -233,6 +249,48 @@
           {/if}
         </section>
       {/if}
+
+      <section>
+        <h3>Range trace — why a control is missing</h3>
+        <p class="note">
+          Read-only. Per paramId: the row that actually <b>serves</b> it versus the static <b>catalogue</b>.
+          If <span class="mono">serving</span> is an em dash but <span class="mono">catalogue</span> has a row,
+          an allowlist gate dropped the control — it isn't unknown, and this is why it's absent.
+        </p>
+        <div class="line">
+          <label>Family
+            <input class="mono tin" bind:value={traceFamily} placeholder="CABINET" disabled={busy} />
+          </label>
+          <label>pid
+            <input class="mono tin" type="number" min="0" bind:value={tracePid} placeholder="all" disabled={busy} />
+          </label>
+          <button onclick={loadTrace} disabled={busy}>Trace ranges</button>
+        </div>
+        {#if trace && traceStats}
+          <p class="note mono">
+            {trace.family} · {trace.profile} · model {trace.model} · {traceStats.total} params —
+            {traceStats.served} served · {traceStats.dropped} dropped · {traceStats.absent} unknown{#if traceStats.mismatched} · {traceStats.mismatched} serving/catalogue mismatch{/if}
+          </p>
+          <div class="list">
+            <div class="prow rhead">
+              <span class="code mono">pid</span>
+              <span class="nm">name</span>
+              <span class="unit mono">unit</span>
+              <span class="span mono">serving</span>
+              <span class="span mono">catalogue</span>
+            </div>
+            {#each trace.rows as r (r.pid)}
+              <div class="prow" class:bad={classifyRow(r) === 'dropped'} class:mismatch={isMismatch(r)}>
+                <span class="code mono">{r.pid}</span>
+                <span class="nm">{r.name ?? '(unknown)'}</span>
+                <span class="unit mono">{r.unit ?? '—'}</span>
+                <span class="span mono" class:nullrow={!r.serving}>{describeSpan(r.serving)}</span>
+                <span class="span mono">{describeSpan(r.catalogue)}</span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+      </section>
     </div>
   </div>
 {/if}
@@ -269,5 +327,12 @@
   .grid2 { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 4px 12px; }
   .fld { display: flex; justify-content: space-between; font-size: 11px; padding: 2px 0; }
   .sym { opacity: 0.5; }
+  .tin { width: 110px; background: var(--btn, #2a2b31); color: inherit; border: 1px solid var(--line, #3a3b42); border-radius: 7px; padding: 6px 8px; font-size: 12px; }
+  .rhead { opacity: 0.55; text-transform: uppercase; letter-spacing: 0.04em; font-size: 10px; }
+  .unit { opacity: 0.6; min-width: 46px; }
+  .span { min-width: 96px; }
+  .nullrow { color: #ff6b6b; }
+  .prow.bad { background: rgba(255,107,107,0.07); }
+  .prow.mismatch { background: rgba(255,200,90,0.08); }
   .mono { font-family: ui-monospace, monospace; }
 </style>
