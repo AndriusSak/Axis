@@ -2,6 +2,7 @@
   import { onMount } from 'svelte';
   import { library, type LibEntry } from '../../../library.svelte';
   import { editor } from '../../../editor.svelte';
+  import { loadRecents, recordRecent, clearRecents, type RecentPreset } from '../../../recentPresets';
   import { cloud, browseEntries } from '../../../cloud.svelte';
   import { startCrossConvert, openConvertedInConverter } from '../../../presetConvertSource';
   import { convert } from '../../../convert.svelte';
@@ -149,6 +150,20 @@
   function applySavedFilter(filter: AxisPbSavedFilter) {
     axisPresetBrowserWorkbenchController.applyQueryText(filter.query);
   }
+  // ── Recent Presets (audit §2.7) — the SHARED MRU store, recorded as entries are browsed/loaded.
+  // Recorded on select (a row click both browses AND is the prelude to a load), so the list reflects
+  // what the user actually looked at; the store dedupes by id and caps at 12.
+  let recents = $state<RecentPreset[]>(loadRecents());
+  function noteRecent(entry: AxisPresetBrowserEntrySummary) {
+    if (entry.converted) return; // a saved conversion isn't a preset load — keep it out of recents
+    recents = recordRecent({ id: entry.id, number: entry.number, name: entry.name, source: entry.sourceId });
+  }
+  function openRecent(r: RecentPreset) {
+    const entry = data.entries.find((e) => e.id === r.id);
+    if (entry) { loadEntry(entry); return; }
+    editor.showToast('That recent preset is no longer in the library', '#f5a623');
+  }
+  function clearRecentList() { clearRecents(); recents = []; }
   // 14-row soft cap + "Show all" expander (§4.1).
   const rowCap = $derived(applyRowCap(data.visibleEntries, snapshot.showAllRows));
   const activeTags = $derived(
@@ -344,6 +359,7 @@
 
   function selectEntry(entry: AxisPresetBrowserEntrySummary) {
     axisPresetBrowserWorkbenchController.selectEntry(entry.id);
+    noteRecent(entry); // browsing/selecting a preset bumps it in the shared Recent list
   }
 
   function loadEntry(entry: AxisPresetBrowserEntrySummary) {
@@ -547,6 +563,23 @@
     <strong>{data.entries.length}</strong>
     <span>indexed presets</span>
   </div>
+
+  <!-- §2.7 RECENT PRESETS: the shared, locally-persisted MRU list. A row click browses+loads the
+       entry (openRecent → loadEntry); the list is recorded on select and capped at 12 by the store. -->
+  {#if recents.length}
+    <header class="section-head recent-head">
+      <span>Recent</span>
+      <button type="button" class="recent-clear" title="Clear the recent-presets list" onclick={clearRecentList}>Clear</button>
+    </header>
+    <div class="axis-part-list recent-list">
+      {#each recents as r (r.id)}
+        <button type="button" class="recent-row" title={r.name} onclick={() => openRecent(r)}>
+          <span class="recent-num mono">{r.number != null && r.number >= 0 ? String(r.number).padStart(3, '0') : '—'}</span>
+          <strong>{r.name}</strong>
+        </button>
+      {/each}
+    </div>
+  {/if}
 
   <!-- §3 LIBRARY: cloud-presence views with live counts. Selecting one filters the list exactly like the
        monolith's equivalent (In cloud / Cloud only / Not backed up / Needs upload / Needs update). Cloud
@@ -2037,6 +2070,44 @@
     color: var(--textdim);
     font-style: normal;
     font: 800 10px/1 var(--font-mono);
+  }
+
+  /* §2.7 Recent Presets (sources sidebar) */
+  .section-head.recent-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .recent-clear {
+    background: none;
+    border: none;
+    color: var(--textdim);
+    font: 700 10px/1 var(--font-mono);
+    letter-spacing: 0.04em;
+    cursor: pointer;
+    padding: 2px 4px;
+  }
+  .recent-clear:hover {
+    color: var(--accent);
+  }
+  .recent-list button.recent-row {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    min-width: 0;
+  }
+  .recent-num {
+    flex: none;
+    color: var(--accent);
+    font: 700 11px/1 var(--font-mono);
+  }
+  .recent-row strong {
+    min-width: 0;
+    overflow: hidden;
+    color: var(--text2);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font: 700 12px/1 var(--font-ui);
   }
 
   /* §3 presence views (LIBRARY list) */

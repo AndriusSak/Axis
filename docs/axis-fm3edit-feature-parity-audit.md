@@ -173,17 +173,38 @@ recallable into any instance, shareable, with modifiers included for whole-block
   params. "Save block to disk / recall into a block" is feasible **without** new device work if the
   file format is Axis-local (not byte-compatible with FM3-Edit's `.blk`, which is a Fractal format).
 
-### 2.7 Preset templates, bundles, snapshots-to-folder — **Absent**
+### 2.7 Preset templates, bundles, snapshots-to-folder — **Partial** (Recent + Snapshot + Revert **done**; Clear Preset **not possible**; templates/bundles/.bnk still absent)
 FM3-Edit: **New from Template / Save as Template**, **Preset+Cab bundle** export/import, **Snapshot**
 button writing `name.syx` into a Snapshots folder, **Clear Preset**, **Revert Preset** (discard
 unsaved changes back to the stored version), import from `.bnk` banks, **Recent Presets**.
-Axis has none of these (grep `template` matches are unrelated; no `revert`/`clearPreset` preset op —
-only history's `revertTo`).
-- Closest existing: per-slot **version history** (device snapshot + download `.syx`) covers the
-  *backup* use-case, but not "discard my changes and reload the stored preset".
-- **Next step:** **Revert Preset is the cheap, high-value one** — it's just "re-read the stored slot
-  into the edit buffer"; there is already a load-from-slot path (`POST /preset/select`). Snapshots
-  map onto the existing version-history store.
+
+**Verified 2026-10-06 against the trees:**
+- **Revert Preset — DONE** (same-slot re-select; `revertPreset.ts` + history barrier — see §7 item 1).
+- **Recent Presets — DONE (local-only).** A shared, locally-persisted MRU store
+  (`src/lib/recentPresets.ts`, `localStorage` key `axs.recent.v1`, cap 12, dedupe by library entry id)
+  is recorded on browse/load and surfaced in BOTH preset browsers — the workbench
+  `axis-workbench/panels/preset-browser/AxisPresetBrowserPartPanel.svelte` (a "Recent" section in the
+  Sources sidebar) and the monolith `PresetBrowser.svelte` — plus the Preset Picker. NOTE: the picker
+  previously kept a picker-LOCAL recents array in `axs.presets`; that duplicate is now retired in
+  favour of the one shared store. **Local-only** (never leaves the machine; no server route involved).
+- **Snapshot to folder — DONE.** A "Snapshot" button in Device Tools writes the CURRENT preset as
+  `<name>.syx` into `Presets/Snapshots/` (`editor.snapshotToFolder()` → `runSnapshotToFolder`). It
+  REUSES the existing per-slot **version-history / `.syx` export** pair — `forgefx.snapshotPreset(slot)`
+  (captures a version) → `forgefx.versionSyx(id)` (that version's `.syx` bytes), the SAME calls the
+  browser's `deviceEntryBytes()` and the picker already use — then writes through the existing
+  local-folder route `forgefx.saveLocalPreset(name, bytes, { dir: 'Snapshots' })` (`POST /local/presets`
+  → `Presets/Snapshots/<name>.syx`). **No second export path was added.** Falls back to a browser
+  download when no Presets folder is configured; overwrites only after the user confirms.
+- **Clear Preset — NOT POSSIBLE (honest negative; nothing was implemented).** The gen-3 write codec
+  exposes NO clear/init/edit-buffer-reset op: `forgefx-midi/src/gen3/axe-fx-iii/setParam.ts` exports
+  only set/get/bypass/grid/routing/`buildClearBlock` (that clears a single grid CELL), the scene-name
+  ops, `buildStorePreset`, `buildSwitchPreset*` and the rename ops — there is no `clearPreset`/
+  `initPreset`. The server route table (`ForgeFX/server/src/runtime/router.ts` §preset) has no
+  clear/erase route either, and `src/lib/presetSlotOps.ts` already documents "no slot-erase op at all".
+  Clearing the edit buffer would require a wire primitive that does not exist → **not a genuine op, so
+  not faked.**
+- **New from Template / Save as Template / Preset+Cab bundle / `.bnk` bank import — still Absent.**
+
 
 ### 2.8 MIDI / Remote configuration — **Partial** (Setup → MIDI / Remote section shipped)
 FM3-Edit's Setup covers **MIDI/Remote**: device MIDI channel, **Program Change mapping** (per-slot PC
@@ -477,6 +498,13 @@ not surfaced — see §3.6 item 3.
    Item 3 (`GET /diag/ranges` in the UI) is **DONE** too — see §7.12. NOTE: the fit-to-view cell cap
    added here was **reverted the same day** — it shrank dials to ~30px on tall boards; the board now
    always fills the pane width and scrolls instead (see ControlSurface).
+
+**§2.7 remainder (Recent / Snapshot / Clear) — addressed 2026-10-06:** **Recent Presets DONE**
+(`recentPresets.ts`, one shared local MRU store surfaced in the workbench panel + the monolith browser
++ the picker) and **Snapshot-to-folder DONE** (`snapshotPreset.ts` + Device Tools "Snapshot", reusing
+`snapshotPreset`/`versionSyx` and writing `Presets/Snapshots/<name>.syx` via `saveLocalPreset`).
+**Clear Preset NOT POSSIBLE** — no clear/init wire op exists (evidence in §2.7). Templates/bundles/`.bnk`
+remain absent.
 
 **Moderate (new endpoints / structured UI)**
 7. ~~**Scene Manager page** (§2.1) with copy/swap/bulk engage~~ — **DONE 2026-10-06**

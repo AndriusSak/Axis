@@ -1,9 +1,12 @@
 <script lang="ts">
   import { editor } from './editor.svelte';
   import { library } from './library.svelte';
+  import { loadRecents, recordRecent, type RecentPreset } from './recentPresets';
 
   type Recent = { n: number; name: string };
-  let recents = $state<Recent[]>([]);
+  // Recents now live in the SHARED MRU store (`axs.recent.v1`) so the picker and both preset
+  // browsers surface the same recently-used list (audit §2.7). Favorites stay picker-local.
+  let recents = $state<RecentPreset[]>(loadRecents());
   let favs = $state<Recent[]>([]);
   let query = $state('');
   let inputEl = $state<HTMLInputElement | null>(null);
@@ -11,7 +14,7 @@
   const KEY = 'axs.presets';
   function persist() {
     try {
-      localStorage.setItem(KEY, JSON.stringify({ rec: recents, fav: favs }));
+      localStorage.setItem(KEY, JSON.stringify({ fav: favs }));
     } catch {
       /* */
     }
@@ -19,15 +22,15 @@
   function loadStore() {
     try {
       const j = JSON.parse(localStorage.getItem(KEY) || 'null');
-      if (Array.isArray(j?.rec)) recents = j.rec;
       if (Array.isArray(j?.fav)) favs = j.fav;
     } catch {
       /* */
     }
   }
+  /** Recents mapped to the picker's `{ n, name }` row shape (device slots only). */
+  const recentRows = $derived<Recent[]>(recents.filter((r) => r.number != null).map((r) => ({ n: r.number as number, name: r.name })));
   function pushRecent(n: number, name: string) {
-    recents = [{ n, name }, ...recents.filter((r) => r.n !== n)].slice(0, 12);
-    persist();
+    recents = recordRecent({ id: `dev:${n}`, number: n, name, source: 'device' });
   }
   const isFav = (n: number) => favs.some((f) => f.n === n);
   function toggleFav(n: number, name: string) {
@@ -51,7 +54,7 @@
   });
   function nameOf(n: number): string {
     if (editor.preset?.number === n && editor.preset.name) return editor.preset.name;
-    return library.nameOfSlot(n) || recents.find((r) => r.n === n)?.name || '';
+    return library.nameOfSlot(n) || recentRows.find((r) => r.n === n)?.name || '';
   }
   // full slot list, filtered by number or known name
   const rows = $derived.by(() => {
@@ -65,7 +68,7 @@
   const mainList = $derived.by(() => {
     if (query.trim()) return rows;
     if (filter === 'fav') return favs.map((f) => ({ n: f.n, name: f.name || nameOf(f.n) }));
-    if (filter === 'recent') return recents.map((r) => ({ n: r.n, name: r.name || nameOf(r.n) }));
+    if (filter === 'recent') return recentRows.map((r) => ({ n: r.n, name: r.name || nameOf(r.n) }));
     return rows;
   });
 
@@ -133,10 +136,10 @@
       {/snippet}
 
       <div class="list scroll">
-        {#if !query.trim() && filter === 'all' && recents.length}
+        {#if !query.trim() && filter === 'all' && recentRows.length}
           <div class="section mono">RECENT</div>
           <div class="chiprow scroll">
-            {#each recents as r (r.n)}
+            {#each recentRows as r (r.n)}
               <button class="chip" class:active={editor.preset?.number === r.n} onclick={() => go(r.n, r.name)}>
                 <span class="cnum mono">{pad(r.n)}</span><span class="cname">{r.name || `Preset ${r.n}`}</span>
               </button>

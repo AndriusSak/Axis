@@ -11,6 +11,7 @@
   import { forgefx, ForgeError } from './forgefx';
   import { cloud, SYNC_META, browseEntries } from './cloud.svelte';
   import { notifyMutation } from './syncBus';
+  import { loadRecents, recordRecent, clearRecents, type RecentPreset } from './recentPresets';
   import { startCrossConvert, openConvertedInConverter } from './presetConvertSource';
   import { convert } from './convert.svelte';
   import Icon, { type IconName } from './Icon.svelte';
@@ -232,6 +233,18 @@
   let conditions = $state<Cond[]>([]); // simple-mode chips
   let sort = $state<'num' | 'name' | 'cpu'>('num');
   let selectedId = $state<string | null>(null);
+  // ── Recent Presets (audit §2.7) — the SHARED MRU store (axs.recent.v1), same as the workbench panel.
+  let recents = $state<RecentPreset[]>(loadRecents());
+  function noteRecent(e: LibEntry) {
+    if (e.source === 'converted') return; // a saved conversion isn't a preset load
+    recents = recordRecent({ id: e.id, number: e.summary.number ?? null, name: e.summary.name, source: e.source });
+  }
+  function openRecent(r: RecentPreset) {
+    const e = baseEntries.find((x) => x.id === r.id);
+    if (e) { selectedId = e.id; focusEid = null; void loadPreset(e); return; }
+    editor.showToast('That recent preset is no longer in the library', '#f5a623');
+  }
+  function clearRecentList() { clearRecents(); recents = []; }
   let queryEl: HTMLInputElement | undefined = $state();
   let caret = $state(0);
 
@@ -930,6 +943,7 @@
   async function loadPreset(e: LibEntry) {
     // Saved conversion (no device slot): re-open it in the converter instead of a device load.
     if (e.source === 'converted') { if (e.converted) void openConvertedInConverter(e.converted); return; }
+    noteRecent(e); // a real load — bump it in the shared Recent list (audit §2.7)
     // Cloud-only preset (no device slot): load the latest cloud version straight into the edit buffer.
     if (e.id.startsWith('cloud:')) {
       const cv = cloud.latestCloud(e.summary.number);
@@ -1135,6 +1149,20 @@
           </button>
         {/each}
       </div>
+      <!-- §2.7 RECENT PRESETS — the shared MRU list; a click selects + loads the preset. -->
+      {#if recents.length}
+        <div class="side-h">
+          <span class="lbl">RECENT</span>
+          <button class="folder-x" title="Clear recent presets" onclick={clearRecentList}>×</button>
+        </div>
+        <div class="views">
+          {#each recents as r (r.id)}
+            <button class="view" title={r.name} onclick={() => openRecent(r)}>
+              <span class="view-l">{r.number != null && r.number >= 0 ? pad(r.number) : '—'} {r.name}</span>
+            </button>
+          {/each}
+        </div>
+      {/if}
       <div class="div"></div>
       {#if library.folders.length}
         <div class="side-h"><span class="lbl">FOLDERS</span><span class="ct">{library.folders.length}</span></div>

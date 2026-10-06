@@ -18,6 +18,7 @@ import { paramValue } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
+import { runSnapshotToFolder, SNAPSHOT_DIR } from './snapshotPreset';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
 import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
@@ -1386,6 +1387,48 @@ class EditorStore {
       this.showToast('Save to disk failed: ' + (e as Error).message, '#d6543f');
     }
   };
+
+  /** Snapshot the CURRENT preset as `<name>.syx` into the local Snapshots folder (FM3-Edit parity,
+   *  audit §2.7). For a device slot this REUSES the version-history/`.syx` export pair
+   *  (`forgefx.snapshotPreset` → `forgefx.versionSyx` — the same calls the Preset Browser's
+   *  `deviceEntryBytes()` and the picker use), then writes through the existing local-folder route
+   *  (`saveLocalPreset { dir: 'Snapshots' }` → `Presets/Snapshots/<name>.syx`). When no Presets
+   *  folder is configured it falls back to the active-buffer dump + a browser download. */
+  snapshotToFolder = async () =>
+    runSnapshotToFolder({
+      capture: async () => {
+        const slot = this.preset?.number ?? -1;
+        const name = this.preset?.name || this.bufferSource?.name || 'preset';
+        if (slot >= 0 && this.isV2) {
+          const { version } = await forgefx.snapshotPreset(slot); // version-history capture
+          const blob = await forgefx.versionSyx(version.id); // existing .syx export of that version
+          return { name, bytes: new Uint8Array(await blob.arrayBuffer()) };
+        }
+        const b = await forgefx.presetBackup(slot >= 0 ? slot : undefined); // active buffer (caps backupDump)
+        return { name: b.name || name, bytes: Uint8Array.from(b.bytes) };
+      },
+      folderReady: () => this.local.configured && this.local.exists && this.local.available,
+      saveToFolder: async (base, bytes, overwrite) => {
+        try {
+          const r = await forgefx.saveLocalPreset(base, [...bytes], { dir: SNAPSHOT_DIR, overwrite });
+          return { path: r.path };
+        } catch (e) {
+          if (e instanceof ForgeError && e.status === 409) return 'exists';
+          throw e;
+        }
+      },
+      download: (filename, bytes) => {
+        const blob = new Blob([new Uint8Array(bytes)], { type: 'application/octet-stream' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      },
+      confirmOverwrite: (base) => confirm(`“${base}.syx” already exists in Snapshots/ — overwrite?`),
+      toast: (t, a) => this.showToast(t, a)
+    });
 
   load = async () => {
     if (!this.everLoaded) this.status = 'loading';
