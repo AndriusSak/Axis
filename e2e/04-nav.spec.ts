@@ -16,12 +16,12 @@ test.describe('Navigation', () => {
     await expect(regionTabs(page, 'main').filter({ hasText: 'Setup' })).toHaveCount(1);
   });
 
-  test('Scenes docks a placeholder panel', async ({ page }) => {
+  test('Scenes docks the Scene Manager panel', async ({ page }) => {
     await bootCleanWorkbench(page);
 
     await clickNav(page, 'scenes');
     await expect(regionTabs(page, 'main').filter({ hasText: 'Scenes' })).toHaveCount(1);
-    // The placeholder panel body describes the future feature (no device needed).
+    // The panel body is the real Scene Manager (no device needed to render).
     await expect(page.locator('.aw-tabstack[data-region="main"] .aw-tabbody')).toContainText(/Scene/i);
   });
 

@@ -133,7 +133,7 @@ export const AXIS_SECONDARY_PAGE_SPECS: AxisPagePanelSpec[] = [
     label: NAV_LABELS.scenes,
     panelId: 'axis.scenes',
     panelType: 'axis.sceneManager',
-    panelTitle: 'Scene Manager',
+    panelTitle: 'Scenes',
     singletonKey: 'axis.scenes'
   },
   {
