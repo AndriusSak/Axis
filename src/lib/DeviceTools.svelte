@@ -73,6 +73,16 @@
     finally { busy = false; }
   }
 
+  /** One-click Snapshot (FM3-Edit parity, audit §2.7): write the CURRENT preset into the local
+   *  Presets/Snapshots folder, reusing the version-history/.syx export path. Falls back to a browser
+   *  download when no Presets folder is configured. The editor binding owns the toasts + confirm. */
+  async function snapshot() {
+    busy = true; say('');
+    try { await editor.snapshotToFolder(); }
+    catch (e) { say('Snapshot failed: ' + (e as Error).message, false); }
+    finally { busy = false; }
+  }
+
   async function restore(e: Event) {
     const f = (e.target as HTMLInputElement).files?.[0];
     if (!f) return;
@@ -177,6 +187,12 @@
                 </select>
               </label>
               <button onclick={backup} disabled={busy}>Download .syx</button>
+            </div>
+          {/if}
+          {#if canBackup}
+            <div class="line">
+              <span>Snapshot the current preset → Presets/Snapshots/</span>
+              <button onclick={snapshot} disabled={busy} title="Write the current preset as <name>.syx into the Presets/Snapshots folder (a version-history snapshot, exported as .syx). Falls back to a download when no folder is set.">Snapshot</button>
             </div>
           {/if}
           {#if canRestore}
