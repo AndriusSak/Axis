@@ -321,7 +321,14 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
    (`src/lib/DeviceTools.svelte` + `src/lib/rangeTrace.ts`) that queries the endpoint by family/pid
    and shows, per paramId, the row that serves it vs the catalogue row.
 4. **Pseudo-params (`CABINET_BTN_MUTE<n>`) resolved client-side** by matching a served NAME — fragile;
-   the driver could rewrite them server-side.
+   the driver could rewrite them server-side. **ADDRESSED:** the ForgeFX gen-3 driver now rewrites a
+   `_BTN_` pseudo layout control to the REAL served param it drives while serving the layout
+   (`resolvePseudoParamControls` in `ForgeFX/server/src/devices.ts`, wired in `gen3.ts` `blockParams`),
+   so the served layout carries live ids (cab M → `CABINET_MUTE1/2`, pids 24/25) and no client matches a
+   name. The Axis board builder keeps its name-matching resolution only as a **documented fallback** for
+   servers that predate the rewrite (`deviceLayoutBoard.ts` `btnPseudoParamKey`); a sibling with no served
+   param of its own (the S button — SOLO is an option of the MUTE enum) still gaps, collapsing the M/S
+   pair onto the one state control.
 5. **Touch targets**: 53 sub-40 px interactive elements at 1280×800 (preset arrows 24×36, slot chips
    21×22) — **ADDRESSED** (already shipped): `AxisWorkbenchWidget.svelte` scopes an enlarged hit area to
    `@media (pointer: coarse)` via transparent `::after` overlays, leaving desktop density untouched;

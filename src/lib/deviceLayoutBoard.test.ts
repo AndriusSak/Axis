@@ -342,6 +342,24 @@ describe('buildDeviceLayoutBoard — pseudo-param buttons (cab M/S)', () => {
   it('gaps a pseudo-param the block does not serve', () => {
     expect(cabBtns([muteEnum(24, 'SOMETHING_ELSE')])).toBeNull(); // nothing renderable
   });
+
+  // The PRIMARY path now: a current ForgeFX gen-3 server rewrites the pseudo control to the real served
+  // param id while serving the layout (resolvePseudoParamControls), so the board resolves it by paramId
+  // alone — no served-name map, no name matching. The tests above cover the older-server FALLBACK.
+  it('resolves a SERVER-rewritten control (real paramId, empty name map) via the primary paramId path', () => {
+    const b = buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [{ controls: [ctl('button', 24, 'M', { rawWidget: 'btnSquare', paramName: 'CABINET_MUTE1' })] }],
+        },
+      ]),
+      // no `label` → byName map is empty, so only the primary paramId lookup can bind it
+      [{ key: 'e24', kind: 'select', id: 24, w: 2, h: 1, view: 'select', views: ['select'] }],
+      12
+    );
+    expect(find(b!.boards['Cab'], 'e24')).toMatchObject({ view: 'select' });
+  });
 });
 
 // The top bar's Basic/Advanced View toggle drives `editor.globalMode`; this is the contract it documents
