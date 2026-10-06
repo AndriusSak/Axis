@@ -10,6 +10,7 @@ import { history } from './history.svelte';
 import { onMutation, notifyMutation } from './syncBus';
 import { layoutFromGrid, type Cell, type Layout } from './grid';
 import { planConnect, planReplaceShunt, planDisconnectAll, planInsertShunt, planResetBlock, planSwap, planPasteBlock, type RoutePlan } from './gridRouting';
+import { planGridShiftRow, planGridShiftColumn } from './gridShift';
 import { baseName, packFor, statusColor } from './blocks';
 import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, type SwipeCtrl } from './layouts';
 import { surfApplyRemote } from './surfaceStore.svelte';
@@ -2050,6 +2051,21 @@ class EditorStore {
   /** Swap the positions of two placed blocks, preserving each cell's cabling (drag-block-onto-block). */
   swap = async (a: Cell, b: Cell) => {
     await this.#runPlan(planSwap(this.layout.cells, this.layout.shunts, a, b));
+  };
+
+  /** The DEVICE's real grid shape (rows x cols), read from the decoded preset — never hardcoded.
+   *  FM3 is 4x12, Axe-Fx III is 4x14; every row/column shift is bounded by this. */
+  get gridShape(): { rows: number; cols: number } {
+    return { rows: this.layout.rows, cols: this.layout.cols };
+  }
+  /** Move an entire grid ROW one position up (dir −1) / down (+1) — audit §2.9 grid border sliders.
+   *  Pure planner (gridShift.ts); executed forward and replayed in reverse by history → one undo step. */
+  shiftRow = async (row: number, dir: -1 | 1) => {
+    await this.#runPlan(planGridShiftRow(this.layout.cells, this.layout.shunts, row, dir, this.gridShape));
+  };
+  /** Move an entire grid COLUMN one position up (dir −1) / down (+1) — audit §2.9 grid border sliders. */
+  shiftColumn = async (col: number, dir: -1 | 1) => {
+    await this.#runPlan(planGridShiftColumn(this.layout.cells, this.layout.shunts, col, dir, this.gridShape));
   };
 
   /** Copy a block's model + current-channel settings into the clipboard. */

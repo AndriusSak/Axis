@@ -7,6 +7,7 @@
   import { fmtNumber, paramUnit } from './format';
   import type { Cell } from './grid';
   import { planConnect } from './gridRouting';
+  import { planGridShiftRow, planGridShiftColumn } from './gridShift';
   import { blockHelp, helpSlugForPack, resetHelpCache } from './help';
   import { theme } from './theme.svelte';
   import { resolveAxisGridMetrics, resolveAxisGridPresentation, type AxisGridView } from './axis-workbench/gridView';
@@ -203,6 +204,16 @@
     return m;
   });
 
+  // ── §2.9 move an entire row / column (the "grid border sliders") ──
+  // The SAME pure planner that would execute a shift also decides whether its control is enabled:
+  // plan.ok === false carries the user-facing reason, which the control surfaces as a tooltip while
+  // disabled — so an off-edge (or empty-band) move is refused with a name, never a silent drop.
+  // Shape comes from the decoded device grid (FM3 4×12, Axe-Fx III 4×14) — never hardcoded.
+  const gridShape = $derived({ rows, cols });
+  const rowShift = (r: number, dir: -1 | 1) => planGridShiftRow(editor.layout.cells, editor.layout.shunts, r, dir, gridShape);
+  const colShift = (c: number, dir: -1 | 1) => planGridShiftColumn(editor.layout.cells, editor.layout.shunts, c, dir, gridShape);
+  const shiftReady = $derived(editor.status === 'ready');
+
   // ── measurement → cables ──
   let wrapEl = $state<HTMLDivElement | null>(null);
   let vpEl = $state<HTMLDivElement | null>(null); // the clipping viewport (grid area between the page arrows)
@@ -341,10 +352,14 @@
 
   // Geometry for any cell — measured rect when it exists in the DOM, else synthetic from the grid
   // metrics (a preview shunt doesn't exist yet). Inner-local coords, matching `rects` + the SVG space.
+  // The §2.9 row bar sits LEFT of the grid (desktop only; hidden when paged), so the synthetic
+  // fallback starts after it — measured rects already include the offset.
+  const SHIFT_BAR = 26; // .shiftrow width (20) + .gridframe gap (6)
   function cellGeom(r: number, c: number): { left: number; right: number; cx: number; cy: number } {
     const hit = rects[`${r},${c}`];
     if (hit) return hit;
-    const left = c * (colW + gap);
+    const x0 = paged ? 0 : SHIFT_BAR;
+    const left = x0 + c * (colW + gap);
     return { left, right: left + colW, cx: left + colW / 2, cy: r * (cellH + gap) + cellH / 2 };
   }
 
@@ -763,7 +778,26 @@
         {/if}
       </svg>
 
-      <div class="grid" class:map={mapMode} style="grid-template-columns:repeat({cols}, {colW}px); grid-template-rows:repeat({rows}, {cellH}px); gap:{gap}px;">
+      <div class="gridframe">
+        {#if !paged}
+          <!-- left border: one up/down pair per ROW (audit §2.9 "grid border sliders") -->
+          <div class="rowbar">
+            {#each Array(rows) as _, r}
+              {@const ru = rowShift(r, -1)}
+              {@const rd = rowShift(r, 1)}
+              <div class="shiftrow" style="height:{cellH}px;">
+                <span class="shiftwrap" title={ru.ok ? `Move row ${r + 1} up` : `Move row ${r + 1} up — ${ru.error}`}>
+                  <button class="shiftbtn" data-shift-row={r} data-shift-dir="-1" disabled={!shiftReady || !ru.ok} aria-label={`Move row ${r + 1} up`} onclick={() => editor.shiftRow(r, -1)}>▲</button>
+                </span>
+                <span class="shiftwrap" title={rd.ok ? `Move row ${r + 1} down` : `Move row ${r + 1} down — ${rd.error}`}>
+                  <button class="shiftbtn" data-shift-row={r} data-shift-dir="1" disabled={!shiftReady || !rd.ok} aria-label={`Move row ${r + 1} down`} onclick={() => editor.shiftRow(r, 1)}>▼</button>
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        <div class="gridcol">
+      <div class="grid" class:map={mapMode} style="grid-template-columns:repeat({cols}, {colW}px); grid-template-rows:repeat({rows}, {cellH}px); gap:{gap}px; width:{cols * colW + (cols - 1) * gap}px;">
         {#each Array(rows) as _, r}
           {#each Array(cols) as _, c}
             {@const cell = cellAt.get(`${r},${c}`)}
@@ -871,6 +905,25 @@
             {/if}
           {/each}
         {/each}
+      </div>
+        {#if !paged}
+          <!-- bottom border: one up/down pair per COLUMN (audit §2.9 "grid border sliders") -->
+          <div class="colbar">
+            {#each Array(cols) as _, c}
+              {@const cu = colShift(c, -1)}
+              {@const cd = colShift(c, 1)}
+              <div class="shiftcol" style="width:{colW}px;">
+                <span class="shiftwrap" title={cu.ok ? `Move column ${c + 1} up` : `Move column ${c + 1} up — ${cu.error}`}>
+                  <button class="shiftbtn" data-shift-col={c} data-shift-dir="-1" disabled={!shiftReady || !cu.ok} aria-label={`Move column ${c + 1} up`} onclick={() => editor.shiftColumn(c, -1)}>▲</button>
+                </span>
+                <span class="shiftwrap" title={cd.ok ? `Move column ${c + 1} down` : `Move column ${c + 1} down — ${cd.error}`}>
+                  <button class="shiftbtn" data-shift-col={c} data-shift-dir="1" disabled={!shiftReady || !cd.ok} aria-label={`Move column ${c + 1} down`} onclick={() => editor.shiftColumn(c, 1)}>▼</button>
+                </span>
+              </div>
+            {/each}
+          </div>
+        {/if}
+        </div>
       </div>
     </div>
 
@@ -1042,6 +1095,74 @@
     width: 100%;
     position: relative;
     z-index: 1;
+  }
+  /* §2.9 move-row/column border controls: a left bar (one pair per row) and a bottom bar
+     (one pair per column) framing the grid. Disabled when the pure planner refuses the move. */
+  .gridframe {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  .gridcol {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: none;
+  }
+  .rowbar {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    flex: none;
+  }
+  .colbar {
+    display: flex;
+    flex-direction: row;
+    gap: 6px;
+    flex: none;
+  }
+  .shiftrow {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    justify-content: center;
+    width: 20px;
+  }
+  .shiftcol {
+    display: flex;
+    flex-direction: row;
+    gap: 2px;
+    justify-content: center;
+    height: 20px;
+  }
+  .shiftwrap {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+  }
+  .shiftbtn {
+    flex: 1;
+    min-width: 0;
+    min-height: 8px;
+    padding: 0;
+    border: 1px solid var(--border2);
+    border-radius: 3px;
+    background: var(--surface2);
+    color: var(--text2);
+    font-size: 8px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .shiftbtn:hover:not(:disabled) {
+    color: var(--text);
+    border-color: var(--border3);
+  }
+  .shiftbtn:disabled {
+    opacity: 0.28;
+    cursor: not-allowed;
   }
 
   /* mobile column-density pager */
