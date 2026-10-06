@@ -317,22 +317,27 @@ custom label, live read-back. Missing (grep for `csMidi|layoutLink|perPreset|sta
 - **Silent-drop gates are the recurring defect class here** (`KNOB_UNITS`, enum length caps). Two of
   this audit's "candidate gaps" (§3.7) are that same class — verify before building UI for them.
 
-### 5.1 Silent list truncation (same family of defect — found on 2026-10-06)
+### 5.1 Silent list truncation (same family of defect — audited 2026-10-06)
 
-**Rule: a rendered list must never be silently capped.** These surfaces truncate a rendered list; the
-user-visible count must either be the real total or the cap must be disclosed in the header.
+**Rule: a rendered list is either COMPLETE, or its cap is DISCLOSED in the UI.** These are the audited
+surfaces. Two of them were *misreported as undisclosed* in the first draft of this table and are in
+fact fine — the lesson is that "there is a `slice` here" is not evidence until the header/count
+derivation is read too.
 
 | Site | Cap | Disclosed? | Status |
 |---|---|---|---|
-| `CommandPalette.svelte` model + block rows | `list.slice(0, 80)` | **No** — and the header count came off the *truncated* array, so the FM3's 331 amp models showed as "80 results" | **FIXED** on `local/palette-model-cap` (rows moved to `paletteRows.ts`; source guard test in `paletteRows.test.ts`) |
-| `CabPicker.svelte:92` | `CAP = 250` | **Yes** — "showing 250 of N, search to narrow" | OK as-is (1024 factory IRs) |
-| `PresetPicker.svelte:149` | `300` | **Yes** — "+N more — type a number or name to filter" | OK as-is (512 slots) |
-| `AxisHistoryDockPanel.svelte:5` | `80` (history holds up to 200) | **No** | **Open** — older edits vanish with no hint |
-| `AxisFcPartPanel.svelte:220` | `64` (flat configs) | **No** | **Open** — harmless today (FM3 config count is small); verify per device |
-| `presetBrowserWorkbenchLayout.ts:19` | `AXIS_PB_SOFT_ROW_CAP` | Partial (soft cap) | **Open** — tracked as T12 in the rework plan (virtualize/paginate) |
+| `CommandPalette.svelte` model + block rows (now `paletteRows.ts`) | `list.slice(0, 80)` | **No** — and the header count came off the *truncated* array, so the FM3's 331 amp models showed as "80 results" (251 hidden) | **FIXED** — `local/list-cap-fixes` (`e8e476b`); guards in `paletteRows.test.ts` |
+| `AxisHistoryDockPanel.svelte` | `80` of up to 200 | **No** — and the row click is the *only* jump-back control (`history.revertTo(i)`), so entries past 80 were **unreachable**, not just invisible | **FIXED** — `local/list-cap-fixes` (`55d8563`); guard in `listCaps.test.ts` |
+| `CabPicker.svelte:92` | `CAP = 250` (1024 factory IRs) | **Yes** — "showing 250 of N, search to narrow" | OK as-is |
+| `PresetPicker.svelte:149` | `300` (512 slots) | **Yes** — "+N more — type a number or name to filter" | OK as-is |
+| `AxisFcPartPanel.svelte:220` | `64` flat configs | **Yes** — "+N more" (corrected; first draft said undisclosed) | OK as-is |
+| `presetBrowserWorkbenchLayout.ts:19` | `AXIS_PB_SOFT_ROW_CAP = 14` | **Yes** — expander "Show all N presets" (`AxisPresetBrowserPartPanel.svelte`); `applyRowCap` already returns `totalRows`/`capped`/`hiddenCount` and is unit-tested | OK as-is |
 
-Also note the *diagnostic* half of this class: when a param is dropped by an allowlist gate, the UI
-shows nothing rather than "hidden because …". `GET /diag/ranges` exists (`ForgeFX` route) but is not
+The rule is executable now: `src/lib/listCaps.test.ts` guards the uncapped surfaces stay uncapped and
+the four capped ones keep rendering their disclosure.
+
+Related *diagnostic* half of this class: when a parameter is dropped by an allowlist gate, the UI shows
+nothing rather than "hidden because …". `GET /diag/ranges` exists (`ForgeFX` route) but is not
 surfaced — see §3.6 item 3.
 
 ---
