@@ -422,7 +422,7 @@
         syncState: entry.syncState,
         converted: entry.converted
       },
-      { canRename: editor.canRenamePresets, cloudOn }
+      { canRename: editor.canRenamePresets, cloudOn, canCopySlots: editor.canCopySlots }
     );
     menuItems = toWorkbenchMenuItems(actions, dispatchMenuAction);
     menuPos = pos;
@@ -450,6 +450,12 @@
       case 'rename':
         beginRename(entry);
         return;
+      case 'duplicate':
+        openSlotOp('duplicate', entry, menuPos);
+        return;
+      case 'swap':
+        openSlotOp('swap', entry, menuPos);
+        return;
       case 'crossConvert':
         crossConvert(entry.id);
         return;
@@ -467,6 +473,55 @@
         return;
     }
   }
+  // ── device-slot librarian popover (duplicate / swap — audit §2.4) ──────────────────────────────
+  // window.prompt is dead in the Electron shell, so the target slot is typed into an inline popover
+  // anchored at the row menu — mirroring the monolith's slotOpBox (PresetBrowser.svelte). The work is the
+  // copy-by-store sequence in presetSlotOps, invoked via editor.duplicateStoredPreset/swapStoredPresets.
+  let slotOp = $state<{
+    kind: 'duplicate' | 'swap';
+    entry: AxisPresetBrowserEntrySummary;
+    value: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  function openSlotOp(
+    kind: 'duplicate' | 'swap',
+    entry: AxisPresetBrowserEntrySummary,
+    pos: WorkbenchMenuPosition
+  ) {
+    const from = entry.number ?? -1;
+    if (from < 0) {
+      editor.showToast(`No device slot to ${kind}`, '#f5a623');
+      return;
+    }
+    if (!editor.canCopySlots) {
+      editor.showToast(`${kind === 'duplicate' ? 'Duplicate' : 'Swap'} unavailable on this device`, '#f5a623');
+      return;
+    }
+    slotOp = { kind, entry, value: String(Math.min(511, from + 1)), x: pos.x, y: pos.y };
+  }
+  async function commitSlotOp() {
+    const b = slotOp;
+    slotOp = null;
+    if (!b) return;
+    const from = b.entry.number ?? -1;
+    const to = Number(b.value.trim());
+    if (!Number.isInteger(to) || to < 0 || to > 511) {
+      editor.showToast('Enter a slot number 0–511', '#d6543f');
+      return;
+    }
+    if (to === from) {
+      editor.showToast('Pick a different slot', '#f5a623');
+      return;
+    }
+    if (b.kind === 'duplicate') await editor.duplicateStoredPreset(from, to);
+    else await editor.swapStoredPresets(from, to);
+  }
+  function onSlotOpKey(ev: KeyboardEvent) {
+    if (ev.key === 'Enter') void commitSlotOp();
+    else if (ev.key === 'Escape') slotOp = null;
+  }
+
   // Cloud actions mirror the monolith cloudAction() verbatim: upload = snapshot the slot to the version
   // store then push to cloud; download = load the latest cloud version into the edit buffer.
   async function cloudUpload(entry: AxisPresetBrowserEntrySummary) {
@@ -1047,6 +1102,56 @@
       {/each}
       {#if !pickerList.length}<div class="pk-empty">No matches</div>{/if}
     </div>
+  </div>
+{/if}
+
+<!-- Device-slot librarian popover (duplicate / swap — audit §2.4). window.prompt is unavailable in the
+     Electron shell, so the target slot is typed here; mirrors the monolith's slotOpBox. -->
+{#if slotOp}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="slotop-bg"
+    role="presentation"
+    oncontextmenu={(e) => e.preventDefault()}
+    onpointerdown={() => (slotOp = null)}
+  ></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="slotop-pop"
+    style:left={slotOp.x + 'px'}
+    style:top={slotOp.y + 'px'}
+    role="dialog"
+    tabindex="-1"
+    aria-label={slotOp.kind === 'duplicate' ? 'Duplicate preset to slot' : 'Swap preset with slot'}
+    onpointerdown={(e) => e.stopPropagation()}
+  >
+    <div class="slotop-title">
+      {slotOp.kind === 'duplicate' ? 'Duplicate' : 'Swap'} preset {slotOp.entry.number == null
+        ? ''
+        : String(slotOp.entry.number).padStart(3, '0')}
+    </div>
+    <!-- svelte-ignore a11y_autofocus -->
+    <input
+      class="slotop-in"
+      type="text"
+      maxlength="3"
+      bind:value={slotOp.value}
+      placeholder="Slot 0–511"
+      spellcheck="false"
+      autocomplete="off"
+      autofocus
+      onkeydown={onSlotOpKey}
+    />
+    <div class="slotop-actions">
+      <button type="button" class="slotop-btn" onclick={() => (slotOp = null)}>Cancel</button>
+      <button type="button" class="slotop-btn save" onclick={commitSlotOp}>
+        {slotOp.kind === 'duplicate' ? 'Duplicate' : 'Swap'}
+      </button>
+    </div>
+    <p class="slotop-note">
+      Writes over the target slot and replaces the edit buffer (unsaved edits are lost). The device
+      protocol has no slot copy, so Axis dumps → loads → stores.
+    </p>
   </div>
 {/if}
 
@@ -1733,6 +1838,68 @@
     color: var(--text);
     font: 500 12px/1 var(--font-mono);
     outline: none;
+  }
+  /* Device-slot librarian popover (duplicate / swap — audit §2.4) */
+  .slotop-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 129;
+  }
+  .slotop-pop {
+    position: fixed;
+    z-index: 130;
+    width: 268px;
+    max-width: calc(100vw - 24px);
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid var(--border2, var(--border));
+    border-radius: 12px;
+    background: var(--surface, var(--bg2));
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  .slotop-title {
+    color: var(--textdim);
+    font: 800 9px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .slotop-in {
+    width: 100%;
+    box-sizing: border-box;
+    height: 30px;
+    padding: 0 9px;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--text);
+    font: 600 13px/1 var(--font-mono);
+    outline: none;
+  }
+  .slotop-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+  }
+  .slotop-btn {
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg2);
+    color: var(--text);
+    font: 700 11px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .slotop-btn.save {
+    border-color: var(--accent);
+    background: var(--accent);
+    color: #fff;
+  }
+  .slotop-note {
+    margin: 0;
+    color: var(--textdim);
+    font: 500 10px/1.45 var(--font-ui);
   }
   .pk-list {
     max-height: 280px;

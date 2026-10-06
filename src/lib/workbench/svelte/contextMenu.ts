@@ -2,6 +2,8 @@ export interface WorkbenchMenuItem {
   id: string;
   label: string;
   hint?: string;
+  /** Native tooltip; carries the honest reason on disabled items (parity with the monolith's `title`). */
+  title?: string;
   danger?: boolean;
   disabled?: boolean;
   separatorBefore?: boolean;

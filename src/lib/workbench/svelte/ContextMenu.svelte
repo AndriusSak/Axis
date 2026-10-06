@@ -113,6 +113,7 @@
         type="button"
         role="menuitem"
         disabled={item.disabled}
+        title={item.title ?? ''}
         onclick={() => run(item)}
       >
         <span>{item.label}</span>
