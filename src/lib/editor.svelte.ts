@@ -17,6 +17,7 @@ import { isRemoteBuild } from './cloudBrowser';
 import { paramValue } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
+import { runRevertPreset } from './revertPreset';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
 
@@ -2071,6 +2072,38 @@ class EditorStore {
       /* */
     }
   };
+  /**
+   * Revert Preset (FM3-Edit parity — audit §2.7): discard unsaved edits and re-read the STORED
+   * contents of the currently-loaded slot back into the device's edit buffer.
+   *
+   * This is a SAME-SLOT `POST /preset/select` (gen-3 `selectPreset(n)` clears its grid cache and
+   * re-emits the switch frame, so the stored preset reloads even though `n` is unchanged). It is NOT
+   * the version-history snapshot revert (`history.revertTo`) — that restores a historical snapshot.
+   *
+   * The decision/flow lives in `revertPreset.ts` (runic `$state` can't load under node-env vitest);
+   * this is a thin binding. A successful revert drops any local-file link and inserts a history
+   * barrier (`noteBufferReplaced`), so undo cannot cross back into the discarded edits.
+   */
+  revertPreset = () =>
+    runRevertPreset(
+      {
+        loaded: () => (this.preset ? { number: this.preset.number, name: this.preset.name } : null),
+        lastSlot: () => this.lastPreset,
+        reload: async (slot) => {
+          if (!this.isV2 && this.isAm4) await forgefx.am4SwitchPreset(slot); // legacy v1 fallback
+          else await forgefx.selectPreset(slot);
+        },
+        // Same refresh a slot load does: current-preset ref + grid + the open block's params.
+        refresh: async () => {
+          await this.poll();
+          await this.load();
+          if (!this.presetLiveQuery && this.selKey) await this.#loadParams();
+        },
+        noteBufferReplaced: (label) => this.noteBufferReplaced(label),
+        toast: (text, accent) => this.showToast(text, accent)
+      },
+      { bankLetter: this.bankLetterAddressing }
+    );
   stepPreset = (dir: number) => {
     const cur = this.preset?.number ?? this.lastPreset ?? 0;
     const n = Math.max(0, cur + dir);
