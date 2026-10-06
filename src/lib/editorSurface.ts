@@ -13,6 +13,7 @@ import { editor } from './editor.svelte';
 import type { Cell, Layout } from './grid';
 import type { NamedParam, EnumParam, DetectResult, DeviceLayout, LiveMonitor, CabState } from './types';
 import type { SwipeCtrl } from './layouts';
+import type { ChannelClip } from './blockOps';
 
 export const EDITOR_SURFACE_KEY = Symbol('axis.editorSurface');
 
@@ -73,6 +74,16 @@ export interface EditorSurface {
   applyCab: (writes: { paramId: number; value: number }[]) => Promise<void>;
   toggleBypass: (cell?: Cell) => Promise<void>;
   setChannel: (ch: string) => Promise<void>;
+  /** Channel clipboard for copy/paste channel (footer channel ops). */
+  channelClip: ChannelClip | null;
+  copyChannel: () => void;
+  pasteChannel: () => Promise<void>;
+  /** Reset the active channel to the model's defaults (device model-reselect reset). */
+  resetChannel: () => Promise<void>;
+  /** Reset all four channels to their models' defaults. */
+  resetBlock: () => Promise<void>;
+  /** Toggle the block's served "Scene Ignore" flag. */
+  setSceneIgnore: (on: boolean) => Promise<void>;
 
   // ── block / params mutators (incl. device-only cabState, routed through the surface) ──
   setParam: (p: NamedParam, v: number) => void;

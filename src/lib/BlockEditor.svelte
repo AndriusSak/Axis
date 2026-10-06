@@ -6,6 +6,7 @@
   import GridMap from './GridMap.svelte';
   import { type EQBand } from './EQGraph.svelte';
   import { geqFreqs, shapeFromLabel } from './eq';
+  import { sceneIgnoreParam, sceneIgnoreValue } from './blockOps';
   import type { CabState, CabSlot } from './types';
 
   const editor = getEditorSurface();
@@ -73,6 +74,11 @@
   const CAB_PICKER_IDS = [0, 1, 2, 3, 4, 5, 6, 7, 31, 85, 86];
 
   const CHAN = ['A', 'B', 'C', 'D'];
+
+  // Footer channel/block ops. Scene Ignore is a real served per-family enum (`*_SCENEIGNORE`); its
+  // presence decides whether the footer button is live. Everything else is wired in the editor store.
+  const sceneIgnore = $derived(sceneIgnoreParam(editor.enums));
+  const sceneIgnoreOn = $derived(!!sceneIgnore && sceneIgnore.value === sceneIgnoreValue(sceneIgnore, true));
 
   // ── docked resize (desktop) ──
   let resizing = false;
@@ -161,8 +167,22 @@
 
       <!-- footer -->
       <footer class="foot">
-        <button class="act" onclick={() => editor.showToast('Mute — coming soon', '#35c9d6')}>Mute</button>
-        <button class="act" onclick={() => editor.showToast('Scene Ignore — coming soon', '#35c9d6')}>Scene Ignore</button>
+        <button class="act" disabled={!sel.pack} onclick={() => editor.copyChannel()} title="Copy the current channel's values">Copy CH</button>
+        <button class="act" disabled={!sel.pack || !editor.channelClip} onclick={() => editor.pasteChannel()} title="Paste the copied values onto the current channel">Paste CH</button>
+        <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetChannel()} title="Reset this channel to the model's defaults">Reset CH</button>
+        <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetBlock()} title="Reset all four channels to their models' defaults">Reset Block</button>
+        <button
+          class="act"
+          disabled
+          title="Mute not available: no FM3 per-block Mute parameter is served. The only MUTE params are per-slot cab (Cabinet Mute 1–4), per-band multiband-comp, and global tuner/remote — none is a generic block mute. Use Bypass to silence this block."
+        >Mute</button>
+        <button
+          class="act si"
+          class:on={sceneIgnoreOn}
+          disabled={!sel.pack || !sceneIgnore}
+          onclick={() => editor.setSceneIgnore(!sceneIgnoreOn)}
+          title={sceneIgnore ? 'Scene Ignore — this block\'s bypass state is not recalled per scene' : 'Scene Ignore is not served for this block'}
+        >Scene Ignore</button>
         <span class="spacer"></span>
         <button class="act byp" class:on={sel.bypassed} disabled={!sel.pack} onclick={() => editor.toggleBypass()}>
           {sel.bypassed ? 'Bypassed' : 'Engaged'}
@@ -403,6 +423,15 @@
   }
   .act:hover {
     border-color: var(--border-strong);
+  }
+  .act:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .act.si.on {
+    background: var(--accent-tint);
+    border-color: var(--accent);
+    color: var(--amber);
   }
   .act.byp {
     background: var(--ok-tint);

@@ -175,7 +175,7 @@ block only.
 |---|---|---|
 | Copy / cut / paste a block (incl. across presets) | **Absent** | grep `clipboard|copyBlock|pasteBlock` → 0 |
 | Drag block onto block/shunt to **swap** positions (cables preserved) | **Absent** | drag replaces shunts/moves; no swap op |
-| **Reset channel / reset block** to defaults | **Absent** | grep `resetChannel|resetBlock` → 0 |
+| **Reset channel / reset block** to defaults | **Partial** — reset channel/block added to the Block Editor footer (§2.10); grid-level reset ops still absent | `editor.svelte.ts` `resetChannel/resetBlock` |
 | **Disconnect all cables** from a block (Cmd+D) | **Absent** (only per-cable) | `SignalGrid` cable ops are per-edge |
 | **Move an entire row / column** (grid border sliders) | **Absent** | grep `moveRow` → 0 |
 | Explicit **Insert shunt** command/shortcut | **Partial** — shunts auto-insert when routing through empty cells; no explicit insert | `gridRouting.planConnect` |
@@ -184,9 +184,17 @@ block only.
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
 ### 2.10 Channel operations — **Partial**
-Channels A–D select is present (`editor` channel writes + reflection). Missing: **copy / paste
-channel**, **copy channel across blocks/presets**, **reset channel**, **set channel across all
-scenes** (FM3-Edit Block menu). grep `copyChannel|pasteChannel|resetChannel` → 0.
+Channels A–D select is present (`editor` channel writes + reflection). **Copy channel → paste
+channel** and **reset channel / reset block to model defaults** are now implemented client-side in
+the Block Editor footer (`src/lib/blockOps.ts` + `editor.svelte.ts` `copyChannel/pasteChannel/
+resetChannel/resetBlock`), over the existing per-block param/type writes — no new endpoint.
+- Copy/paste snapshots the channel's served params (knobs by norm, enums by ordinal) keyed by
+  device paramId and writes them back; ids the target block does not expose are dropped.
+- Reset uses the FM3's own **model-reselect soft reset** (community-documented): re-selecting the
+  block's current model makes the device reset the active channel to that model's defaults.
+  "Reset CH" re-selects on the active channel; "Reset Block" sweeps A–D (each on its own model).
+- Still missing: **copy channel across blocks/presets** (the clipboard is in-memory, same session),
+  **set channel across all scenes** (FM3-Edit Block menu).
 
 ### 2.11 Cross-preset / batch editing — **Absent**
 FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) and
@@ -209,16 +217,21 @@ filters but no colour/flag dimension.
 These are the highest-value items: the screen exists, the plumbing partly exists, the feature stops
 short.
 
-### 3.1 Block editor footer — **Stub**
-`BlockEditor.svelte:164-165`:
-```svelte
-<button class="act" onclick={() => editor.showToast('Mute — coming soon', '#35c9d6')}>Mute</button>
-<button class="act" onclick={() => editor.showToast('Scene Ignore — coming soon', '#35c9d6')}>Scene Ignore</button>
-```
-- **Mute** needs a block-level mute (level → -∞) mapping per family. (The *cab* per-slot M/S buttons
-  are real — do not confuse them with this stub.)
-- **Scene Ignore** is a real FM3 per-block flag (bypass state not recalled per scene). It must exist
-  as a param (`*_SCENE_IGNORE`-ish) or in the preset binary — **verify which**, then wire.
+### 3.1 Block editor footer — **Done (Scene Ignore), Mute honestly disabled**
+`BlockEditor.svelte` footer, `src/lib/blockOps.ts`:
+- **Scene Ignore** — **implemented**. The FM3 catalog serves a per-family `<FAMILY>_SCENEIGNORE`
+  enum (27 families: `CABINET_SCENEIGNORE` pid 84, `DELAY_SCENEIGNORE` pid 83, `DISTORT_SCENEIGNORE`
+  pid 137, …; all `unit: "enum"`, `displayLabel: "Scene Ignore"`), so the footer toggles the block's
+  own served selector via the existing discrete param write. No invented paramId. It is gated off
+  (disabled with a tooltip) for the few families that do not expose one.
+- **Mute** — **honest disabled stub; no backing param exists.** `grep -io '"[A-Z_0-9]*MUTE[A-Z_0-9]*"'`
+  over `forgefx-midi/catalog/fm3.json` returns ONLY family-specific rows — `CABINET_MUTE1..4` +
+  `CABINET_BTN_MUTE1..2` (per cab slot), `MULTICOMP_MUTE1..3` (per multiband-comp band),
+  `GLOBAL_TUNERMUTE` (global tuner) and `GLOBAL_REMOTE_MUTE` (global remote) — none is a generic
+  per-block mute. The one generic-looking route (setting the family's `*_LEVEL` param to its dB min)
+  is ambiguous on many families (CABINET/MULTITAP/PITCH carry several `*_LEVEL`s) and is not -∞. The
+  footer button is therefore `disabled` with a tooltip stating this, and points at **Bypass** (the
+  served "silence this block" control, sitting right beside it). Do NOT wire it to an invented id.
 
 ### 3.2 Modifier editor — **Partial / Unverified**
 `ModifierEditorCore.svelte` header (lines 7-10): curve fields are written live, *"Channel / PC Reset /
@@ -371,7 +384,8 @@ surfaced — see §3.6 item 3.
    all client-side plans over existing `setParam` / grid writes; add history ops for each.
 3. **Channel copy/paste/reset** (§2.10).
 4. **Keyboard shortcut map** (§2.12) — pure UI plumbing, big workflow win.
-5. **Mute + Scene Ignore** (§3.1) once the backing param is identified.
+5. **Mute + Scene Ignore** (§3.1) — **Scene Ignore DONE** (served `*_SCENEIGNORE` enum); **Mute
+   left disabled** (no served generic per-block mute param — see §3.1).
 6. **Block-pane height / search-card** UX fixes (§3.6 items 1-3).
 
 **Moderate (new endpoints / structured UI)**
@@ -400,7 +414,7 @@ surfaced — see §3.6 item 3.
 | Seed pages, placeholders for Scenes/Live, convert page | `src/lib/axis-workbench/axisWorkbenchPages.ts` |
 | Placeholder panel component | `src/lib/axis-workbench/panels/AxisPlaceholderPanel.svelte` |
 | Legacy rail (Perform/Sets toasts) | `src/lib/ToolRail.svelte` |
-| Mute / Scene Ignore stubs | `src/lib/BlockEditor.svelte:164-165` |
+| Mute / Scene Ignore | `src/lib/BlockEditor.svelte` footer, `src/lib/blockOps.ts`, `src/lib/blockOps.test.ts` |
 | Preset browser "soon" actions | `src/lib/PresetBrowser.svelte:519,548` |
 | Modifier editor limits | `src/lib/ModifierEditorCore.svelte` |
 | FC editor model/limits | `src/lib/FcEditor.svelte`, `src/lib/axis-workbench/fc/*` |
