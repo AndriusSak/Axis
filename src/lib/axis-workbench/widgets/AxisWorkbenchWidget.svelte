@@ -1327,4 +1327,59 @@
     background: var(--ok, #33c46b);
     box-shadow: 0 0 6px var(--ok, #33c46b);
   }
+
+  /* ── Touch (coarse-pointer) hit-area enlargement ────────────────────────────
+     On a touch device (Steam Deck class) the top bar's small controls are far
+     below the ~44px touch-target guidance: preset arrows 24x36, preset selector
+     134x36, scene chips 21x22. We enlarge the HIT AREA only, with a transparent
+     `::after` overlay on a `position: relative` button — the visible box, font
+     sizes and desktop density are untouched. Scoped to `pointer: coarse`, so a
+     fine-pointer desktop is completely unaffected.
+
+     The controls live inside `.axis-widget`, whose `overflow: hidden` would clip
+     an outward overlay. We swap it for `overflow: clip` + `overflow-clip-margin`
+     on just the two affected widget variants: real content is still clipped as
+     before, but the overlay may extend up to 14px past the box. */
+  @media (pointer: coarse) {
+    .axis-preset,
+    .chips {
+      overflow: clip;
+      overflow-clip-margin: 14px;
+    }
+    .preset-arrow,
+    .preset-main,
+    .num-chip {
+      position: relative;
+    }
+    /* Vertical: 36px → 56px effective (>= 44). Horizontal: preset-main is already
+       134px wide, so no sideways growth is needed or wanted (it would overlap the
+       arrows). */
+    .preset-main::after {
+      content: '';
+      position: absolute;
+      inset: -10px 0;
+    }
+    /* Arrows: the visible box hugs the widget edges (the left arrow is 1px from the
+       zone's clipped left edge; the right arrow abuts the preset selector). Expand
+       outward only, so the hit areas never overlap a neighbour. */
+    .preset-arrow:first-of-type::after {
+      content: '';
+      position: absolute;
+      inset: -10px 0 -10px -8px;
+    }
+    .preset-arrow:last-of-type::after {
+      content: '';
+      position: absolute;
+      inset: -10px -8px -10px 0;
+    }
+    /* Scene chips sit on a 24px pitch (21px + 3px gap): expanding each by half the
+       gap tiles the row edge-to-edge without overlapping a neighbour, giving 24px
+       of effective width (44px wide is geometrically impossible here without the
+       hit areas covering each other). Vertically 22px → 46px effective. */
+    .num-chip::after {
+      content: '';
+      position: absolute;
+      inset: -12px -1.5px;
+    }
+  }
 </style>
