@@ -49,6 +49,11 @@ export interface BoardCtl {
 const isBypassControl = (ctl: LayoutControl): boolean =>
   /bypass/i.test(ctl.rawWidget ?? '') || /bypass/i.test(ctl.label ?? '') || /bypass/i.test(ctl.paramName ?? '');
 
+/** FM3-Edit's DynaCab mic graph — a dedicated visual widget (`rawWidget: "dynaCabControl"`), not a
+ *  knob: the device's own editor lays it out as one control over the cab's Position parameter
+ *  (CAP at centre → EDGE at the rim). We render it as the `dynacab` view instead of a dial. */
+const isDynaCabControl = (ctl: LayoutControl): boolean => ctl.rawWidget === 'dynaCabControl';
+
 /** Pick the view for a control that resolved to a live catalog entry. Falls back to the entry's own
  *  default view (and only ever returns a view the entry actually supports) so an `unknown`/unmapped
  *  widget renders identically to the pre-v2 catalog default. */
@@ -77,7 +82,11 @@ function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>): Resol
     const knobKey = `k${ctl.paramId}`;
     const enumKey = `e${ctl.paramId}`;
     const base = byKey.get(knobKey) ?? byKey.get(enumKey);
-    if (base) return { key: base.key, view: viewForWidget(ctl.widget, base) };
+    if (base) {
+      // The device's DynaCab mic graph renders as its own view; everything else refines from the hint.
+      if (isDynaCabControl(ctl)) return { key: base.key, view: 'dynacab' };
+      return { key: base.key, view: viewForWidget(ctl.widget, base) };
+    }
   }
   // No live param → the block-level catalog entries the widget hint points at.
   if (ctl.widget === 'meter' && byKey.has('meter')) return { key: 'meter', view: 'meter' };
@@ -176,7 +185,10 @@ export function buildDeviceLayoutBoard(
           x += 1;
           continue;
         }
-        const w = Math.min(base.w, columns);
+        // The DynaCab mic graph needs room to read: give it a 2×2 tile (clamped to the board width).
+        const isGraph = r.view === 'dynacab';
+        const w = isGraph ? Math.min(2, columns) : Math.min(base.w, columns);
+        const h = isGraph ? 2 : base.h;
         if (x + w > columns) {
           // control doesn't fit the rest of this line — wrap onto a new grid line (still this row)
           gridRow += rowH;
@@ -184,9 +196,9 @@ export function buildDeviceLayoutBoard(
           rowH = 1;
         }
         seen.add(r.key);
-        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h: base.h, view: r.view, row: rowIndex });
+        widgets.push({ id: 'w' + r.key, key: r.key, x, y: gridRow, w, h, view: r.view, row: rowIndex });
         x += w;
-        rowH = Math.max(rowH, base.h);
+        rowH = Math.max(rowH, h);
         placed = true;
       }
       if (placed) gridRow += rowH; // next layout row starts below the tallest widget of this one

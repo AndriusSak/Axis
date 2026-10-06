@@ -205,3 +205,38 @@ describe('overflowsColumns — the responsive re-pack trigger', () => {
     expect(overflowsColumns(packRows(wide, 8), 8)).toBe(false);
   });
 });
+
+// The Cab block's DynaCab page (FM3 fw > 6.03) carries the device's own `dynaCabControl` — a
+// graphical mic-position widget bound to the cab's Position parameter, NOT a dial. FM3-Edit draws it
+// as a speaker cone with the mic placed by Position (CAP at centre → EDGE at the rim); the builder
+// must map it to the `dynacab` view (and give it room) instead of falling back to a knob.
+describe('buildDeviceLayoutBoard — DynaCab mic graph', () => {
+  const knobDyn = (id: number): BoardCtl => ({ key: `k${id}`, kind: 'cont', id, w: 1, h: 1, view: 'knob', views: ['knob', 'fader', 'slider', 'number', 'dynacab'] });
+  const dyna = (id = 93, cols = 12) =>
+    buildDeviceLayoutBoard(
+      layout([{ name: 'Cab', rows: [{ controls: [ctl('unknown', id, 'DynaCab', { rawWidget: 'dynaCabControl' })] }] }]),
+      [knobDyn(id)],
+      cols
+    )!;
+
+  it('maps the device dynaCabControl to the mic-graph view, not a knob', () => {
+    expect(find(dyna().boards['Cab'], 'k93').view).toBe('dynacab');
+  });
+
+  it('gives the graph a 2x2 tile so the cone is readable', () => {
+    expect(find(dyna().boards['Cab'], 'k93')).toMatchObject({ w: 2, h: 2 });
+  });
+
+  it('clamps the graph footprint to a narrow board', () => {
+    expect(find(dyna(93, 1).boards['Cab'], 'k93').w).toBe(1);
+  });
+
+  it('a plain unknown widget still falls back to its catalog view (no regression)', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([{ name: 'P', rows: [{ controls: [ctl('unknown', 93, 'Position')] }] }]),
+      [knobDyn(93)],
+      12
+    )!;
+    expect(find(board.boards['P'], 'k93').view).toBe('knob');
+  });
+});

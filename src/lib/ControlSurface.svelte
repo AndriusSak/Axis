@@ -45,9 +45,9 @@
   }: { slug?: string; accent?: string; eqBands?: EQBand[]; eqGainRange?: number; eqTitle?: string; hideIds?: number[] } = $props();
 
   const GAP = 8;
-  const CONT_VIEWS = ['knob', 'fader', 'slider', 'number'] as const;
+  const CONT_VIEWS = ['knob', 'fader', 'slider', 'number', 'dynacab'] as const;
   const TOG_VIEWS = ['button', 'switch'] as const;
-  const VIEW_ICON: Record<string, string> = { knob: '◉', fader: '⇕', slider: '⇔', number: '#', button: '⏻', switch: '⊙', select: '▾', eq: '∿', action: '⏼', meter: '▊', wave: '⌇' };
+  const VIEW_ICON: Record<string, string> = { knob: '◉', fader: '⇕', slider: '⇔', number: '#', dynacab: '◎', button: '⏻', switch: '⊙', select: '▾', eq: '∿', action: '⏼', meter: '▊', wave: '⌇' };
   const workbench = getOptionalWorkbenchContext();
   const workbenchCanPin = $derived(!!workbench?.registry.hasAction(AXIS_PIN_SELECTED_PARAMETERS_ACTION));
 
@@ -695,6 +695,8 @@
   // ── gestures (temp state in plain refs; not reactive) ──
   let vd: { id: number; sy: number; sn: number } | null = null; // cont vertical drag
   let tk: { id: number; rect: DOMRect; vertical: boolean } | null = null; // track drag
+  let dyn: { id: number; rect: DOMRect } | null = null; // DynaCab mic graph radial drag
+  let dynAng = $state(-Math.PI / 4); // last mic bearing on the cone (cosmetic; the VALUE is radial)
   let mv: { id: string; w: number; h: number; grabDX: number; grabDY: number; left: number; top: number; armed: boolean } | null = null; // move (grabDX/Y = px from tile's top-left to the grab point)
   let rz: { id: string; sx: number; sy: number; ow: number; oh: number } | null = null; // resize
   let sw: { sx: number; moved: boolean } | null = null; // page swipe
@@ -731,6 +733,25 @@
     if (!tk) return;
     const frac = tk.vertical ? clamp(1 - (e.clientY - tk.rect.top) / tk.rect.height, 0, 1) : clamp((e.clientX - tk.rect.left) / tk.rect.width, 0, 1);
     setNorm(tk.id, frac);
+  }
+  // DynaCab mic graph: the VALUE is the mic's radial distance from the cone centre — CAP (0) at the
+  // middle → EDGE (1) at the rim, exactly the device's Position scale. The bearing only moves the mic
+  // glyph under the pointer so the gesture reads naturally.
+  function onDynaDown(e: PointerEvent, pid: number) {
+    if (editMode) return;
+    e.stopPropagation();
+    dyn = { id: pid, rect: (e.currentTarget as HTMLElement).getBoundingClientRect() };
+    dynMove(e);
+  }
+  function dynMove(e: PointerEvent) {
+    if (!dyn) return;
+    const { rect } = dyn;
+    const cx = rect.left + rect.width / 2, cy = rect.top + rect.height / 2;
+    const R = Math.min(rect.width, rect.height) / 2;
+    const maxR = R * (39 / 50); // keep the mic glyph inside the grille (see the SVG geometry)
+    const dx = e.clientX - cx, dy = e.clientY - cy;
+    dynAng = Math.atan2(dy, dx);
+    setNorm(dyn.id, clamp(Math.hypot(dx, dy) / maxR, 0, 1));
   }
   function onResizeDown(e: PointerEvent, id: string) {
     e.stopPropagation();
@@ -802,6 +823,11 @@
         trackMove(e);
         return;
       }
+      if (dyn) {
+        e.preventDefault();
+        dynMove(e);
+        return;
+      }
       if (vd) {
         e.preventDefault();
         setNorm(vd.id, vd.sn + (vd.sy - e.clientY) * 0.005);
@@ -833,6 +859,7 @@
         if (effCompact) setWidgets(packList(widgets));
       }
       tk = null;
+      dyn = null;
       if (vd) {
         vd = null;
         dragging = false;
@@ -1428,6 +1455,43 @@
                   <button class="step" onpointerdown={(e) => e.stopPropagation()} onclick={() => nudge(c.id, 1)}>＋</button>
                 </div>
                 <div class="lbl">{c.label}</div>
+              {:else if c.kind === 'cont' && w.view === 'dynacab'}
+                {@const nrm = knob(c.id)?.norm ?? 0}
+                <!-- DynaCab mic graph — FM3-Edit parity. The mic's radial distance from the cone centre
+                     IS the device's Position parameter: CAP (0) at the middle → EDGE (1) at the rim.
+                     Drag anywhere to set it; the bearing only moves the glyph so the gesture reads. -->
+                <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
+                <div
+                  class="dynabox"
+                  title="Mic position — CAP (centre) to EDGE (rim)"
+                  onpointerdown={(e) => onDynaDown(e, c.id)}
+                  ondblclick={(e) => { if (!editMode) showTip(e.currentTarget as HTMLElement, c.id, true); }}
+                  onmouseenter={(e) => { if (!isMobile && !editMode) showTip(e.currentTarget as HTMLElement, c.id, false); }}
+                  onmouseleave={() => { if (!dragging && !tip?.edit) tip = null; }}
+                >
+                  <svg viewBox="0 0 100 100" preserveAspectRatio="xMidYMid meet" class="dynasvg">
+                    <circle cx="50" cy="50" r="45" style="fill:var(--surface2);stroke:var(--border2)" stroke-width="2" />
+                    <circle cx="50" cy="50" r="31" fill="none" style="stroke:var(--border2)" stroke-width="1.2" stroke-dasharray="3 4" />
+                    <line
+                      x1="50" y1="50"
+                      x2={50 + 39 * Math.cos(dynAng)} y2={50 + 39 * Math.sin(dynAng)}
+                      style="stroke:var(--border3)" stroke-width="1" stroke-dasharray="2 3"
+                    />
+                    <circle cx="50" cy="50" r="1.8" style="fill:var(--textfaint)" />
+                    <g transform="translate({50 + 39 * nrm * Math.cos(dynAng)} {50 + 39 * nrm * Math.sin(dynAng)})">
+                      <circle r="8" fill={accent} opacity="0.16" />
+                      <circle r="7" style="fill:var(--surface);stroke:{accent}" stroke-width="1.6" />
+                      <rect x="-2.1" y="-3.4" width="4.2" height="5.2" rx="2.1" fill={accent} />
+                      <path d="M0 3 V5.4 M-2.6 5.4 H2.6" fill="none" stroke={accent} stroke-width="1.3" stroke-linecap="round" />
+                    </g>
+                    <text x="50" y="11" text-anchor="middle" class="dynalab">CAP</text>
+                    <text x="50" y="97" text-anchor="middle" class="dynalab">EDGE</text>
+                  </svg>
+                  <div class="dynaval">
+                    <span class="dynanum mono">{valText(c.id)}</span>
+                    <span class="dynacap">{c.label}</span>
+                  </div>
+                </div>
               {:else if c.kind === 'toggle' && w.view === 'button'}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
                 <div class="onoff" class:on={togOn(c.id)} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && toggleEnum(c.id)} title={togLabel(c.id)}>
@@ -2085,6 +2149,54 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  /* DynaCab mic graph — fills the tile; the SVG keeps the cone round at any tile aspect. */
+  .dynabox {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    cursor: crosshair;
+    touch-action: none;
+  }
+  .dynasvg {
+    flex: 1 1 auto;
+    min-height: 0;
+    width: 100%;
+    display: block;
+    overflow: visible;
+  }
+  .dynaval {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    max-width: 100%;
+    pointer-events: none;
+  }
+  .dynanum {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--text);
+  }
+  .dynacap {
+    font-size: 10px;
+    font-weight: 600;
+    color: var(--textfaint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dynalab {
+    font-size: 7px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    fill: var(--textfaint);
   }
   .vtrack {
     position: relative;
