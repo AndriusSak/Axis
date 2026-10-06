@@ -173,28 +173,28 @@ block only.
 
 | FM3-Edit operation | Axis status | Evidence |
 |---|---|---|
-| Copy / cut / paste a block (incl. across presets) | **Absent** | grep `clipboard|copyBlock|pasteBlock` → 0 |
-| Drag block onto block/shunt to **swap** positions (cables preserved) | **Absent** | drag replaces shunts/moves; no swap op |
-| **Reset channel / reset block** to defaults | **Partial** — reset channel/block added to the Block Editor footer (§2.10); grid-level reset ops still absent | `editor.svelte.ts` `resetChannel/resetBlock` |
-| **Disconnect all cables** from a block (Cmd+D) | **Absent** (only per-cable) | `SignalGrid` cable ops are per-edge |
+| Copy / cut / paste a block (incl. across presets) | **Implemented (in-preset)** | `editor.copyBlock/pasteBlock` (Cmd+C/Cmd+V); pastes onto a block (settings), a shunt, or an empty cell; `planPasteBlock` in `gridRouting.ts` |
+| Drag block onto block/shunt to **swap** positions (cables preserved) | **Implemented** | `planSwap` + `editor.swap`; SignalGrid block-onto-block drop swaps (cables stay with each cell) |
+| **Reset channel / reset block** to defaults | **Implemented** | footer Reset CH (active channel, model re-select) / Reset Block (structural clear+re-place, undoable) + grid Cmd+I; `planResetBlock` |
+| **Disconnect all cables** from a block (Cmd+D) | **Implemented** | `planDisconnectAll` + `editor.disconnectAll` (Cmd+D) |
 | **Move an entire row / column** (grid border sliders) | **Absent** | grep `moveRow` → 0 |
-| Explicit **Insert shunt** command/shortcut | **Partial** — shunts auto-insert when routing through empty cells; no explicit insert | `gridRouting.planConnect` |
+| Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
 | **Quick Build** panel (Q) | **Partial** — the Cmd+K command palette covers placement differently | `CommandPalette.svelte` |
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
 ### 2.10 Channel operations — **Partial**
 Channels A–D select is present (`editor` channel writes + reflection). **Copy channel → paste
-channel** and **reset channel / reset block to model defaults** are now implemented client-side in
-the Block Editor footer (`src/lib/blockOps.ts` + `editor.svelte.ts` `copyChannel/pasteChannel/
-resetChannel/resetBlock`), over the existing per-block param/type writes — no new endpoint.
+channel**, **reset channel**, and **reset block** are implemented client-side in the Block Editor
+footer (`src/lib/blockOps.ts` + `editor.svelte.ts` `copyChannel/pasteChannel/resetChannel/
+resetBlock`) over the existing per-block param/type writes — no new endpoint.
 - Copy/paste snapshots the channel's served params (knobs by norm, enums by ordinal) keyed by
   device paramId and writes them back; ids the target block does not expose are dropped.
-- Reset uses the FM3's own **model-reselect soft reset** (community-documented): re-selecting the
-  block's current model makes the device reset the active channel to that model's defaults.
-  "Reset CH" re-selects on the active channel; "Reset Block" sweeps A–D (each on its own model).
-- Still missing: **copy channel across blocks/presets** (the clipboard is in-memory, same session),
-  **set channel across all scenes** (FM3-Edit Block menu).
+- Reset is the FM3 **model re-select soft reset**: "Reset CH" resets the active channel only;
+  "Reset Block" (and the grid's Cmd+I) clears + re-places the block in place — routing preserved,
+  structurally undoable.
+- Still missing: **copy channel across blocks/presets**, **set channel across all scenes** (FM3-Edit
+  Block menu), and **copy/cut a block across presets** (the block clipboard is in-memory, same session).
 
 ### 2.11 Cross-preset / batch editing — **Absent**
 FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) and

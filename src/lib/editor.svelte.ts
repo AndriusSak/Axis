@@ -9,7 +9,7 @@ import { deviceDefs } from './deviceDefs.svelte';
 import { history } from './history.svelte';
 import { onMutation, notifyMutation } from './syncBus';
 import { layoutFromGrid, type Cell, type Layout } from './grid';
-import { planConnect, planReplaceShunt } from './gridRouting';
+import { planConnect, planReplaceShunt, planDisconnectAll, planInsertShunt, planResetBlock, planSwap, planPasteBlock, type RoutePlan } from './gridRouting';
 import { baseName, packFor, statusColor } from './blocks';
 import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, type SwipeCtrl } from './layouts';
 import { surfApplyRemote } from './surfaceStore.svelte';
@@ -18,11 +18,13 @@ import { paramValue } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
-import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, blockResettable, BLOCK_CHANNELS, type ChannelClip } from './blockOps';
+import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
 
 export type ViewMode = 'basic' | 'advanced';
+/** Block clipboard payload for copy/paste (audit §2.9): a block's model + current-channel settings. */
+export type BlockClipboard = { blockId: number; display: string; pack: string | null; type: { value: number; name: string } | null; channel?: string; named: NamedParam[]; enums: EnumParam[] };
 type Conn = { state: 'connecting' | 'online' | 'offline'; fw?: string; device?: string };
 type CloudScopes = { presets: boolean; scenes: boolean; fc: boolean; settings: boolean };
 const SCOPES_KEY = 'axs.cloud.scopes';
@@ -336,6 +338,9 @@ class EditorStore {
   paletteOpen = $state(false);
   paletteMode = $state<'place' | 'retype'>('place');
   placeTarget = $state<{ row: number; col: number } | null>(null);
+  /** Block clipboard for copy/paste (audit §2.9). Captures a block's model + current-channel
+   *  parameter values so it can be pasted onto another block (or into an empty cell). */
+  blockClipboard = $state<BlockClipboard | null>(null);
   presetOpen = $state(false);
   /** PresetPicker "pick a slot" mode. When set, the picker hands the chosen slot number + name to this
    *  callback (e.g. the cross-device converter save dialog) INSTEAD of loading the preset onto the
@@ -1637,55 +1642,6 @@ class EditorStore {
     this.showToast(`Pasted ${writes.length} values from channel ${clip.channel ?? '?'}`, '#33c46b');
   };
 
-  /** Re-select the block's current model from the header picker, which makes the FM3 reset the
-   *  ACTIVE channel to that model's defaults (the documented "soft reset"). Blocks with no model
-   *  selector have no such path and report it instead. */
-  resetChannel = async () => {
-    const c = this.selected;
-    if (!c?.pack || c.effectId == null) return;
-    if (!blockResettable(this.blockType)) {
-      this.showToast('This block has no model to reset', '#f5a623');
-      return;
-    }
-    try {
-      await forgefx.setType(c.effectId, this.blockType!.value);
-      await this.#loadParams();
-      this.showToast(`Channel ${c.channel ?? ''} reset to model defaults`, '#33c46b');
-    } catch {
-      this.showToast('Reset failed', '#d6543f');
-    }
-  };
-
-  /** Reset every channel (A–D) to its own model defaults: for each channel, select it, re-select its
-   *  current model, then restore the channel the user was on. Multi-step + device round-trips, so it
-   *  reports how many channels reset. */
-  resetBlock = async () => {
-    const c = this.selected;
-    if (!c?.pack || c.effectId == null) return;
-    if (!blockResettable(this.blockType)) {
-      this.showToast('This block has no model to reset', '#f5a623');
-      return;
-    }
-    const restore = c.channel ?? null;
-    let reset = 0;
-    for (const ch of BLOCK_CHANNELS) {
-      try {
-        await forgefx.setChannel(c.effectId, ch);
-        // read the model THIS channel is on (channels may hold different models) then re-select it
-        const r = await forgefx.blockParams(c.effectId);
-        const tv = r.type?.value;
-        if (tv == null) continue;
-        await forgefx.setType(c.effectId, tv);
-        reset++;
-      } catch {
-        /* skip a channel the device did not answer for */
-      }
-    }
-    if (restore) await forgefx.setChannel(c.effectId, restore).catch(() => {});
-    await this.#loadParams();
-    this.showToast(reset ? `Reset ${reset} channel${reset > 1 ? 's' : ''} to model defaults` : 'Reset failed', reset ? '#33c46b' : '#d6543f');
-  };
-
   /** Toggle the block's served "Scene Ignore" flag (bypass state is not recalled per scene).
    *  Reads the family's `<FAMILY>_SCENEIGNORE` enum out of the served params — no invented paramId. */
   setSceneIgnore = async (on: boolean) => {
@@ -1970,6 +1926,138 @@ class EditorStore {
       /* */
     }
   };
+
+  // ── FM3-Edit parity grid/structure ops (audit §2.9) ──────────────────────────
+  // Each delegates to a PURE planner (gridRouting.ts) — the SAME ops are executed forward here and
+  // replayed in reverse by history, so every op is exactly undoable. One gesture = one composite step.
+  /** Execute every op of a routing plan forward, record it as one undoable composite, then reconcile. */
+  #runPlan = async (plan: RoutePlan, accent = '#35c9d6') => {
+    if (!plan.ok) {
+      this.showToast(plan.error ?? 'Cannot do that', '#d6543f');
+      return;
+    }
+    try {
+      for (const op of plan.ops) await this.#runOp(op);
+      history.recordComposite(plan.label, plan.ops);
+      await this.load();
+      this.showToast(plan.label, accent);
+    } catch {
+      this.load();
+    }
+  };
+
+  /** Disconnect every cable into and out of a cell (FM3-Edit Cmd+D). */
+  disconnectAll = async (row: number, col: number) => {
+    await this.#runPlan(planDisconnectAll(this.layout.cells, this.layout.shunts, row, col), '#9a9aa3');
+  };
+
+  /** Insert an explicit shunt cell into an empty grid cell (FM3-Edit Cmd+U). */
+  insertShunt = async (row: number, col: number) => {
+    await this.#runPlan(planInsertShunt(this.layout.cells, this.layout.shunts, row, col, this.shuntBase));
+  };
+
+  /** Reset a block's parameters to device defaults in place, preserving its cables (FM3-Edit Cmd+I).
+   *  Device-true mechanism: clear + re-place the same effect id (a fresh placement comes up default).
+   *  Undo restores the placement + wiring; the old parameter VALUES aren't snapshot (v1 limitation). */
+  resetBlock = async (cell?: Cell) => {
+    const c = cell ?? this.selected;
+    if (!c || c.kind !== 'block') return;
+    await this.#runPlan(planResetBlock(this.layout.cells, this.layout.shunts, c, c.effectId, c.display), '#f5a623');
+  };
+  /** Reset ONLY the active channel of a block to that model's defaults (FM3 soft reset: re-select the
+   *  channel's current model — the device re-initializes it). No structural change. Optional cell
+   *  (defaults to the selected block); for "reset all channels" use `resetBlock`. */
+  resetChannel = async (cell?: Cell) => {
+    const c = cell ?? this.selected;
+    if (!c || c.kind !== 'block' || c.effectId == null) return;
+    const ch = c.channel ?? null;
+    try {
+      // read the model THIS channel is on (channels may hold different models), then re-select it
+      const r = await forgefx.blockParams(c.effectId);
+      const tv = r.type?.value;
+      if (tv == null) { this.showToast('This block has no model to reset', '#f5a623'); return; }
+      await forgefx.setType(c.effectId, tv);
+      if (c === this.selected) await this.#loadParams();
+      await this.load();
+      this.showToast(ch ? `Channel ${ch} reset to model defaults` : 'Channel reset to model defaults', '#33c46b');
+    } catch {
+      this.showToast('Reset failed', '#d6543f');
+    }
+  };
+
+  /** Swap the positions of two placed blocks, preserving each cell's cabling (drag-block-onto-block). */
+  swap = async (a: Cell, b: Cell) => {
+    await this.#runPlan(planSwap(this.layout.cells, this.layout.shunts, a, b));
+  };
+
+  /** Copy a block's model + current-channel settings into the clipboard. */
+  copyBlock = async (cell?: Cell) => {
+    const c = cell ?? this.selected;
+    if (!c || c.kind !== 'block') {
+      this.showToast('Nothing to copy', '#d6543f');
+      return;
+    }
+    try {
+      const r = await forgefx.blockParams(c.effectId);
+      this.blockClipboard = {
+        blockId: c.effectId,
+        display: c.display,
+        pack: c.pack,
+        type: r.type ?? null,
+        channel: c.channel,
+        named: r.named.filter((p) => !['type', 'bypass'].includes(p.name.toLowerCase())),
+        enums: r.enums ?? []
+      };
+      this.showToast(`Copied ${c.display}`, '#35c9d6');
+    } catch {
+      this.showToast('Copy failed — device offline?', '#d6543f');
+    }
+  };
+
+  /** Apply a clipboard's settings (model type → continuous params → enums → channel) to a block. */
+  #applyClip = async (eid: number, clip: BlockClipboard) => {
+    if (clip.type) await forgefx.setType(eid, clip.type.value).catch(() => {});
+    for (const p of clip.named) if (p.id != null) await forgefx.setParam(eid, p.id, p.norm ?? 0, true).catch(() => {});
+    for (const e of clip.enums) await forgefx.setParam(eid, e.id, e.value, false).catch(() => {});
+    if (clip.channel) await forgefx.setChannel(eid, clip.channel).catch(() => {});
+  };
+
+  /** Paste the clipboard: onto an existing block (settings), replacing a shunt, or into an empty cell
+   *  (place the block, then write its settings). */
+  pasteBlock = async (row: number, col: number) => {
+    const clip = this.blockClipboard;
+    if (!clip) {
+      this.showToast('Clipboard is empty', '#d6543f');
+      return;
+    }
+    const occ = [...this.layout.cells, ...this.layout.shunts].find((c) => c.row === row && c.col === col);
+    try {
+      if (occ?.kind === 'shunt') {
+        await this.replaceShunt(occ, { blockId: clip.blockId, display: clip.display });
+        await this.#applyClip(clip.blockId, clip);
+      } else if (occ?.kind === 'block') {
+        await this.#applyClip(occ.effectId, clip);
+        history.checkpoint(`Pasted settings onto ${occ.display}`, false); // param writes aren't snapshotted
+        await this.load();
+        this.showToast(`Pasted onto ${occ.display}`, '#35c9d6');
+      } else {
+        const plan = planPasteBlock(this.layout.cells, this.layout.shunts, row, col, clip.blockId, clip.display);
+        if (!plan.ok) {
+          this.showToast(plan.error ?? 'Cannot paste here', '#d6543f');
+          return;
+        }
+        for (const op of plan.ops) await this.#runOp(op);
+        history.recordComposite(plan.label, plan.ops);
+        await this.#applyClip(clip.blockId, clip);
+        history.checkpoint(`Pasted ${clip.display} settings`, false);
+        await this.load();
+        this.showToast(`Pasted ${clip.display}`, '#35c9d6');
+      }
+    } catch {
+      this.load();
+    }
+  };
+
 
   // ── view mode ──
   // Basic/Advanced now picks the default tab (Ideal vs Advanced) for the open block.

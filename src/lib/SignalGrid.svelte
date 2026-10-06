@@ -557,9 +557,9 @@
           if (tgt && (tgt.row !== src.row || tgt.col !== src.col)) {
             // move anywhere empty; same-col keeps wires, cross-col lets them drop (device default).
             // A SHUNT target is replaced in place (its cables move onto the block) via editor.move →
-            // replaceShunt; only a real BLOCK target is rejected as occupied.
+            // replaceShunt; a real BLOCK target SWAPS the two blocks (cables preserved per cell).
             const occ = cellAt.get(`${tgt.row},${tgt.col}`);
-            if (occ?.kind === 'block') editor.showToast('Cell occupied', '#d6543f');
+            if (occ?.kind === 'block') editor.swap(src, occ);
             else editor.move(src, tgt.row, tgt.col);
           }
         }
