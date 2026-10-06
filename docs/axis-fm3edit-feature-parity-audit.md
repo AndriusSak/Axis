@@ -95,10 +95,23 @@ per-block bypass + channel (X/Y) map, so this sequence is a faithful copy/swap �
 without new ops or a preset-binary parser.
 - ~~The workbench Scenes page is a placeholder~~ — replaced by the real panel; a persisted document's
   stale `axis.placeholder` Scenes panel self-heals via `ensureAxisSceneManagerPanel` (marker-free).
-- Still missing: **scene-level "Set all CS" / control-switch state per scene** (catalog carries
-  `PRESET_FC_SCENE*_CS*_MODE`, 51 params — reachable via the generic codec but no UI), and
-  **scene-controller / per-scene param values** beyond bypass+channel (scene controllers are surfaced
-  by the Controllers screen; a whole-scene param dump needs the §6.4 preset-binary parser).
+- Still missing: **scene-level "Set all CS" / control-switch state per scene** — **GATED (no invented
+  eid/paramId)**, verified 2026-10-06. The catalog carries the 48 per-scene `PRESET_FC_SCENE<n>_CS<m>_MODE`
+  rows (family PRESET, paramId 1285..1332; enum ON/OFF/LAST) plus 3 action rows (`_CS_ALL_ON` 65521 /
+  `_CS_ALL_OFF` 65522 / `_CS_RESET` 65520; 51 rows total). They are **not addressable** through any
+  shipped API: family PRESET has **no wire effectId** (`FM3_EFFECT_IDS.PRESET === null`, test-enforced in
+  `forgefx-midi/test/gen3/modern-family/catalog.test.ts`; `profile.familyForEffectId(57|200)` and
+  `familyForEffectId(200)` are `undefined` in the built server), so `GET /preset/blocks/:eid/params` can
+  never serve them and `PUT /preset/blocks/:eid/params/:paramId` has **no verified eid** to target.
+  Neither `GET /preset/blocks` (grid blocks only) nor `GET /preset/scene-state`
+  (`{effectId,bypassed,channel}`) carries CS state. On the device the rows sit in the PRESET **section**
+  (sectionTag 57 of the param walk; enum ON/OFF/LAST) — the preset-dump/section space — and host→device
+  write-back of that space does not exist (§6.4). The one candidate eid (200 / `ID_PRESET_FC`, from the
+  `CONTROLLERS` layout page's `crossBlock`) is deliberately excluded from the FM3 effectId table and is
+  hardware-**unverified** — do **not** build on it. Revisit only after a capture proves the
+  `(eid, paramId)` for family PRESET (see §6.8).
+- Still missing: **scene-controller / per-scene param values** beyond bypass+channel (scene controllers
+  are surfaced by the Controllers screen; a whole-scene param dump needs the §6.4 preset-binary parser).
 - Scene Ignore per block is **done** (see §3.1).
 
 ### 2.2 Perform / Live view — **Absent** (whole surface)
@@ -401,6 +414,16 @@ not surfaced — see §3.6 item 3.
 6. **Cab 2 Mute/Solo write path** (see §3.7) — the outstanding hardware check from the last handoff.
 7. **Setlists/Songs availability** on Andy's firmware (added in a later fw line; confirm the unit's
    version supports it before treating §2.3 as a target).
+8. **Are the 51 `PRESET_FC_SCENE*_CS*_MODE` rows fn=0x01-addressable?** Family PRESET has no wire
+   effectId (`FM3_EFFECT_IDS.PRESET === null`; `familyForEffectId(57)` = `familyForEffectId(200)` =
+   `undefined`). The device param walk lists them in **section 57** (family PRESET; enum ON/OFF/LAST),
+   and the `CONTROLLERS` layout's "CS per Scene" page carries them as `crossBlock: ID_PRESET_FC` —
+   whose roster firstId is **200** (flagged `addressable:false` = MIDI-bypass only, not fn=0x01). So the
+   real question is whether **eid 200** is the fn=0x01 effectId for family PRESET on FM3. → **Probe:**
+   with the FM3 connected, `POST /preset/blocks/200/read` `{"pids":[1285]}` (or `/readrange`) and
+   `GET /preset/blocks/200/raw`, and watch the reply for pid 1285's value/label; if the device answers
+   with the CS ordinal, add eid 200 to `FM3_EFFECT_ID_TABLE` (`family:'PRESET', firstId:200`) and build
+   the Scene-Manager CS section on the generic codec. Do NOT assume 200 until the capture answers.
 
 ---
 
@@ -422,7 +445,8 @@ not surfaced — see §3.6 item 3.
 **Moderate (new endpoints / structured UI)**
 7. ~~**Scene Manager page** (§2.1) with copy/swap/bulk engage~~ — **DONE 2026-10-06**
    (`sceneOps.ts` + `AxisSceneManagerPanel.svelte`, panel type `axis.sceneManager`); §6.3 resolved via
-   client-side sequences over the existing endpoints (no new route).
+   client-side sequences over the existing endpoints (no new route). The CS-state remainder is
+   **GATED** (§2.1): family PRESET has no wire effectId, so there is no eid to write — see §6.8.
 8. **Setup expansion**: MIDI/Remote tables + FC config (§2.8) — needs §6.2 and possibly new ops.
 9. **FC Edit completion** (§3.8) — **PARTIALLY DONE**: Layout Links + Per-Preset switch assignment
    (served Layout/Per-Preset categories) and layout import/export shipped; CS MIDI and FC
