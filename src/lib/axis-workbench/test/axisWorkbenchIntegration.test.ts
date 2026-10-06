@@ -33,6 +33,7 @@ describe('Axis Workbench integration contracts', () => {
       'axis.placeholder',
       'axis.sceneManager',
       'axis.live',
+      'axis.batchSet',
       'axis.convertGrid',
       'axis.convertBlockEditor',
       'axis.convertMinimap',
