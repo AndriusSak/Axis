@@ -134,4 +134,19 @@ describe('Preset Browser Workbench data view', () => {
       number: null
     });
   });
+
+  it('flows a per-entry colour tag into colorHex (null when untagged) — §2.13', () => {
+    const colors: Record<string, 'red' | 'green'> = { 'dev:1': 'green' };
+    const view = createAxisPresetBrowserDataView({
+      entries,
+      colorOf: (id) => colors[id] ?? null
+    });
+    const dev = view.entries.find((e) => e.id === 'dev:1');
+    const file = view.entries.find((e) => e.id === 'file:ambient');
+    expect(dev?.colorHex).toBe('#33c46b'); // green
+    expect(file?.colorHex).toBeNull(); // untagged
+    // The resolver is optional — omitting it yields no colours, never a crash.
+    const plain = createAxisPresetBrowserDataView({ entries });
+    expect(plain.entries.every((e) => e.colorHex === null)).toBe(true);
+  });
 });

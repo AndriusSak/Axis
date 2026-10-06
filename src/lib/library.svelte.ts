@@ -10,6 +10,16 @@ import { notifyMutation } from './syncBus';
 import type { PresetSummary, DecodedBlock } from './types';
 import { parseConvertedDoc, type ConvertedPresetDoc } from './convertScratch';
 import { deviceName } from './convertReport';
+import {
+  matchesPresetColorFilter,
+  presetColorCounts,
+  presetColorOf,
+  sanitizePresetColors,
+  setPresetColor,
+  type AxisPresetColorFilter,
+  type AxisPresetColorId,
+  type AxisPresetColorMap
+} from './presetColors';
 
 // Validate persisted summaries on load → drop anything corrupt or from an older schema (instead of
 // letting a malformed cache break the library). Permissive: only the fields the UI relies on.
@@ -60,7 +70,7 @@ export interface LibEntry {
  *  explicitly or it pollutes the library/search as a ghost entry. */
 const isEmptyName = (name: string) => /^<empty>$/i.test(name.trim());
 
-const LS = { tags: 'axs.lib.tags', collections: 'axs.lib.collections', favs: 'axs.lib.favs', cache: 'axs.lib.cache', built: 'axs.lib.built', files: 'axs.lib.files', folders: 'axs.lib.folders' };
+const LS = { tags: 'axs.lib.tags', collections: 'axs.lib.collections', favs: 'axs.lib.favs', colors: 'axs.lib.colors', cache: 'axs.lib.cache', built: 'axs.lib.built', files: 'axs.lib.files', folders: 'axs.lib.folders' };
 const IDB_PARAMS = 'lib.params'; // IndexedDB key for the per-preset param index (id → DecodedBlock[])
 const IDB_FILEBYTES = 'lib.fileBytes'; // raw .syx bytes for imported file/folder presets (id → number[]) — for live load
 function load<T>(key: string, fallback: T): T {
@@ -78,10 +88,10 @@ const persist = (key: string, v: unknown) => {
     /* quota / unavailable — metadata is best-effort */
   }
 };
-// User config (tags/collections/favorites): persist to localStorage (instant/offline source of truth)
-// AND mirror to the ForgeFX store under the `config` collection, so it lives in the unified backend and
-// is ready for cloud sync. localStorage stays authoritative for reads → zero data-loss risk.
-const persistCfg = (cfgId: 'tags' | 'collections' | 'favs', lsKey: string, v: unknown) => {
+// User config (tags/collections/favorites/colours): persist to localStorage (instant/offline source of
+// truth) AND mirror to the ForgeFX store under the `config` collection, so it lives in the unified
+// backend and is ready for cloud sync. localStorage stays authoritative for reads → zero data-loss risk.
+const persistCfg = (cfgId: 'tags' | 'collections' | 'favs' | 'colors', lsKey: string, v: unknown) => {
   persist(lsKey, v);
   forgefx.putDoc('config', cfgId, v).catch(() => {});
   notifyMutation(); // nudge debounced cloud auto-sync
@@ -118,6 +128,8 @@ class LibraryStore {
   tags = $state<Record<string, string[]>>(load(LS.tags, {}));
   /** collection name → member ids (persisted). */
   collections = $state<Record<string, string[]>>(load(LS.collections, {}));
+  /** id → user colour/flag tag (persisted, audit §2.13). Sparse: no key = untagged. */
+  colors = $state<AxisPresetColorMap>(sanitizePresetColors(load(LS.colors, {})));
 
   // filter state the UI binds to
   query = $state('');
@@ -126,6 +138,8 @@ class LibraryStore {
   modelFilter = $state<string | null>(null); // ANY block-family model name (amp/drive/cab/reverb/…)
   tagFilter = $state<string | null>(null);
   collectionFilter = $state<string | null>(null);
+  /** Colour/flag filter (§2.13): 'all' | 'none' (untagged) | one palette colour id. */
+  colorFilter = $state<AxisPresetColorFilter>('all');
   favOnly = $state(false);
   /** Deep param-search clauses (ANDed). Only match entries whose params are available (files always;
    *  device entries after `hydrateParams`/`deepScan`). */
@@ -174,6 +188,7 @@ class LibraryStore {
       forgefx.putDoc('config', 'tags', this.tags).catch(() => {});
       forgefx.putDoc('config', 'collections', this.collections).catch(() => {});
       forgefx.putDoc('config', 'favs', load<string[]>(LS.favs, [])).catch(() => {});
+      forgefx.putDoc('config', 'colors', this.colors).catch(() => {});
       forgefx.putDoc('config', 'savedFilters', raw('axs.pb.saved') ?? []).catch(() => {});
       forgefx.putDoc('config', 'layouts', raw('axis.layouts.v1') ?? {}).catch(() => {});
       forgefx.putDoc('config', 'swipe', raw('axis.swipe.v1') ?? {}).catch(() => {});
@@ -222,6 +237,7 @@ class LibraryStore {
       if (this.ampFilter && !(e.summary.amps ?? []).includes(this.ampFilter)) return false;
       if (this.modelFilter && !this.#allModelNames(e.summary).includes(this.modelFilter)) return false;
       if (this.tagFilter && !(this.tags[e.id] ?? []).includes(this.tagFilter)) return false;
+      if (!matchesPresetColorFilter(this.colors, e.id, this.colorFilter)) return false;
       if (this.collectionFilter && !(this.collections[this.collectionFilter] ?? []).includes(e.id)) return false;
       for (const pq of this.paramQueries) if (!this.#matchesParam(e, pq)) return false;
       if (q) {
@@ -265,6 +281,8 @@ class LibraryStore {
     return [...s].sort();
   });
   collectionNames = $derived.by(() => Object.keys(this.collections).sort());
+  /** Live per-colour + untagged counts across the whole library (audit §2.13 filter chips). */
+  colorCounts = $derived.by(() => presetColorCounts(this.colors, this.entries.map((e) => e.id)));
 
   // ── device scan (non-disruptive; skips empty/invalid slots) ──
   /** Build the full library cache in one pass: every preset's name + blocks + models + ALL params,
@@ -583,9 +601,10 @@ class LibraryStore {
    *  remote shows the SAME tags, collections, favorites and preset library as the PC — instead of scanning
    *  512 presets over MIDI. Layouts + swipe/quick-actions are hydrated separately (their localStorage keys
    *  are written before editor.init()). */
-  async hydrate(cfg: { tags?: unknown; collections?: unknown; favs?: unknown; index?: { gz?: string } | null }): Promise<void> {
+  async hydrate(cfg: { tags?: unknown; collections?: unknown; favs?: unknown; colors?: unknown; index?: { gz?: string } | null }): Promise<void> {
     if (cfg.tags && typeof cfg.tags === 'object') { this.tags = cfg.tags as Record<string, string[]>; persist(LS.tags, this.tags); }
     if (cfg.collections && typeof cfg.collections === 'object') { this.collections = cfg.collections as Record<string, string[]>; persist(LS.collections, this.collections); }
+    if (cfg.colors && typeof cfg.colors === 'object') { this.colors = sanitizePresetColors(cfg.colors); persist(LS.colors, this.colors); }
     const favSet = new Set(Array.isArray(cfg.favs) ? (cfg.favs as string[]) : []);
     if (cfg.index?.gz && typeof DecompressionStream !== 'undefined') {
       try {
@@ -613,6 +632,7 @@ class LibraryStore {
       this.entries = this.entries.map((e) => ({ ...e, fav: s.has(e.id) })).sort(this.#order);
       persist(LS.favs, data);
     }
+    else if (id === 'colors' && data && typeof data === 'object') { this.colors = sanitizePresetColors(data); persist(LS.colors, this.colors); }
   }
   /** Preset name for a device slot from the cache (for the quick picker). '' if not cached. */
   nameOfSlot = (n: number): string => this.entries.find((e) => e.source === 'device' && e.summary.number === n)?.summary.name ?? '';
@@ -718,6 +738,15 @@ class LibraryStore {
 
   tagsOf = (id: string): string[] => this.tags[id] ?? [];
   inCollection = (name: string, id: string): boolean => (this.collections[name] ?? []).includes(id);
+
+  // ── colour/flag tags (§2.13) ──
+  /** Set (or clear, with 'none') a preset entry's colour tag and persist + mirror it, exactly like tags. */
+  setColor(id: string, color: AxisPresetColorFilter): void {
+    this.colors = setPresetColor(this.colors, id, color);
+    persistCfg('colors', LS.colors, this.colors);
+  }
+  /** The colour of one entry (null when untagged). */
+  colorOf = (id: string): AxisPresetColorId | null => presetColorOf(this.colors, id);
 }
 
 export const library = new LibraryStore();
