@@ -15,6 +15,17 @@
   import { editor } from './editor.svelte';
   import { forgefx } from './forgefx';
   import type { FcModel } from './types';
+  import {
+    AXIS_FC_LAYOUT_CATEGORY,
+    AXIS_FC_PER_PRESET_CATEGORY,
+    axisFcParity
+  } from './axis-workbench/fc/fcParity';
+  import {
+    axisFcLayoutPackageWrites,
+    buildAxisFcLayoutPackage,
+    parseAxisFcLayoutPackage,
+    serializeAxisFcLayoutPackage
+  } from './axis-workbench/fc/fcLayoutPackage';
 
   const ACC = 'var(--amber)'; // FC accent follows the theme's amber token
   let model = $state<FcModel | null>(null);
@@ -117,11 +128,11 @@
   // its display mode is "Custom"; FM3-Edit sets that mode alongside the chars, so we do too — otherwise
   // the characters are stored but never shown.
   const customMode = $derived(model ? +(Object.entries(model.labelModes ?? {}).find(([, v]) => v === 'Custom')?.[0] ?? 2) : 2);
-  async function writeLabel(field: string, text: string) {
+  async function writeLabel(field: string, text: string, cfg = config) {
     if (!model) return;
-    edits = { ...edits, [ek(field)]: text.length };
-    labelText = { ...labelText, [ek(field)]: text };
-    const base = pidOf(field);
+    edits = { ...edits, [ek(field, cfg)]: text.length };
+    labelText = { ...labelText, [ek(field, cfg)]: text };
+    const base = pidOf(field, cfg);
     for (let i = 0; i < (model.labelLen ?? 0); i++) {
       try {
         // each char is its own SET: pid = labelBase + i, value = float32(ASCII code), 0-padded
@@ -131,7 +142,7 @@
       }
     }
     // put the switch into Custom display mode so the text actually shows (the side is the field prefix)
-    if (text.length) await write(field.replace(/Label$/, 'Display'), customMode);
+    if (text.length) await write(field.replace(/Label$/, 'Display'), customMode, cfg);
   }
   const layoutLabel = (i: number) => (i === 8 ? 'Master' : String(i + 1));
   const catName = (v: number | undefined) => (v != null ? (model?.categories?.[String(v)] ?? 'Cat ' + v) : '—');
@@ -171,6 +182,98 @@
   const selView = (i: number) => (view = i);
   const selSwitch = (i: number) => (sw = i);
   const onDevice = (cfg: number) => !!present[cfg];
+
+  // ── §3.8 FM3-Edit parity: capability status + layout import/export ──────────────────────────
+  // Derived purely from the served /fc/model (see fcParity.ts). Features the device does not serve
+  // (Per-Preset definitions, CS MIDI, FC Config/Devices) are shown with an honest reason, never
+  // faked with an invented paramId.
+  const parity = $derived(model ? axisFcParity(model) : []);
+  const importExportReady = $derived(parity.find((f) => f.id === 'layoutImportExport')?.status === 'supported');
+  let ioBusy = $state(false);
+
+  function downloadText(name: string, text: string) {
+    const blob = new Blob([text], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  /** Export the whole selected layout: live read-back on FM3, session writes otherwise. */
+  async function exportLayout() {
+    if (!model || !importExportReady) return;
+    ioBusy = true;
+    try {
+      const m = model;
+      const nSw = m.switches ?? 0;
+      const nViews = m.views ?? 1;
+      const vals: Record<string, number> = { ...edits };
+      const lbls: Record<string, string> = { ...labelText };
+      if (m.liveState) {
+        for (let v = 0; v < nViews; v++) {
+          const states = await Promise.all(
+            Array.from({ length: nSw }, (_, i) => forgefx.fcState(layout, v, i).catch(() => null))
+          );
+          for (const s of states) {
+            if (!s) continue;
+            for (const [f, val] of Object.entries(s.fields)) if (val != null) vals[`${f}:${s.config}`] = val;
+            lbls[`tapLabel:${s.config}`] = s.tapLabel;
+            lbls[`holdLabel:${s.config}`] = s.holdLabel;
+          }
+        }
+      }
+      const pkg = buildAxisFcLayoutPackage({
+        model: m,
+        layout,
+        value: (f, c) => vals[`${f}:${c}`],
+        slot: (side, i, c) => vals[`${side}Params#${i}:${c}`],
+        label: (side, c) => lbls[`${side}Label:${c}`]
+      });
+      const stem = pkg.layoutName.toLowerCase().replace(/[^\w-]+/g, '-');
+      downloadText(`${stem}-fc-layout.json`, serializeAxisFcLayoutPackage(pkg));
+      editor.showToast(`Exported ${pkg.switches.length} switches of ${pkg.layoutName}.`, 'var(--ok)');
+    } catch (e) {
+      editor.showToast('Export failed: ' + (e as Error).message, '#ff6b6b');
+    } finally {
+      ioBusy = false;
+    }
+  }
+
+  /** Import a package into the selected layout (configs remapped; labels cleared when empty). */
+  async function importLayout(ev: Event) {
+    const input = ev.currentTarget as HTMLInputElement;
+    const file = input.files?.[0];
+    input.value = ''; // let the same file be re-imported
+    if (!file || !model) return;
+    ioBusy = true;
+    try {
+      const res = parseAxisFcLayoutPackage(await file.text());
+      if (!res.ok) {
+        editor.showToast('Import failed: ' + res.error, '#ff6b6b');
+        return;
+      }
+      const writes = axisFcLayoutPackageWrites(res.pkg, layout, model);
+      for (const w of writes) {
+        if (w.kind === 'label') await writeLabel(`${w.side}Label`, w.text, w.config);
+        else await forgefx.setParam(model.effectId, pidOf(w.field, w.config, w.index), w.value, false);
+      }
+      editor.showToast(`Imported ${res.pkg.switches.length} switches into ${layoutLabel(layout)}.`, 'var(--ok)');
+      await loadState();
+    } catch (e) {
+      editor.showToast('Import failed: ' + (e as Error).message, '#ff6b6b');
+    } finally {
+      ioBusy = false;
+    }
+  }
+
+  /** Discoverability hint for the two categories that map to the §3.8 features. */
+  function categoryNote(side: string): string | null {
+    const cat = cur(side + 'Category');
+    if (cat === AXIS_FC_LAYOUT_CATEGORY) return 'Layout Link — changes layout after press (function: Select / Master Layout / Inc-Dec).';
+    if (cat === AXIS_FC_PER_PRESET_CATEGORY) return 'Per-Preset switch — the PP definition itself is stored in the preset.';
+    return null;
+  }
 </script>
 
 <section class="fc" style="--c:{ACC}">
@@ -181,6 +284,42 @@
     <span class="spacer"></span>
     <button class="back" onclick={() => editor.openBuild()}>← Grid</button>
   </header>
+
+  <!-- §3.8 FM3-Edit parity status. Every row is derived from the served /fc/model; gated features
+       carry the honest reason instead of a control that would write an invented paramId. -->
+  {#snippet parityPanel()}
+    <div class="parity">
+      <div class="ptitle mono">FM3-EDIT PARITY · §3.8</div>
+      <ul class="plist">
+        {#each parity as f (f.id)}
+          <li class="prow {f.status}" title={f.detail}>
+            <span class="pchip">{f.status === 'supported' ? 'available' : f.status === 'partial' ? 'partial' : 'gated'}</span>
+            <span class="pname">{f.label}</span>
+            <span class="pdetail">{f.detail}</span>
+          </li>
+        {/each}
+      </ul>
+      <div class="pio">
+        <button class="pbtn" disabled={ioBusy || !importExportReady} onclick={exportLayout}>
+          {ioBusy ? 'Working…' : `Export layout ${layoutLabel(layout)}`}
+        </button>
+        <label
+          class="pbtn"
+          class:disabled={ioBusy || !importExportReady}
+          title={importExportReady ? 'Import an Axis FC layout file (.json)' : 'No switch geometry served — cannot enumerate a layout'}
+        >
+          Import layout
+          <input
+            class="pfile"
+            type="file"
+            accept=".json,application/json"
+            disabled={ioBusy || !importExportReady}
+            onchange={importLayout}
+          />
+        </label>
+      </div>
+    </div>
+  {/snippet}
 
   {#if err}
     <div class="msg">{err}</div>
@@ -248,6 +387,7 @@
                 <input type="number" min="0" value={cur(side + 'Category') ?? ''} placeholder="ordinal" onchange={(e) => setCategory(side, +e.currentTarget.value)} />
               {/if}
             </div>
+            {#if categoryNote(side)}<span class="catnote">{categoryNote(side)}</span>{/if}
             <div class="field">
               <span class="flbl">Function <span class="todo">raw</span></span>
               <input type="number" min="0" value={cur(side + 'Function') ?? ''} placeholder="ordinal" onchange={(e) => write(side + 'Function', +e.currentTarget.value)} />
@@ -283,6 +423,7 @@
           device's model.
         </p>
       </div>
+      {@render parityPanel()}
     </div>
   {:else}
     <div class="body">
@@ -332,6 +473,7 @@
                 {#each catList as c (c.v)}<option value={c.v}>{c.label}</option>{/each}
               </select>
             </div>
+            {#if categoryNote(side)}<span class="catnote">{categoryNote(side)}</span>{/if}
             <div class="field">
               <span class="flbl">Function {#if !fns.length}<span class="todo">raw</span>{/if}</span>
               {#if fns.length}
@@ -413,6 +555,7 @@
           structured read's interior bytes.
         </p>
       </div>
+      {@render parityPanel()}
     </div>
   {/if}
 </section>
@@ -697,5 +840,104 @@
   }
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  /* §3.8 parity status + layout import/export */
+  .parity {
+    border-top: 1px solid var(--surface2);
+    padding-top: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    max-width: 700px;
+  }
+  .ptitle {
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--textfaint);
+  }
+  .plist {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .prow {
+    display: grid;
+    grid-template-columns: 68px 150px 1fr;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 12px;
+  }
+  .pchip {
+    font: 700 9px/1.6 ui-monospace, monospace;
+    letter-spacing: 0.06em;
+    text-align: center;
+    text-transform: uppercase;
+    border-radius: 6px;
+    padding: 2px 6px;
+    border: 1px solid var(--border2);
+    color: var(--textdim);
+  }
+  .prow.supported .pchip {
+    border-color: var(--ok);
+    color: var(--ok);
+  }
+  .prow.unsupported .pchip {
+    border-color: var(--border2);
+    color: var(--textfaint);
+  }
+  .pname {
+    color: var(--text);
+    font-weight: 600;
+  }
+  .pdetail {
+    color: var(--textfaint);
+    font-size: 11px;
+    line-height: 1.45;
+  }
+  .pio {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+  }
+  .pbtn {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    height: 32px;
+    padding: 0 12px;
+    border-radius: 9px;
+    border: 1px solid var(--border2);
+    background: var(--track);
+    color: var(--text2);
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .pbtn:hover:not(.disabled) {
+    border-color: var(--c);
+    color: var(--c);
+  }
+  .pbtn.disabled,
+  .pbtn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .pfile {
+    position: absolute;
+    inset: 0;
+    opacity: 0;
+    cursor: pointer;
+    height: auto;
+    padding: 0;
+  }
+  .catnote {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--amber);
   }
 </style>

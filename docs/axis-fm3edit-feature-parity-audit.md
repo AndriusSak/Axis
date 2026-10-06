@@ -291,16 +291,24 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
 
 ### 3.8 FC Edit sub-features missing vs FM3-Edit
 Present: layouts × views × switches, tap/hold function, category, display mode, params, LED colour,
-custom label, live read-back. Missing (grep for `csMidi|layoutLink|perPreset|startup|mirror` in
-`FcEditor.svelte` + `fc/*` → **0 hits**):
-- **Per-Preset Override / Per-Preset switches** (FM3-Edit has a whole `FC Per-Preset` area).
-- **Layout Links** (switch changes layout after press).
-- **CS MIDI** (control-switch MIDI assignment).
-- **FC Config** (general footswitch settings) and **Devices** tab (startup layout/view, mirroring,
-  1:1 copy).
-- **Import / export layouts** (backup).
-- **Master Layout Menu warning / edit** precondition.
-- **Songs/Setlists** integration (§2.3).
+custom label, live read-back. Status after the FC-parity round (`fcParity.ts` +
+`fcLayoutPackage.ts`, wired in `FcEditor.svelte`; the served `/fc/model` is the sole source of truth):
+- **Per-Preset Override / Per-Preset switches** — **switch assignment DONE**: category “Per-Preset”
+  (ord 9) is served, so a switch can reference a PP slot through the existing category/function UI
+  (hinted in the editor). The **per-preset definition itself is GATED**: it lives in the preset
+  binary, not the FC param space (§5) — shown as a gated parity row, no invented paramId.
+- **Layout Links** (switch changes layout after press) — **DONE via the served Layout category
+  (ord 6)**: functions Select / Master Layout / Inc-Dec render through the generic per-switch
+  fields; the editor hints the mapping. No separate device param exists (verified in `fcModel`).
+- **CS MIDI** (control-switch MIDI assignment) — **GATED**: it is a Setup → MIDI/Remote table
+  (§2.8); no FC (eid 199) param serves it.
+- **FC Config** (startup layout/view, 1:1 copy) and **Devices** tab (mirroring) — **GATED**:
+  external-FC device settings; no served param exposes them.
+- **Import / export layouts** (backup) — **DONE** (client-side, `fcLayoutPackage.ts`): Axis JSON
+  `.fclayout.json`, FM3 exports by live read-back (`/fc/state`), blind devices export the session’s
+  values; import validates then writes back field-by-field with configs remapped to the target layout.
+- **Master Layout Menu warning / edit** precondition — still open.
+- **Songs/Setlists** integration (§2.3) — still open (needs §2.3).
 
 ---
 
@@ -395,8 +403,10 @@ not surfaced — see §3.6 item 3.
 **Moderate (new endpoints / structured UI)**
 7. **Scene Manager page** (§2.1) with copy/swap/bulk engage — needs §6.3 resolved.
 8. **Setup expansion**: MIDI/Remote tables + FC config (§2.8) — needs §6.2 and possibly new ops.
-9. **FC Edit completion**: per-preset switches, layout links, CS MIDI, devices/config, layout
-   import/export (§3.8).
+9. **FC Edit completion** (§3.8) — **PARTIALLY DONE**: Layout Links + Per-Preset switch assignment
+   (served Layout/Per-Preset categories) and layout import/export shipped; CS MIDI and FC
+   devices/config **gated** (no served param); per-preset definitions blocked on the preset-binary
+   parser (§5).
 10. **Preset Librarian / Manage Presets** (§2.4) — needs slot move/swap/copy ops.
 11. **Block library (.blk-style)** if a Fractal-compatible format is wanted (§2.6).
 12. **Surface `GET /diag/ranges` in the UI** (§3.6 item 3) — the endpoint already exists (server-side,
