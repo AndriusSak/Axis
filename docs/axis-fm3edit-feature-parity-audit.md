@@ -263,8 +263,10 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
    is scrolled. Candidate fixes listed there (fold search into the tab row / raise the bottom region /
    fit-to-view cell scale).
 2. **Control search renders full control cards**, so a short pane shows one match.
-3. **`GET /diag/ranges` not surfaced in the UI** — the endpoint that would end the
-   "profile-vs-catalogue" guessing class is CLI-only.
+3. **No range-served diagnostic exists** (corrected 2026-10-06: the earlier draft claimed a
+   `GET /diag/ranges` route existed — it does **not**; `ForgeFX` has only `GET /diag`, which is
+   *connection* diagnostics). A per-family/per-pid "is this param served, and if not why (allowlist
+   gate)" endpoint would end the "profile-vs-catalogue" guessing class. **Needs building**, server-side.
 4. **Pseudo-params (`CABINET_BTN_MUTE<n>`) resolved client-side** by matching a served NAME — fragile;
    the driver could rewrite them server-side.
 5. **Touch targets**: 53 sub-40 px interactive elements at 1280×800 (preset arrows 24×36, slot chips
@@ -350,8 +352,8 @@ The rule is executable now: `src/lib/listCaps.test.ts` guards the uncapped surfa
 the four capped ones keep rendering their disclosure.
 
 Related *diagnostic* half of this class: when a parameter is dropped by an allowlist gate, the UI shows
-nothing rather than "hidden because …". `GET /diag/ranges` exists (`ForgeFX` route) but is not
-surfaced — see §3.6 item 3.
+nothing rather than "hidden because …". There is **no** `/diag/ranges` route to answer that today
+(only `GET /diag` = connection diagnostics) — building one is an open server-side item, see §3.6 item 3.
 
 ---
 
@@ -378,15 +380,18 @@ surfaced — see §3.6 item 3.
 
 ## 7. Suggested sequencing
 
-**Cheap + high value (no RE, no new endpoints)**
-1. **Revert Preset** (§2.7) — re-read stored slot into the buffer.
-2. **Grid operations**: block copy/paste, reset channel/block, disconnect-all, block swap (§2.9) —
-   all client-side plans over existing `setParam` / grid writes; add history ops for each.
-3. **Channel copy/paste/reset** (§2.10).
-4. **Keyboard shortcut map** (§2.12) — pure UI plumbing, big workflow win.
+**Cheap + high value (no RE, no new endpoints)** — items 1-4 and 6 **DONE 2026-10-06** (merged to `main`).
+1. ~~**Revert Preset** (§2.7)~~ — **DONE** (same-slot re-select; `revertPreset.ts` + history barrier).
+2. ~~**Grid operations**: block copy/paste, reset channel/block, disconnect-all, block swap (§2.9)~~ —
+   **DONE** (`planDisconnectAll/planInsertShunt/planResetBlock/planSwap/planPasteBlock` in `gridRouting.ts`;
+   ⌘D/⌘U/⌘I/⌘C/⌘V). Caveat: reset restores placement+wires, not the pre-reset param VALUES (v1 limit).
+3. ~~**Channel copy/paste/reset** (§2.10)~~ — **DONE** (`blockOps.ts` + Block Editor footer).
+4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; 17 wired, 4 reserved).
 5. **Mute + Scene Ignore** (§3.1) — **Scene Ignore DONE** (served `*_SCENEIGNORE` enum); **Mute
    left disabled** (no served generic per-block mute param — see §3.1).
-6. **Block-pane height / search-card** UX fixes (§3.6 items 1-3).
+6. ~~**Block-pane height / search-card** UX fixes (§3.6 items 1-3)~~ — items 1-2 **DONE** (board
+   fits without scrolling at 1440×900 / 1280×800; compact search rows). Item 3 is not a UI exposure —
+   the route was never built; it is now a server-side "Moderate" item (see §7.12 below).
 
 **Moderate (new endpoints / structured UI)**
 7. **Scene Manager page** (§2.1) with copy/swap/bulk engage — needs §6.3 resolved.
@@ -395,9 +400,12 @@ surfaced — see §3.6 item 3.
    import/export (§3.8).
 10. **Preset Librarian / Manage Presets** (§2.4) — needs slot move/swap/copy ops.
 11. **Block library (.blk-style)** if a Fractal-compatible format is wanted (§2.6).
+12. **Range-served diagnostic** (`GET /diag/ranges`-style, server-side): per family/pid, report whether
+    a param is served and why not (the allowlist gate). Ends the profile-vs-catalogue guessing class
+    (§3.6 item 3, §3.7). No hardware needed; pure server + a small client panel.
 
 **Keystone / research**
-12. **Preset-binary parser** → then **modifier read-back** (§3.2), **Performance pages** (§2.2),
+13. **Preset-binary parser** → then **modifier read-back** (§3.2), **Performance pages** (§2.2),
     **Setlists/Songs** (§2.3), **IR/cab management** (§2.5).
 
 **Deferred / N/A on FM3**
