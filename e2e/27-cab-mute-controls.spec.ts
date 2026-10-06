@@ -101,7 +101,7 @@ const BLOCK_PARAMS = {
   }
 };
 
-async function bootWithCab(page: Page): Promise<void> {
+async function bootWithCab(page: Page, params: unknown = BLOCK_PARAMS): Promise<void> {
   const json = (route: Route, body: unknown, status = 200) =>
     route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
   await page.route('**/api/**', async (route) => {
@@ -112,7 +112,7 @@ async function bootWithCab(page: Page): Promise<void> {
     if (path === '/preset/grid') return json(route, GRID);
     if (path === '/preset/blocks') return json(route, []);
     if (path === '/ports') return json(route, { chosen: null, override: null, profileOverride: null, ports: [] });
-    if (/^\/preset\/blocks\/200\/params$/.test(path)) return json(route, BLOCK_PARAMS);
+    if (/^\/preset\/blocks\/200\/params$/.test(path)) return json(route, params);
     return json(route, {});
   });
   await page.route('**/api/events', (route) => route.abort());
@@ -121,6 +121,38 @@ async function bootWithCab(page: Page): Promise<void> {
   await page.locator('[data-idx="0,0"].cell.block').click();
   await expect(page.locator('.boardwrap')).toBeVisible();
 }
+
+/**
+ * The SERVER-RESOLVED shape — the PRIMARY path since parity-audit §3.6 item 4 was fixed. ForgeFX's
+ * gen-3 driver now rewrites `CABINET_BTN_MUTE<n>` to the REAL served enum before the layout reaches
+ * the client, so the M controls arrive with real paramIds (24 / 25 = the `MUTE<n>` enums) instead of
+ * the 65286… pseudo ids. The S controls legitimately KEEP their pseudo ids: "SOLO" is an OPTION of the
+ * MUTE enum, not a param, so the client's pair-collapse still handles them.
+ *
+ * The rest of this file mocks the OLDER-SERVER shape, which pins the documented client FALLBACK. This
+ * block pins the primary path so a regression in either cannot hide behind the other.
+ */
+const SERVER_RESOLVED_PARAMS = {
+  ...BLOCK_PARAMS,
+  layout: {
+    ...BLOCK_PARAMS.layout,
+    pages: [
+      {
+        name: 'Cab',
+        rows: [
+          {
+            section: 'parameters',
+            controls: BLOCK_PARAMS.layout.pages[0].rows[0].controls.map((c) => {
+              if (c.label === 'M' && c.paramName === 'CABINET_BTN_MUTE1') return { ...c, paramId: 24, paramName: 'CABINET_MUTE1' };
+              if (c.label === 'M' && c.paramName === 'CABINET_BTN_MUTE2') return { ...c, paramId: 25, paramName: 'CABINET_MUTE2' };
+              return c;
+            })
+          }
+        ]
+      }
+    ]
+  }
+};
 
 test.describe('Cab page M / S controls', () => {
   test('both cab slots get their state control', async ({ page }) => {
@@ -306,5 +338,73 @@ test.describe('Cab page M / S controls', () => {
     await expect(page.locator('.cscount')).toHaveText('1 match');
     await page.locator('.csin').fill('zzz no such control');
     await expect(page.locator('.cscount')).toHaveText('0 matches');
+  });
+});
+
+// ── the PRIMARY path: the server has already resolved the pseudo ids ────────────────────────────────
+test.describe('Cab page M / S controls — server-resolved layout (parity audit §3.6 item 4)', () => {
+  test('both cab slots still get exactly one working state control', async ({ page }) => {
+    await bootWithCab(page, SERVER_RESOLVED_PARAMS);
+    await expect(page.locator('.seltop')).toHaveCount(2);
+    await expect(page.locator('.seltop').first()).toHaveText(/MUTE1/);
+    await expect(page.locator('.seltop').nth(1)).toHaveText(/MUTE2/);
+  });
+
+  test('clicking a state control opens its option list', async ({ page }) => {
+    await bootWithCab(page, SERVER_RESOLVED_PARAMS);
+    await page.locator('.selfield').first().click();
+    await expect(page.locator('.selopt')).toHaveCount(3);
+  });
+
+  test('the two state controls have real area and do not overlap', async ({ page }) => {
+    await bootWithCab(page, SERVER_RESOLVED_PARAMS);
+    const boxes = await page.locator('.selfield').evaluateAll((els) =>
+      els.map((e) => {
+        const r = e.getBoundingClientRect();
+        return { t: Math.round(r.top), b: Math.round(r.bottom), l: Math.round(r.left), r: Math.round(r.right) };
+      })
+    );
+    // eslint-disable-next-line no-console
+    console.log('FIELDS (server-resolved) ' + JSON.stringify(boxes));
+    expect(boxes.length).toBe(2);
+    const [a, b] = boxes;
+    const overlap = a.l < b.r && b.l < a.r && a.t < b.b && b.t < a.b;
+    expect(overlap, `state controls overlap each other: ${JSON.stringify(boxes)}`).toBe(false);
+    for (const x of boxes) expect((x.r - x.l) * (x.b - x.t), `zero-area control ${JSON.stringify(x)}`).toBeGreaterThan(100);
+  });
+
+  test('a write targets the REAL served param id, not the pseudo id', async ({ page }) => {
+    // The server-resolved M control carries paramId 24 (`CABINET_MUTE1`), so selecting an option must
+    // PUT to /preset/blocks/200/params/24 — never to the dead 65286 pseudo id.
+    const puts: string[] = [];
+    await page.route('**/api/**', async (route) => {
+      const req = route.request();
+      if (req.method() === 'PUT') {
+        puts.push(new URL(req.url()).pathname);
+        return route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+      }
+      const p = new URL(req.url()).pathname.replace(/^\/api/, '');
+      const body: Record<string, unknown> =
+        p === '/device' ? DEVICE
+        : p === '/device/detect' ? DETECT
+        : p === '/healthz' ? { ok: true, api: { version: 2 }, device: 'FM3' }
+        : p === '/preset/grid' ? GRID
+        : p === '/preset/blocks' ? []
+        : p === '/ports' ? { chosen: null, override: null, profileOverride: null, ports: [] }
+        : /^\/preset\/blocks\/200\/params$/.test(p) ? (SERVER_RESOLVED_PARAMS as unknown as Record<string, unknown>)
+        : {};
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+    });
+    await page.route('**/api/events', (route) => route.abort());
+    await bootCleanWorkbench(page);
+    await page.locator('[data-idx="0,0"].cell.block').click();
+    await expect(page.locator('.boardwrap')).toBeVisible();
+
+    await page.locator('.selfield').first().click();
+    await page.locator('.selopt').nth(1).click(); // MUTE
+    await page.waitForTimeout(200);
+    expect(puts.length, `no PUT captured: ${JSON.stringify(puts)}`).toBeGreaterThan(0);
+    expect(puts.some((u) => u.includes('/params/24')), `wrote to a pseudo/other id: ${JSON.stringify(puts)}`).toBe(true);
+    expect(puts.some((u) => u.includes('65286')), `wrote to the DEAD pseudo id: ${JSON.stringify(puts)}`).toBe(false);
   });
 });
