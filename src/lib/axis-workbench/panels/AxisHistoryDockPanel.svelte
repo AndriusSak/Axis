@@ -2,7 +2,10 @@
   import { editor } from '../../editor.svelte';
   import { history } from '../../history.svelte';
 
-  const rows = $derived(history.entries.map((e, i) => ({ e, i })).reverse().slice(0, 80));
+  // Every recorded edit is rendered: the row click IS the jump-back control (`history.revertTo(i)`),
+  // so truncating here would make older history unreachable, not merely invisible. The store already
+  // bounds itself (history.svelte.ts MAX_ENTRIES = 200) and the list scrolls.
+  const rows = $derived(history.entries.map((e, i) => ({ e, i })).reverse());
   const time = (t: number) => new Date(t).toLocaleTimeString(undefined, { hour12: false });
 </script>
 
