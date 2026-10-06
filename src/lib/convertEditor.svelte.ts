@@ -341,6 +341,24 @@ class ConvertEditor {
   setChannel = async (_ch: string): Promise<void> => {
     /* channel switching not modeled offline */
   };
+  // Channel/block ops + Scene Ignore are device-backed; the offline convert surface has neither
+  // channels nor a live block param write path, so they stay inert (mirrors the bypass/cab gating).
+  channelClip = null;
+  copyChannel = (): void => {
+    /* channel ops are device-backed — not modeled on the offline convert surface */
+  };
+  pasteChannel = async (): Promise<void> => {
+    /* channel ops are device-backed — not modeled on the offline convert surface */
+  };
+  resetChannel = async (): Promise<void> => {
+    /* reset re-selects a device model — not modeled on the offline convert surface */
+  };
+  resetBlock = async (): Promise<void> => {
+    /* reset re-selects a device model — not modeled on the offline convert surface */
+  };
+  setSceneIgnore = async (_on: boolean): Promise<void> => {
+    /* Scene Ignore is a device flag — not modeled on the offline convert surface */
+  };
 
   // ── cables (in-memory for grid targets; gated for slot/chain — see canGridRoute) ──
   armLink = (c: Cell) => {

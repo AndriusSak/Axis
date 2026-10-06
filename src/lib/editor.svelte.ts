@@ -18,6 +18,7 @@ import { paramValue } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
+import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, blockResettable, BLOCK_CHANNELS, type ChannelClip } from './blockOps';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
 
@@ -141,6 +142,8 @@ class EditorStore {
   params = $state<NamedParam[]>([]);
   enums = $state<EnumParam[]>([]);
   blockType = $state<{ value: number; name: string } | null>(null);
+  /** Clipboard for "copy channel → paste channel" (footer channel ops). Null until a copy. */
+  channelClip = $state<ChannelClip | null>(null);
   blockSlug = $state<string | null>(null); // catalog slug of the open block (from blockParams) — gates the looper poll
   /** Looper page telemetry for the open Looper block: waveform envelope (0..1) + playhead + level. */
   looperWave = $state<{ wave: number[]; position: number | null; level: number | null } | null>(null);
@@ -1602,6 +1605,99 @@ class EditorStore {
     } catch {
       c.channel = prev;
     }
+  };
+
+  // ── channel / block operations (footer) ──────────────────────────────────────────────────────
+  // Copy/paste and reset are CLIENT-SIDE over the existing per-block param/type writes — no new
+  // server endpoint. See blockOps.ts for what is real vs. honestly stubbed (Mute).
+
+  /** Copy the current channel's parameter values into the channel clipboard. */
+  copyChannel = () => {
+    const c = this.selected;
+    if (!c?.pack) return;
+    this.channelClip = captureChannel(c.display, c.channel ?? null, this.params, this.enums);
+    const n = this.channelClip.knobs.length + this.channelClip.enums.length;
+    this.showToast(`Copied channel ${c.channel ?? '?'} — ${n} values`, '#35c9d6');
+  };
+
+  /** Paste the channel clipboard onto the CURRENT channel (FM3-Edit: copy channel → paste channel).
+   *  Writes each captured param through the per-block PUT; ids the block does not expose are dropped. */
+  pasteChannel = async () => {
+    const c = this.selected;
+    const clip = this.channelClip;
+    if (!c?.pack || !clip) return;
+    const writes = pasteChannelWrites(clip, this.params, this.enums);
+    if (!writes.length) {
+      this.showToast('Nothing to paste into this block', '#f5a623');
+      return;
+    }
+    for (const w of writes) await forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous).catch(() => {});
+    history.checkpoint(`Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}`, false); // logged, not undoable (per-param history is noisy)
+    await this.#loadParams();
+    this.showToast(`Pasted ${writes.length} values from channel ${clip.channel ?? '?'}`, '#33c46b');
+  };
+
+  /** Re-select the block's current model from the header picker, which makes the FM3 reset the
+   *  ACTIVE channel to that model's defaults (the documented "soft reset"). Blocks with no model
+   *  selector have no such path and report it instead. */
+  resetChannel = async () => {
+    const c = this.selected;
+    if (!c?.pack || c.effectId == null) return;
+    if (!blockResettable(this.blockType)) {
+      this.showToast('This block has no model to reset', '#f5a623');
+      return;
+    }
+    try {
+      await forgefx.setType(c.effectId, this.blockType!.value);
+      await this.#loadParams();
+      this.showToast(`Channel ${c.channel ?? ''} reset to model defaults`, '#33c46b');
+    } catch {
+      this.showToast('Reset failed', '#d6543f');
+    }
+  };
+
+  /** Reset every channel (A–D) to its own model defaults: for each channel, select it, re-select its
+   *  current model, then restore the channel the user was on. Multi-step + device round-trips, so it
+   *  reports how many channels reset. */
+  resetBlock = async () => {
+    const c = this.selected;
+    if (!c?.pack || c.effectId == null) return;
+    if (!blockResettable(this.blockType)) {
+      this.showToast('This block has no model to reset', '#f5a623');
+      return;
+    }
+    const restore = c.channel ?? null;
+    let reset = 0;
+    for (const ch of BLOCK_CHANNELS) {
+      try {
+        await forgefx.setChannel(c.effectId, ch);
+        // read the model THIS channel is on (channels may hold different models) then re-select it
+        const r = await forgefx.blockParams(c.effectId);
+        const tv = r.type?.value;
+        if (tv == null) continue;
+        await forgefx.setType(c.effectId, tv);
+        reset++;
+      } catch {
+        /* skip a channel the device did not answer for */
+      }
+    }
+    if (restore) await forgefx.setChannel(c.effectId, restore).catch(() => {});
+    await this.#loadParams();
+    this.showToast(reset ? `Reset ${reset} channel${reset > 1 ? 's' : ''} to model defaults` : 'Reset failed', reset ? '#33c46b' : '#d6543f');
+  };
+
+  /** Toggle the block's served "Scene Ignore" flag (bypass state is not recalled per scene).
+   *  Reads the family's `<FAMILY>_SCENEIGNORE` enum out of the served params — no invented paramId. */
+  setSceneIgnore = async (on: boolean) => {
+    const c = this.selected;
+    if (!c?.pack) return;
+    const e = sceneIgnoreParam(this.enums);
+    if (!e) {
+      this.showToast('Scene Ignore is not served for this block', '#f5a623');
+      return;
+    }
+    const value = sceneIgnoreValue(e, on);
+    if (e.value !== value) this.setEnum(e, value);
   };
   retype = async (value: number) => {
     const c = this.selected;
