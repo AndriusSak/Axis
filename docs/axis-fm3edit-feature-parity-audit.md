@@ -345,6 +345,11 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
 - **FC editor fields** whose metadata is absent from the served model are silently *hidden* rather
   than gated (`FcEditor.svelte` header) — so an FM3 whose model lacks a field shows a shorter editor
   with no warning. Verify the served `/fc/model` covers every control FM3-Edit's FC Edit shows.
+  → **Addressed:** the metadata-driven controls (LED colour, custom label, display-mode label) are now
+  GATED — rendered disabled with the exact missing metadata named — instead of hidden. Decision logic
+  is pure/shape-derived in `src/lib/axis-workbench/fc/fcFieldGates.ts`; the FM3 served model carries
+  every table (0 gated), FM9 gates colour + custom label, the III gates all three. Still worth probing
+  the served `/fc/model` field coverage against FM3-Edit as a separate check.
 
 ### 3.8 FC Edit sub-features missing vs FM3-Edit
 Present: layouts × views × switches, tap/hold function, category, display mode, params, LED colour,
