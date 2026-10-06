@@ -64,6 +64,14 @@ export interface EditorSurface {
   removeSelected: () => Promise<void>;
   connect: (src: Cell, destRow: number, destCol: number) => Promise<void>;
   disconnect: (srcRow: number, srcCol: number, destRow: number) => Promise<void>;
+  // FM3-Edit parity grid/structure ops (audit §2.9)
+  disconnectAll: (row: number, col: number) => Promise<void>;
+  insertShunt: (row: number, col: number) => Promise<void>;
+  resetBlock: (cell?: Cell) => Promise<void>;
+  resetChannel: (cell?: Cell) => Promise<void>;
+  swap: (a: Cell, b: Cell) => Promise<void>;
+  copyBlock: (cell?: Cell) => Promise<void>;
+  pasteBlock: (row: number, col: number) => Promise<void>;
   armLink: (c: Cell) => void;
   cancelLink: () => void;
   completeLink: (row: number, col: number) => Promise<void>;

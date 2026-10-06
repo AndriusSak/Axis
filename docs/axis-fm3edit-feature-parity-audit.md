@@ -173,20 +173,22 @@ block only.
 
 | FM3-Edit operation | Axis status | Evidence |
 |---|---|---|
-| Copy / cut / paste a block (incl. across presets) | **Absent** | grep `clipboard|copyBlock|pasteBlock` → 0 |
-| Drag block onto block/shunt to **swap** positions (cables preserved) | **Absent** | drag replaces shunts/moves; no swap op |
-| **Reset channel / reset block** to defaults | **Absent** | grep `resetChannel|resetBlock` → 0 |
-| **Disconnect all cables** from a block (Cmd+D) | **Absent** (only per-cable) | `SignalGrid` cable ops are per-edge |
+| Copy / cut / paste a block (incl. across presets) | **Implemented (in-preset)** | `editor.copyBlock/pasteBlock` (Cmd+C/Cmd+V); pastes onto a block (settings), a shunt, or an empty cell; `planPasteBlock` in `gridRouting.ts` |
+| Drag block onto block/shunt to **swap** positions (cables preserved) | **Implemented** | `planSwap` + `editor.swap`; SignalGrid block-onto-block drop swaps (cables stay with each cell) |
+| **Reset channel / reset block** to defaults | **Implemented (block-wide)** | `planResetBlock` + `editor.resetBlock/resetChannel` (Cmd+I); device re-init via clear+re-place (no client default table) |
+| **Disconnect all cables** from a block (Cmd+D) | **Implemented** | `planDisconnectAll` + `editor.disconnectAll` (Cmd+D) |
 | **Move an entire row / column** (grid border sliders) | **Absent** | grep `moveRow` → 0 |
-| Explicit **Insert shunt** command/shortcut | **Partial** — shunts auto-insert when routing through empty cells; no explicit insert | `gridRouting.planConnect` |
+| Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
 | **Quick Build** panel (Q) | **Partial** — the Cmd+K command palette covers placement differently | `CommandPalette.svelte` |
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
 ### 2.10 Channel operations — **Partial**
-Channels A–D select is present (`editor` channel writes + reflection). Missing: **copy / paste
-channel**, **copy channel across blocks/presets**, **reset channel**, **set channel across all
-scenes** (FM3-Edit Block menu). grep `copyChannel|pasteChannel|resetChannel` → 0.
+Channels A–D select is present (`editor` channel writes + reflection). **Reset channel** implemented
+via `editor.resetChannel` (device re-init block-wide; the selected channel is re-asserted — there is
+no per-channel default table client-side). Missing: **copy / paste channel**, **copy channel across
+blocks/presets**, **set channel across all scenes** (FM3-Edit Block menu). grep
+`copyChannel|pasteChannel` → 0.
 
 ### 2.11 Cross-preset / batch editing — **Absent**
 FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) and

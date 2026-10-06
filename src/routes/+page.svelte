@@ -94,6 +94,39 @@
       } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'y' || e.key === 'Y')) {
         e.preventDefault();
         void history.redo();
+      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'd' || e.key === 'D')) {
+        // FM3-Edit Cmd+D — disconnect all cables from the selected block
+        const c = editor.selected;
+        if (c) {
+          e.preventDefault();
+          void editor.disconnectAll(c.row, c.col);
+        }
+      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'u' || e.key === 'U')) {
+        // FM3-Edit Cmd+U — insert a shunt into the first empty cell
+        const t = editor.firstEmptyCell;
+        if (t) {
+          e.preventDefault();
+          void editor.insertShunt(t.row, t.col);
+        }
+      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'i' || e.key === 'I')) {
+        // FM3-Edit Cmd+I — reset the selected block to device defaults
+        const c = editor.selected;
+        if (c && c.kind === 'block') {
+          e.preventDefault();
+          void editor.resetBlock(c);
+        }
+      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'c' || e.key === 'C')) {
+        const c = editor.selected;
+        if (c && c.kind === 'block') {
+          e.preventDefault();
+          void editor.copyBlock(c);
+        }
+      } else if (!editing && (e.metaKey || e.ctrlKey) && (e.key === 'v' || e.key === 'V')) {
+        const t = editor.selected ?? editor.firstEmptyCell;
+        if (t) {
+          e.preventDefault();
+          void editor.pasteBlock(t.row, t.col);
+        }
       } else if (e.key === 'Escape') {
         if (editor.tourActive) return; // Tour.svelte owns Escape while the tour is up
         if (editor.tuner.active) editor.toggleTuner();

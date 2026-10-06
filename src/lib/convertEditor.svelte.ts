@@ -14,7 +14,8 @@
 import { convertScratch } from './convertScratch.svelte';
 import { scratchToLayout, keyAt, EMPTY_LAYOUT } from './convertScratchAdapter';
 import { gridLayoutFromScratch, effectKeyMap, isGridTarget, keyForGridCell } from './convertGridAdapter';
-import { connectOnLayout, disconnectOnLayout, moveOnLayout, removeAtOnLayout, bypassOnLayout } from './convertGridEdit';
+import { connectOnLayout, disconnectOnLayout, moveOnLayout, removeAtOnLayout, bypassOnLayout, applyRouteOps } from './convertGridEdit';
+import { planDisconnectAll, planInsertShunt, planResetBlock, planSwap, type RouteCell } from './gridRouting';
 import { applyGridEditsToState } from './convertGridSerialize';
 import { paramValue } from './format';
 import { buildParams, buildEnums } from './convertParams';
@@ -25,6 +26,9 @@ import type { SwipeCtrl } from './layouts';
 
 const SHUNT_BASE = 1024; // gen-3 routing/shunt base effect id (matches editor.svelte.ts SHUNT_ID)
 const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n));
+/** Map a layout Cell to the pure planners' RouteCell projection (audit §2.9 ops). */
+const toRoute = (cells: Cell[]): RouteCell[] =>
+  cells.map((c) => ({ row: c.row, col: c.col, kind: c.kind, effectId: c.effectId, fromRows: c.fromRows, display: c.display }));
 
 class ConvertEditor {
   constructor() {
@@ -392,6 +396,67 @@ class ConvertEditor {
     if (!layout) return;
     this.#gridLayout = disconnectOnLayout(layout, srcRow, srcCol, destRow, this.shuntBase);
     this.showToast('Connection removed', '#9a9aa3');
+  };
+
+  // ── FM3-Edit parity grid/structure ops (audit §2.9) — fold into the offline layout ──
+  // Same pure planners the live editor uses; `applyRouteOps` folds their structural ops into the
+  // in-memory layout (no forgefx, no device). Slot/chain targets have no grid → honest stub.
+  #applyPlan = (plan: { ok: boolean; error?: string; ops: import('./history.svelte').HistoryOp[]; label: string }, accent = '#35c9d6'): void => {
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    if (!plan.ok) {
+      this.showToast(plan.error ?? 'Cannot do that', '#d6543f');
+      return;
+    }
+    this.#gridLayout = applyRouteOps(layout, plan.ops, this.shuntBase);
+    this.showToast(plan.label, accent);
+  };
+  disconnectAll = async (row: number, col: number): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Cable editing coming soon', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    this.#applyPlan(planDisconnectAll(toRoute(layout.cells), toRoute(layout.shunts), row, col), '#9a9aa3');
+  };
+  insertShunt = async (row: number, col: number): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Grid editing coming soon', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    this.#applyPlan(planInsertShunt(toRoute(layout.cells), toRoute(layout.shunts), row, col, this.shuntBase));
+  };
+  resetBlock = async (cell?: Cell): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Reset is only available on the device view', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    const target = cell ?? this.selected;
+    if (!target || target.kind !== 'block') return;
+    this.#applyPlan(planResetBlock(toRoute(layout.cells), toRoute(layout.shunts), toRoute([target])[0], target.effectId, target.display), '#f5a623');
+  };
+  resetChannel = async (cell?: Cell): Promise<void> => {
+    await this.resetBlock(cell); // offline: no per-channel params — same structural re-init
+  };
+  swap = async (a: Cell, b: Cell): Promise<void> => {
+    if (!this.#isGrid) {
+      this.showToast('Swap is only available on the device view', '#f5a623');
+      return;
+    }
+    const layout = this.#ensureGrid();
+    if (!layout) return;
+    this.#applyPlan(planSwap(toRoute(layout.cells), toRoute(layout.shunts), toRoute([a])[0], toRoute([b])[0]));
+  };
+  copyBlock = async (_cell?: Cell): Promise<void> => {
+    this.showToast('Copy is not available offline', '#f5a623');
+  };
+  pasteBlock = async (_row: number, _col: number): Promise<void> => {
+    this.showToast('Paste is not available offline', '#f5a623');
   };
 
   // ── block / param writes → convertScratch (offline) ──
