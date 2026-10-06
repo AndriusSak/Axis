@@ -22,6 +22,7 @@ import type {
   TelemetryMode,
   DebugReport,
   ModModel,
+  PresetModifier,
   PresetSummary,
   DecodedBlock,
   VersionInfo,
@@ -382,6 +383,11 @@ export const forgefx = {
   fcModel: () => req<FcModel | null>(`/fc/model`),
   /** Modifier address model (field → paramId); null if not decoded. */
   modModel: () => req<ModModel | null>(`/mod/model`),
+  /** Decoded modifier assignments for the CURRENT edit buffer (source → target block+param + slot) —
+   *  the modifier editor's read-back. Degrades to null on 404/501 (old server / device without the read
+   *  path) so the editor simply shows no existing-assignment info. Curve values come from the slot's
+   *  raw block (rawBlock(modModel.effectId + slot - 1)). */
+  presetModifiers: () => capOptional(req<{ modifiers: PresetModifier[] }>(`/preset/modifiers`)),
   /** Current FC switch state via the sub-0x01 structured config-selector read. tap/hold each carry a
    *  `present` flag (the device returned a record matching the requested config/side) and the raw 78-byte
    *  response body. config/side are device-confirmed; interior field bytes are not yet decoded. */

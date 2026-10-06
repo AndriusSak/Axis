@@ -435,6 +435,27 @@ export interface LocalSyncResult {
  *  CRC to compare (name-scan devices, stale cache rows) — never mislabel that as cloud-only. */
 export type SyncState = 'synced' | 'modified' | 'outdated' | 'cloudOnly' | 'deviceOnly' | 'unknown' | 'none';
 
+/** One decoded modifier assignment from a gen-3 preset body (GET /preset/modifiers, or embedded in a
+ *  PresetSummary): a modulation SOURCE routed onto a target block parameter. `targetEffectId` is
+ *  resolved from the preset's placed grid (null when the decoded target name isn't placed — an
+ *  empty/stale pre-chain entry); `slot` is the 1-based modifier slot when the assignment lives in the
+ *  body's pre-chain table (null for a chain-embedded modifier). Curve VALUES are read live from the
+ *  slot's raw block (rawBlock(eid), eid = modModel.effectId + slot - 1). */
+export interface PresetModifier {
+  /** Decoded source display name (e.g. "LFO 1A", "External 1", "ADSR 1"). */
+  source: string;
+  /** Decoded target block display name (e.g. "Filter 1"). */
+  target: string;
+  /** Resolved target block effectId (from the preset grid), or null when the target isn't placed. */
+  targetEffectId: number | null;
+  /** Target parameter id on that block. */
+  param: number;
+  /** Where the modifier record was found in the body. */
+  origin: 'pre-chain' | 'chain';
+  /** 1-based modifier slot (pre-chain entries only), else null. */
+  slot: number | null;
+}
+
 /** A unique effect block in a preset (for the library/browser). */
 export interface PresetSummaryBlock {
   effectId: number;
@@ -461,6 +482,9 @@ export interface PresetSummary {
   /** Full per-block decoded params (every family/param) — for deep search. Present on file imports
    *  and after a device preset's params are hydrated (GET /presets/:n/params); absent on bulk scan. */
   params?: DecodedBlock[];
+  /** Decoded modifier assignments (source → target block+param + slot) from the preset body — for the
+   *  modifier editor's read-back ("this parameter already has a modifier from Source X"). Gen-3 only. */
+  modifiers?: PresetModifier[];
 }
 
 /** Result of the device auto-detect handshake (GET /device/detect). */
