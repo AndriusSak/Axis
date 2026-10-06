@@ -368,9 +368,12 @@
     box-shadow: 6px 0 26px rgba(0, 0, 0, 0.4);
   }
   /* At rest the nav entries are icon-only: hide the label and center the glyph.
-     When expanded, labels reappear and entries become icon+label rows. The
-     entry component is app-owned; these :global rules drive its layout by rail
-     state without the entry needing to know it. */
+     On hover/focus the rail expands to reveal the labels. The expanded entry
+     keeps the rest-state square (the icon never moves) and its label is a
+     floating, pointer-transparent flyout to the right — see the "flyout pointer
+     footprint" rule below for why the interactive box must stay inside the
+     strip. The entry component is app-owned; these :global rules drive its
+     layout by rail state without the entry needing to know it. */
   .aw-rail:not(.aw-rail-expanded) :global(.axis-nav-entry .lbl) {
     display: none;
   }
@@ -385,21 +388,67 @@
     margin-inline: auto;
     aspect-ratio: 1 / 1;
   }
-  .aw-rail.aw-rail-expanded :global(.axis-nav-entry) {
-    flex-direction: row;
-    justify-content: flex-start;
-    gap: 12px;
-    padding: 0 12px;
-    text-align: left;
-    /* Same height as the rest-state square: hover/focus expansion must never
-       shift entries vertically, or a press that triggers the expansion moves
-       the button out from under the pointer mid-click and the click never
-       fires on it (mousedown target ≠ mouseup target). */
-    height: calc(var(--aw-rail-w, 58px) - 16px);
-  }
-  .aw-rail.aw-rail-expanded :global(.axis-nav-entry .lbl) {
-    max-width: none;
-    font-size: 12px;
+  /* ── Desktop hover-flyout only (≥761px) ───────────────────────────────────
+     Everything below is the desktop rail's hover-reveal affordance; the phone
+     (<760px) rail is a bottom sheet with its own layout (see the media block at
+     the end of this file), so none of it may apply there. */
+  @media (min-width: 761px) {
+    /* Expanded: the entry KEEPS the rest-state square (V13c geometry preserved)
+       so the icon never moves and the entry's hit box never overhangs the dock;
+       only the label is revealed (as the floating flyout below). Same height as
+       the rest-state square: hover/focus expansion must never shift entries
+       vertically, or a press that triggers the expansion moves the button out
+       from under the pointer mid-click and the click never fires on it
+       (mousedown target ≠ mouseup target). */
+    .aw-rail.aw-rail-expanded :global(.axis-nav-entry) {
+      height: calc(var(--aw-rail-w, 58px) - 16px);
+    }
+    /* Confine the nav ENTRY wrapper to the rail strip too, so the entry button
+       (and its icon) stays exactly where the rest-state square is. */
+    .aw-rail.aw-rail-expanded :global(.aw-nav-entry) {
+      width: calc(var(--aw-rail-w, 58px) - 16px);
+      flex: none;
+    }
+    .aw-rail.aw-rail-expanded :global(.axis-nav-entry .lbl) {
+      /* The revealed label is a decorative flyout: it floats just right of the
+         strip and takes NO pointer events, so the dock/top-bar chrome beneath it
+         stays clickable while the rail is open. */
+      position: absolute;
+      left: calc(100% + 12px);
+      top: 50%;
+      transform: translateY(-50%);
+      max-width: 132px;
+      text-align: left;
+      font-size: 12px;
+      pointer-events: none;
+    }
+    /* ── Rail hover-flyout pointer footprint ────────────────────────────────
+       The rail is icon-only at rest and reveals labels by expanding its inner
+       layer (—aw-rail-w-expanded) OVER the dock on hover. That layer is a DOM
+       descendant of <aside.aw-rail>, so it used to EXTEND the rail's hover
+       area: the pointer could not leave the rail for the adjacent chrome
+       without landing on a nav entry, and the open flyout intercepted clicks on
+       the pane-tab strip, the top bar's leading widgets and the bottom bar's
+       Customize control. Measured at 1440x900 with the flyout open:
+       elementFromPoint on the "Signal Grid" pane tab (centre 121,76) resolved
+       to a `button.axis-nav-entry` inside the rail. Fix: keep every INTERACTIVE
+       element of the expanded rail inside the fixed rail strip. The expanded
+       layer is pointer-transparent; only the nav entries and the rail widget
+       hosts (both confined to the strip) take pointer events, so a pointer
+       crossing —aw-rail-w leaves the rail, the flyout collapses, and the
+       adjacent chrome is clickable again. Rail width/icon geometry unchanged. */
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner {
+      pointer-events: none;
+    }
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.axis-nav-entry),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-nav-add-page),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-menu-scrim),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-context-menu),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-nav-rename),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global([data-zone='rail'] .aw-widget-host),
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global([data-zone='rail'] .axis-widget) {
+      pointer-events: auto;
+    }
   }
 
   .aw-mark {
