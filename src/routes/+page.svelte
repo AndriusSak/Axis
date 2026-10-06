@@ -21,6 +21,7 @@
   import PresetPicker from '$lib/PresetPicker.svelte';
   import SaveDialog from '$lib/SaveDialog.svelte';
   import BlockLibraryPanel from '$lib/BlockLibraryPanel.svelte';
+  import PresetTemplatesPanel from '$lib/PresetTemplatesPanel.svelte';
   import TunerOverlay from '$lib/TunerOverlay.svelte';
   import CachePrompt from '$lib/CachePrompt.svelte';
   import DeviceDefsPrompt from '$lib/DeviceDefsPrompt.svelte';
@@ -241,6 +242,7 @@
   <PresetPicker />
   <SaveDialog />
   <BlockLibraryPanel />
+  <PresetTemplatesPanel />
   <TunerOverlay />
   <CachePrompt />
   <DeviceDefsPrompt />
