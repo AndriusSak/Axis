@@ -9,8 +9,9 @@
   //     per-config field editing.
   // Writes compute pid = field.base + config*stride (+index for value/label blocks). tapCategory
   // formula is device-verified; the field structure + enum vocabularies are cache/capture/binary
-  // confirmed. Controls whose metadata is absent from the model (colors, custom labels, function
-  // lists) are hidden rather than gated on the device.
+  // confirmed. Controls whose metadata is absent from the served model (colors, custom labels,
+  // display-mode labels) are GATED — rendered disabled with the honest missing-metadata reason
+  // (see fcFieldGates.ts, audit §3.7) — never silently hidden.
   import { onMount } from 'svelte';
   import { editor } from './editor.svelte';
   import { forgefx } from './forgefx';
@@ -20,6 +21,12 @@
     AXIS_FC_PER_PRESET_CATEGORY,
     axisFcParity
   } from './axis-workbench/fc/fcParity';
+  import {
+    axisFcFieldGate,
+    axisFcGatedFields,
+    type AxisFcFieldGate,
+    type AxisFcFieldGateId
+  } from './axis-workbench/fc/fcFieldGates';
   import {
     axisFcLayoutPackageWrites,
     buildAxisFcLayoutPackage,
@@ -189,6 +196,11 @@
   // faked with an invented paramId.
   const parity = $derived(model ? axisFcParity(model) : []);
   const importExportReady = $derived(parity.find((f) => f.id === 'layoutImportExport')?.status === 'supported');
+  // §3.7 field gates: which metadata-driven controls the served /fc/model can render. Shape-derived
+  // (fcFieldGates.ts); a control whose metadata is absent renders disabled with its honest reason.
+  const gate = (id: AxisFcFieldGateId): AxisFcFieldGate => axisFcFieldGate(model, id);
+  /** How many metadata-driven controls the served model cannot render (0 on a complete model). */
+  const gatedCount = $derived(model ? axisFcGatedFields(model).length : 0);
   let ioBusy = $state(false);
 
   function downloadText(name: string, text: string) {
@@ -321,6 +333,46 @@
     </div>
   {/snippet}
 
+  <!-- §3.7 honesty gate: a metadata-driven control the served model cannot render, shown DISABLED
+       with the exact missing metadata — so the editor never silently gets shorter. -->
+  {#snippet gatedField(g: AxisFcFieldGate)}
+    <div class="field gated" title={`${g.label} — gated: ${g.reason}`}>
+      <span class="flbl">{g.label}</span>
+      <span class="gbox" aria-disabled="true">
+        <span class="gchip mono">gated</span>
+        <span class="greason">{g.reason}</span>
+      </span>
+    </div>
+  {/snippet}
+
+  <!-- LED colour: swatches when the served model carries the colour table + base, else a gate. -->
+  {#snippet colorField()}
+    {#if gate('colors').available}
+      <div class="field">
+        <span class="flbl">Color</span>
+        <div class="colors">
+          {#each colorList as c (c.v)}
+            <button class="csw" class:on={cur('color') === c.v} title={c.name} style="background:{c.hex}" onclick={() => write('color', c.v)} aria-label={c.name}></button>
+          {/each}
+        </div>
+      </div>
+    {:else}
+      {@render gatedField(gate('colors'))}
+    {/if}
+  {/snippet}
+
+  <!-- Custom label: the char input when labelLen + a label base are served, else a gate. -->
+  {#snippet customLabelField(side: string)}
+    {#if gate('customLabel').available}
+      <div class="field">
+        <span class="flbl">Custom Label</span>
+        <input maxlength={model!.labelLen} placeholder="≤{model!.labelLen} chars" value={labelText[ek(side + 'Label')] ?? ''} onchange={(e) => writeLabel(side + 'Label', e.currentTarget.value)} />
+      </div>
+    {:else}
+      {@render gatedField(gate('customLabel'))}
+    {/if}
+  {/snippet}
+
   {#if err}
     <div class="msg">{err}</div>
   {:else if !model}
@@ -400,7 +452,10 @@
                   {#each labelModeFallback as lab, li (li)}<option value={li}>{lab}</option>{/each}
                 </select>
               </div>
+            {:else}
+              {@render gatedField(gate('labelModes'))}
             {/if}
+            {@render customLabelField(side)}
             {#each Array(paramWidth(side)) as _, i (i)}
               <div class="field">
                 <span class="flbl">Value {i + 1} <span class="todo">raw</span></span>
@@ -415,12 +470,15 @@
           {@render blindCol('hold', 'HOLD', 'hold')}
         </div>
 
+        {@render colorField()}
+
         <p class="note">
           Edits write to the unit immediately via the device-true FC parameter bases (effect
           {model.effectId}, {model.configs} configs). Function ordinals and the {model.paramsWidth}-wide
           value block are raw numeric fields — this device's per-category function lists aren't
-          decoded yet. LED colors and custom labels are hidden because their bases aren't in this
-          device's model.
+          decoded yet. {#if gatedCount}Controls this device's served model cannot render ({gatedCount})
+          are shown gated — disabled with the missing metadata named — rather than hidden.{:else}
+          Every metadata-driven control is renderable from this device's served model.{/if}
         </p>
       </div>
       {@render parityPanel()}
@@ -518,17 +576,18 @@
                 <input type="number" min="0" onchange={(e) => writeSlot(side, 0, +e.currentTarget.value)} />
               </div>
             {/if}
-            <div class="field">
-              <span class="flbl">Label</span>
-              <select value={cur(side + 'Display') ?? ''} onchange={(e) => write(side + 'Display', +e.currentTarget.value)}>
-                <option value="" disabled>—</option>
-                {#each labels as lab, li (li)}<option value={li}>{lab}</option>{/each}
-              </select>
-            </div>
-            <div class="field">
-              <span class="flbl">Custom Label</span>
-              <input maxlength={model!.labelLen} placeholder="≤{model!.labelLen} chars" value={labelText[ek(side + 'Label')] ?? ''} onchange={(e) => writeLabel(side + 'Label', e.currentTarget.value)} />
-            </div>
+            {#if labels.length}
+              <div class="field">
+                <span class="flbl">Label</span>
+                <select value={cur(side + 'Display') ?? ''} onchange={(e) => write(side + 'Display', +e.currentTarget.value)}>
+                  <option value="" disabled>—</option>
+                  {#each labels as lab, li (li)}<option value={li}>{lab}</option>{/each}
+                </select>
+              </div>
+            {:else}
+              {@render gatedField(gate('labelModes'))}
+            {/if}
+            {@render customLabelField(side)}
           </div>
         {/snippet}
 
@@ -538,21 +597,16 @@
         </div>
 
         <!-- color -->
-        <div class="field">
-          <span class="flbl">Color</span>
-          <div class="colors">
-            {#each colorList as c (c.v)}
-              <button class="csw" class:on={cur('color') === c.v} title={c.name} style="background:{c.hex}" onclick={() => write('color', c.v)} aria-label={c.name}></button>
-            {/each}
-          </div>
-        </div>
+        {@render colorField()}
 
         <p class="note">
           Edits write to the FM3 immediately. Bank/Preset/Scene/Effect are fully modelled (function +
           typed value-slots); other categories show raw fields until decoded. A live read of the unit
           {#if reading}is in progress…{:else}flags which switches are configured on the device (the
           “on unit” badge){/if}; per-field value read-back (category/value/label) awaits a decode of the
-          structured read's interior bytes.
+          structured read's interior bytes. {#if gatedCount}{gatedCount} control{gatedCount === 1 ? '' : 's'}
+          this model's served metadata cannot render {gatedCount === 1 ? 'is' : 'are'} shown gated, not
+          hidden.{/if}
         </p>
       </div>
       {@render parityPanel()}
@@ -760,6 +814,38 @@
   .flbl {
     font-size: 12px;
     color: var(--textdim);
+  }
+  /* §3.7 honesty gate — a metadata-driven control shown disabled with its missing-metadata reason */
+  .field.gated {
+    opacity: 0.9;
+  }
+  .field.gated .flbl {
+    color: var(--textfaint);
+  }
+  .gbox {
+    display: flex;
+    align-items: flex-start;
+    gap: 7px;
+    padding: 7px 10px;
+    border: 1px dashed var(--border2);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.015);
+    cursor: not-allowed;
+  }
+  .gchip {
+    flex: none;
+    font-size: 9px;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--textfaint);
+    border: 1px solid var(--border2);
+    border-radius: 5px;
+    padding: 1px 5px;
+  }
+  .greason {
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: var(--textfaint);
   }
   .todo {
     font-size: 9px;
