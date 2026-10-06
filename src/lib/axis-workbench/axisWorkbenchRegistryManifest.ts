@@ -16,6 +16,8 @@ export const AXIS_WORKBENCH_BASE_PANEL_TYPES = [
   'axis.placeholder',
   'axis.sceneManager',
   'axis.live',
+  // Cross-preset batch parameter set (parity audit §2.11) — "Set a parameter in multiple presets".
+  'axis.batchSet',
   // Cross-device preset converter page panels (M4 · META-24). Each sets the OFFLINE editor surface
   // (convertEditor) into context so the embedded SignalGrid/BlockEditor/GridMap render the converted
   // scratch buffer with zero device I/O.
@@ -79,5 +81,6 @@ export const AXIS_WORKBENCH_ACTION_IDS = [
   'axis.openLive',
   'axis.openSetup',
   'axis.openTheme',
+  'axis.openBatchSet',
   AXIS_PIN_SELECTED_PARAMETERS_ACTION
 ] as const;

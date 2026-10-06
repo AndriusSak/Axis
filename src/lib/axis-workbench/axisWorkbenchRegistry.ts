@@ -3,6 +3,7 @@ import FallbackNavigation from '../workbench/svelte/FallbackNavigation.svelte';
 import FallbackPanel from '../workbench/svelte/FallbackPanel.svelte';
 import FallbackWidget from '../workbench/svelte/FallbackWidget.svelte';
 import AxisBlockEditorPanel from './panels/AxisBlockEditorPanel.svelte';
+import AxisBatchSetPanel from './panels/AxisBatchSetPanel.svelte';
 import AxisConvertBlockEditorPanel from './panels/AxisConvertBlockEditorPanel.svelte';
 import AxisConvertGridPanel from './panels/AxisConvertGridPanel.svelte';
 import AxisConvertMinimapPanel from './panels/AxisConvertMinimapPanel.svelte';
@@ -54,6 +55,7 @@ AXIS_WORKBENCH_BASE_PANEL_TYPES.forEach((type) => {
     type === 'axis.virtualScreen' ? AxisVirtualScreenPanel :
     type === 'axis.placeholder' ? AxisPlaceholderPanel :
     type === 'axis.sceneManager' ? AxisSceneManagerPanel :
+    type === 'axis.batchSet' ? AxisBatchSetPanel :
     type === 'axis.live' ? AxisLivePanel :
     type === 'axis.convertGrid' ? AxisConvertGridPanel :
     type === 'axis.convertBlockEditor' ? AxisConvertBlockEditorPanel :
@@ -158,6 +160,17 @@ registry.registerAction(
     panelId: 'axis.scenes',
     panelType: 'axis.sceneManager',
     title: 'Scene Manager',
+    region: 'main'
+  })
+);
+// Cross-preset batch parameter set (parity audit §2.11). Opens/focuses the Batch Set panel in the
+// main region; the panel itself previews (dry run) and requires an explicit confirm before writing.
+registry.registerAction(
+  createAxisNavigationPanelAction({
+    actionId: 'axis.openBatchSet',
+    panelId: 'axis.batchSet',
+    panelType: 'axis.batchSet',
+    title: 'Batch Set Parameter',
     region: 'main'
   })
 );
