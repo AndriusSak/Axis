@@ -126,6 +126,8 @@ class ConvertEditor {
   vh = $state(800);
   mobCols = $state(4);
   gridPage = $state(0);
+  /** Convert mode has no View widget; blocks always open on their first page. */
+  readonly globalMode: 'basic' | 'advanced' = 'basic';
   get isMobile(): boolean {
     return this.vw < 1366;
   }

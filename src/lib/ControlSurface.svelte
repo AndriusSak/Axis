@@ -12,7 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
-  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
+  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
   import {
@@ -443,7 +443,21 @@
       if (!meta) meta = { active: 'Default', names: ['Default', 'Blank'] };
       profileMeta = { ...profileMeta, [slug]: meta };
     }
-    bySlug = { ...bySlug, [slug]: loadProfileBoard(slug, meta.active) };
+    const loaded = loadProfileBoard(slug, meta.active);
+    // The View toggle (Basic/Advanced) picks which page a block OPENS on — see pageForViewMode.
+    bySlug = { ...bySlug, [slug]: { ...loaded, page: pageForViewMode(loaded.pageOrder, editor.globalMode) } };
+  });
+
+  // …and it applies immediately when the toggle is used while a block is already open, mirroring the
+  // editor store's contract ("blocks open on Ideal / Advanced"). Only a MODE CHANGE acts, so this never
+  // fights a manual tab click.
+  let lastViewMode = editor.globalMode;
+  $effect(() => {
+    const m = editor.globalMode;
+    if (m === lastViewMode) return;
+    lastViewMode = m;
+    if (!slug || !board) return;
+    setPage(pageForViewMode(board.pageOrder, m));
   });
 
   // arrange is a desktop affordance — never leave it on when we drop to the phone layout

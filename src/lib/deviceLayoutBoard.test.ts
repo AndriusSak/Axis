@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, type BoardCtl, type SurfaceWidget } from './deviceLayoutBoard';
+import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type BoardCtl, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
 import type { DeviceLayout, LayoutControl, LayoutWidget } from './types';
 
 // ── catalog builders (mirror ControlSurface's live catalog entries) ──
@@ -302,5 +302,69 @@ describe('buildDeviceLayoutBoard — DynaCab graph binds the cab Distance param'
       12
     )!;
     expect(find(board.boards['Cab'], 'k93').key2).toBeUndefined();
+  });
+});
+
+// The FM3 cab page's per-cab M / S buttons carry pseudo paramIds (65286…65289) that the device never
+// serves; the state they drive is the `MUTE<n>` enum the block DOES serve (`-- / MUTE / SOLO`). Without
+// a re-resolve by name the buttons vanish and the Cab page offers no way to mute/solo a cab.
+describe('buildDeviceLayoutBoard — pseudo-param buttons (cab M/S)', () => {
+  const muteEnum = (id: number, label: string): BoardCtl => ({ key: `e${id}`, kind: 'select', id, w: 2, h: 1, view: 'select', views: ['select'], label });
+  const cabBtns = (catalog: BoardCtl[]): SurfaceBoard | null =>
+    buildDeviceLayoutBoard(
+      layout([
+        {
+          name: 'Cab',
+          rows: [
+            {
+              controls: [
+                ctl('button', 65286, 'M', { rawWidget: 'btnSquare', paramName: 'CABINET_BTN_MUTE1' }),
+                ctl('button', 65288, 'S', { rawWidget: 'btnSquare', paramName: 'CABINET_BTN_SOLO1' }),
+              ],
+            },
+          ],
+        },
+      ]),
+      catalog,
+      12
+    );
+
+  it('binds the cab M button (pseudo-id 65286) to the served MUTE1 param', () => {
+    const b = cabBtns([muteEnum(24, 'MUTE1')]);
+    expect(find(b!.boards['Cab'], 'e24')).toMatchObject({ view: 'select' });
+  });
+
+  it('collapses the M/S pair onto the single state param they both drive', () => {
+    const b = cabBtns([muteEnum(24, 'MUTE1')]);
+    expect(b!.boards['Cab']).toHaveLength(1); // the S button has no param of its own
+  });
+
+  it('gaps a pseudo-param the block does not serve', () => {
+    expect(cabBtns([muteEnum(24, 'SOMETHING_ELSE')])).toBeNull(); // nothing renderable
+  });
+});
+
+// The top bar's Basic/Advanced View toggle drives `editor.globalMode`; this is the contract it documents
+// ("blocks open on Ideal / Advanced") re-pointed at the board pages that replaced the old tab strip.
+describe('pageForViewMode — Basic/Advanced open-on choice', () => {
+  it('basic opens the block on its first page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp', 'More'], 'basic')).toBe('Cab');
+  });
+
+  it('advanced opens on the full-parameter sweep page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp', 'More'], 'advanced')).toBe('More');
+  });
+
+  it('advanced falls back to the last page when the block has no sweep page', () => {
+    expect(pageForViewMode(['Cab', 'Preamp'], 'advanced')).toBe('Preamp');
+  });
+
+  it('the fallback board reads its own Main/Advanced pages', () => {
+    expect(pageForViewMode(['Main', 'Advanced'], 'basic')).toBe('Main');
+    expect(pageForViewMode(['Main', 'Advanced'], 'advanced')).toBe('Advanced');
+  });
+
+  it('an empty page list is safe', () => {
+    expect(pageForViewMode([], 'advanced')).toBe('');
   });
 });

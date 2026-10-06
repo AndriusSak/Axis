@@ -46,6 +46,9 @@ export interface BoardCtl {
   h: number;
   view: string;
   views: readonly string[];
+  /** The param's served name (ControlSurface sets it from `p.name`/`e.name`). Needed to re-resolve a
+   *  layout control whose paramId is a device pseudo-id — see `btnPseudoParamKey`. */
+  label?: string;
 }
 
 const isBypassControl = (ctl: LayoutControl): boolean =>
@@ -90,11 +93,23 @@ function viewForWidget(widget: string, base: BoardCtl): string {
   return base.views.includes(candidate) ? candidate : base.view;
 }
 
+/** Some device layouts reach for a control the param table does not name under that id: the FM3 cab
+ *  page's per-cab M / S buttons carry `CABINET_BTN_MUTE<n>` / `CABINET_BTN_SOLO<n>` pseudo-ids
+ *  (65286…65289) that are never live parameters, while the state they drive lives in `MUTE<n>` — the
+ *  enum the block DOES serve, with options `-- / MUTE / SOLO`. Resolve by the served NAME after the
+ *  `_BTN_` infix so those controls render instead of vanishing; the M/S pair collapses onto the one
+ *  state control it really is (the board de-dupes by key). Unresolvable pseudo-params still gap. */
+function btnPseudoParamKey(ctl: LayoutControl, byName: Map<string, BoardCtl>): string | undefined {
+  const suffix = (ctl.paramName ?? '').split('_BTN_')[1];
+  if (!suffix) return undefined;
+  return byName.get(suffix)?.key;
+}
+
 type Resolved = { key: string; view: string } | 'gap';
 
 /** Resolve one layout control to a catalog key + view, or `'gap'` (advance the cursor, draw nothing —
  *  spacers, labels, and parameters the device did not surface as a knob/enum). */
-function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>): Resolved {
+function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>, byName: Map<string, BoardCtl>): Resolved {
   if (ctl.widget === 'spacer') return 'gap';
   // A live param → its catalog entry (knob `k<id>` or enum `e<id>`), refined by the widget hint.
   if (ctl.paramId != null) {
@@ -106,6 +121,13 @@ function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>): Resol
       if (isDynaCabControl(ctl)) return { key: base.key, view: 'dynacab' };
       return { key: base.key, view: viewForWidget(ctl.widget, base) };
     }
+  }
+  // A pseudo-param id the device never serves under that number (the cab page's M/S buttons) — bind it
+  // to the real param of the same name so the control renders rather than disappearing.
+  const btnKey = btnPseudoParamKey(ctl, byName);
+  if (btnKey) {
+    const base = byKey.get(btnKey);
+    if (base) return { key: base.key, view: viewForWidget(ctl.widget, base) };
   }
   // No live param → the block-level catalog entries the widget hint points at.
   if (ctl.widget === 'meter' && byKey.has('meter')) return { key: 'meter', view: 'meter' };
@@ -135,6 +157,21 @@ function packSequential(ctls: BoardCtl[], cols: number): SurfaceWidget[] {
     rowH = Math.max(rowH, c.h);
   }
   return out;
+}
+
+/** Which page a block should OPEN on for the given View mode — the top bar's Basic/Advanced toggle.
+ *
+ *  This is the contract the editor store documents for `setGlobalMode` ("blocks open on Ideal /
+ *  Advanced"), re-pointed at the board model that replaced the old Ideal/Advanced tab strip:
+ *    • Basic    → the block's FIRST page (device-authentic: the device's own main page; fallback
+ *                 board: "Main").
+ *    • Advanced → the full-parameter sweep: the "More" page the builder collects unreferenced params
+ *                 onto, else the last page (fallback board: its own "Advanced" page).
+ *  So the toggle is meaningful for both board kinds — which is why it is wired rather than removed. */
+export function pageForViewMode(pageOrder: readonly string[], mode: 'basic' | 'advanced'): string {
+  if (!pageOrder.length) return '';
+  if (mode !== 'advanced') return pageOrder[0]!;
+  return pageOrder.find((p) => p === 'More') ?? pageOrder[pageOrder.length - 1]!;
 }
 
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
@@ -177,6 +214,9 @@ export function buildDeviceLayoutBoard(
   for (const pg of layout.pages)
     for (const row of pg.rows ?? [])
       for (const c of row.controls ?? []) if (c.paramName && c.paramId != null) nameToPid.set(c.paramName, c.paramId);
+  // Served param NAME → catalog entry, for layout controls carrying a pseudo-param id.
+  const byName = new Map<string, BoardCtl>();
+  for (const c of catalog) if (c.label) byName.set(c.label, c);
 
   // Page names key the {#each} in ControlSurface, so they MUST be unique — a layout can repeat a name
   // (this INPUT block ships three pages all named "Gate"); suffix any repeat.
@@ -201,7 +241,7 @@ export function buildDeviceLayoutBoard(
       let rowH = 1;
       let placed = false;
       for (const ctl of row.controls ?? []) {
-        const r = resolveControl(ctl, byKey);
+        const r = resolveControl(ctl, byKey, byName);
         if (r === 'gap') {
           x += 1;
           continue;
