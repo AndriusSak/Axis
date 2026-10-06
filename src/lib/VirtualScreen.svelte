@@ -4,6 +4,7 @@
   // pages come from the served layout, reads/writes go through the normal param path.
   import { editor } from './editor.svelte';
   import ControlSurface from './ControlSurface.svelte';
+  import MidiRemoteSection from './MidiRemoteSection.svelte';
 
   // accent per context (matches the rail's visual language)
   const ACCENT: Record<string, string> = {
@@ -33,6 +34,10 @@
       <div class="msg"><p>No parameters available for {editor.virtual.name}.</p></div>
     {:else}
       <div class="vbody">
+        {#if editor.virtual.slug === 'global'}
+          <!-- Setup → MIDI/Remote (parity audit §2.8): served GLOBAL MIDI params + honest gated rows -->
+          <MidiRemoteSection />
+        {/if}
         <ControlSurface slug={editor.virtual.slug} {accent} />
       </div>
     {/if}
