@@ -516,13 +516,18 @@
   function rowUp() {
     if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
   }
-  const SOON = new Set(['duplicate', 'removeDevice', 'delete']);
+  // Honest stubs (audit §2.4): these need a wire-protocol op the FM3 does NOT expose, so they render as
+  // DISABLED menu items carrying this reason rather than a no-op toast.
+  const NO_ERASE_REASON = 'Not available — the device protocol has no slot-erase op, so a preset can’t be cleared or moved off a slot from here.';
+  const SOON = new Set(['removeDevice', 'move', 'delete']); // legacy "coming soon" fallback for non-device rows
   async function ctxAction(act: string) {
     const c = ctx; ctx = null;
     const e = c?.entry;
     if (!e) return;
     if (act === 'load') return void loadPreset(e);
     if (act === 'audition') return void auditionEntry(e);
+    if (act === 'duplicate') return openSlotOp('duplicate', e, c!);
+    if (act === 'swap') return openSlotOp('swap', e, c!);
     if (act === 'rename') { renameBox = { entry: e, value: e.summary.name, x: c!.x, y: c!.y }; return; }
     if (act === 'export') return void exportEntry(e);
     if (act === 'saveLocal') return void saveToLocalFolder(e);
@@ -542,7 +547,29 @@
     try { await forgefx.restoreVersion(cv.id); editor.showToast(`Saved to slot ${e.summary.number}`, '#33c46b'); library.refreshSlot(e.summary.number); }
     catch (err) { editor.showToast((err as Error).message || 'Convert failed', '#d6543f'); }
   }
-  type CtxItem = { id: string; icon: IconName; label: string; danger?: boolean };
+  // ── device-slot librarian (audit §2.4) — duplicate / swap over the copy-by-store sequence ──
+  // Inline slot-target popover (window.prompt is unavailable in the Electron shell), mirroring renameBox.
+  let slotOpBox = $state<{ kind: 'duplicate' | 'swap'; entry: LibEntry; value: string; x: number; y: number } | null>(null);
+  function openSlotOp(kind: 'duplicate' | 'swap', e: LibEntry, c: { x: number; y: number }) {
+    if (e.summary.number < 0) { editor.showToast(`No device slot to ${kind}`, '#f5a623'); return; }
+    if (!editor.canCopySlots) { editor.showToast(`${kind === 'duplicate' ? 'Duplicate' : 'Swap'} unavailable on this device`, '#f5a623'); return; }
+    slotOpBox = { kind, entry: e, value: String(Math.min(511, e.summary.number + 1)), x: c.x, y: c.y };
+  }
+  async function commitSlotOp() {
+    const b = slotOpBox; slotOpBox = null;
+    if (!b) return;
+    const from = b.entry.summary.number;
+    const to = Number(b.value.trim());
+    if (!Number.isInteger(to) || to < 0 || to > 511) { editor.showToast('Enter a slot number 0–511', '#d6543f'); return; }
+    if (to === from) { editor.showToast('Pick a different slot', '#f5a623'); return; }
+    if (b.kind === 'duplicate') await editor.duplicateStoredPreset(from, to);
+    else await editor.swapStoredPresets(from, to);
+  }
+  function onSlotOpKey(ev: KeyboardEvent) {
+    if (ev.key === 'Enter') void commitSlotOp();
+    else if (ev.key === 'Escape') slotOpBox = null;
+  }
+  type CtxItem = { id: string; icon: IconName; label: string; danger?: boolean; disabled?: boolean; reason?: string };
   function ctxItems(e: LibEntry): (CtxItem | 'div')[] {
     // Saved cross-device conversions are not device slots — reduced menu: re-open in the converter +
     // delete. (A true ".syx export" action is wired in the separate codec-authoring task.)
@@ -555,6 +582,10 @@
     }
     const cloudOnly = e.id.startsWith('cloud:');
     const s = syncStateOf(e);
+    const isDeviceSlot = e.source === 'device' && e.summary.number >= 0;
+    const copyable = editor.canCopySlots;
+    const slotGate = (): Pick<CtxItem, 'disabled' | 'reason'> =>
+      copyable ? {} : { disabled: true, reason: 'Duplicate/swap unavailable — this server or device lacks the dump + edit-buffer-load + store primitives.' };
     const cloudItem: CtxItem =
       s === 'modified' ? { id: 'upload', icon: 'cloudUp', label: 'Upload changes' }
       : s === 'outdated' ? { id: 'download', icon: 'cloudDown', label: 'Update from cloud' }
@@ -565,14 +596,18 @@
       { id: 'load', icon: 'load', label: cloudOnly ? 'Load from cloud' : 'Load preset' },
       ...(cloudOnly ? [{ id: 'convert', icon: 'convert', label: 'Convert to device…' } as CtxItem]
                     : [
-                        ...(e.source === 'device' && e.summary.number >= 0
+                        ...(isDeviceSlot
                           ? [
                               // edit-buffer load, no slot switch/save — the Axe-Change-style try-out
                               { id: 'audition', icon: 'load', label: 'Audition (edit buffer)' } as CtxItem,
-                              { id: 'rename', icon: 'rename', label: 'Rename & save…' } as CtxItem
+                              { id: 'rename', icon: 'rename', label: 'Rename & save…' } as CtxItem,
+                              // device-slot librarian (§2.4) — copy-by-store over the existing endpoints
+                              { id: 'duplicate', icon: 'duplicate', label: 'Duplicate to slot…', ...slotGate() } as CtxItem,
+                              { id: 'swap', icon: 'duplicate', label: 'Swap with slot…', ...slotGate() } as CtxItem,
+                              // no wire-protocol op clears a slot → honest disabled stub
+                              { id: 'move', icon: 'duplicate', label: 'Move to slot…', disabled: true, reason: NO_ERASE_REASON } as CtxItem
                             ]
-                          : []),
-                        { id: 'duplicate', icon: 'duplicate', label: 'Duplicate' } as CtxItem
+                          : [{ id: 'duplicate', icon: 'duplicate', label: 'Duplicate', disabled: true, reason: 'Duplicate applies to device slots only.' } as CtxItem])
                       ]),
       'div',
       // Cross-device converter (M4): port this preset to another Fractal device, best-effort + diff.
@@ -582,7 +617,8 @@
       ...(library.localEnabled && e.source !== 'local' ? [{ id: 'saveLocal', icon: 'folder', label: 'Save to Axis folder' } as CtxItem] : []),
       ...(cloudOn ? ['div' as const, cloudItem] : []),
       'div',
-      { id: 'delete', icon: 'trash', label: 'Delete everywhere', danger: true }
+      // "Delete everywhere" clears the device slot too → not provable (no erase op) for device rows.
+      { id: 'delete', icon: 'trash', label: 'Delete everywhere', danger: true, ...(isDeviceSlot ? { disabled: true, reason: NO_ERASE_REASON } : {}) }
     ];
   }
 
@@ -1331,7 +1367,7 @@
       {#if m === 'div'}
         <div class="ctx-div"></div>
       {:else}
-        <button class="ctx-item" class:danger={m.danger} onclick={() => ctxAction(m.id)}>
+        <button class="ctx-item" class:danger={m.danger} disabled={m.disabled} title={m.reason ?? ''} onclick={() => ctxAction(m.id)}>
           <span class="ctx-g"><Icon name={m.icon} size={15} /></span><span class="ctx-l">{m.label}</span>
         </button>
       {/if}
@@ -1351,6 +1387,21 @@
       <button class="rn-btn save" onclick={commitRename}>Save</button>
     </div>
     <p class="rename-note">Loads this slot, renames & stores it (persists to the unit).</p>
+  </div>
+{/if}
+
+<!-- INLINE DEVICE-SLOT OP (duplicate / swap — audit §2.4) -->
+{#if slotOpBox}
+  <div class="ctx-bg" role="presentation" oncontextmenu={(e) => e.preventDefault()} onpointerdown={() => (slotOpBox = null)}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="ctx rename-pop" style:left={slotOpBox.x + 'px'} style:top={slotOpBox.y + 'px'} onpointerdown={(e) => e.stopPropagation()}>
+    <div class="ctx-title">{slotOpBox.kind === 'duplicate' ? 'Duplicate' : 'Swap'} preset {pad(slotOpBox.entry.summary.number)}</div>
+    <input class="rename-in mono" bind:value={slotOpBox.value} maxlength="3" placeholder="Slot 0–511" use:rnFocus onkeydown={onSlotOpKey} />
+    <div class="rename-actions">
+      <button class="rn-btn" onclick={() => (slotOpBox = null)}>Cancel</button>
+      <button class="rn-btn save" onclick={commitSlotOp}>{slotOpBox.kind === 'duplicate' ? 'Duplicate' : 'Swap'}</button>
+    </div>
+    <p class="rename-note">Writes over the target slot and replaces the edit buffer (unsaved edits are lost). The device protocol has no slot copy, so Axis dumps → loads → stores.</p>
   </div>
 {/if}
 
@@ -1649,6 +1700,8 @@
   .ctx-item:hover { background: var(--surface2); }
   .ctx-item.danger { color: var(--danger); }
   .ctx-item.danger:hover { background: var(--surface2); }
+  .ctx-item:disabled { opacity: 0.45; cursor: not-allowed; }
+  .ctx-item:disabled:hover { background: transparent; }
   .ctx-g { flex: none; width: 18px; text-align: center; font-size: 13px; color: var(--textdim); }
   .ctx-item.danger .ctx-g { color: var(--danger); }
   .rename-pop { display: flex; flex-direction: column; gap: 8px; }

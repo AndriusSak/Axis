@@ -19,8 +19,16 @@ import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
+import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
 import type { NamedParam, EnumParam, TabDef, ResolvedTab, MeterVal, DetectResult, ConnPick, ConnInfo, ProfileKey, DeviceLayout, DebugReport, DeviceEvent, TelemetryMode, TrafficSnapshot } from './types';
 import type { EditorSurface } from './editorSurface';
+
+/** Build the copy-by-store transport the slot ops drive, bound to the ForgeFX client (audit §2.4). */
+const slotOpsClient = (): SlotOpsClient => ({
+  dump: (location) => forgefx.presetBackup(location),
+  load: (bytes) => forgefx.loadBytes(bytes),
+  store: (location) => forgefx.store(location)
+});
 
 export type ViewMode = 'basic' | 'advanced';
 /** Block clipboard payload for copy/paste (audit §2.9): a block's model + current-channel settings. */
@@ -115,6 +123,14 @@ class EditorStore {
   get canRenameScenes(): boolean { return this.isV2 ? !!this.caps?.sceneNamesWritable : !this.isAm4; }
   /** Device supports full preset dumps → the library's deep param index (summary/params reads). */
   get canDeepScan(): boolean { return this.isV2 ? !!this.caps?.presets?.canDeepScan : !this.isAm4; }
+  /** Device-slot duplicate/swap is provable: the server serves a slot dump (backupDump), an
+   *  edit-buffer load (versionStore → loadPresetBytes), and a store (supportsSave) — the copy-by-store
+   *  sequence of audit §2.4. False on name-scan-only devices (AM4) and legacy v1 servers. */
+  get canCopySlots(): boolean {
+    return this.isV2
+      ? canCopySlots({ backupDump: !!this.caps?.backupDump, loadBytes: !!this.caps?.versionStore, store: !!this.caps?.supportsSave })
+      : false;
+  }
   /** Library indexing is a stored-location NAME scan only (no per-preset dumps/params). */
   get scanNamesOnly(): boolean {
     return this.isV2 ? !!this.caps?.presets?.canScanNames && !this.caps?.presets?.canDeepScan : this.isAm4;
@@ -2158,6 +2174,38 @@ class EditorStore {
     } catch {
       if (switched && prevSlot >= 0) { try { await this.selectPreset(prevSlot); } catch { /* */ } } // restore on failure too
       this.showToast('Rename failed', '#d6543f');
+      return false;
+    }
+  };
+  /** Library duplicate: copy a STORED device preset into another slot (audit §2.4). Composed over the
+   *  existing endpoints — dump source → load into the edit buffer → store to target. The SOURCE slot is
+   *  left intact; the TARGET slot and the edit buffer are overwritten. Returns true on success. */
+  duplicateStoredPreset = async (from: number, to: number): Promise<boolean> => {
+    if (!this.canCopySlots || from < 0 || to < 0 || from === to) return false;
+    try {
+      await duplicateSlot(slotOpsClient(), from, to);
+      this.noteBufferReplaced(`Duplicated preset ${from} → ${to}`); // history barrier — undo can't cross the buffer swap
+      library.refreshSlot(to); // reconcile the target's summary/CRC
+      this.showToast(`Duplicated ${String(from).padStart(3, '0')} → ${String(to).padStart(3, '0')}`, '#33c46b');
+      return true;
+    } catch (err) {
+      this.showToast((err as Error).message || 'Duplicate failed', '#d6543f');
+      return false;
+    }
+  };
+  /** Library swap: exchange two STORED device presets (audit §2.4). Both dumps are captured before any
+   *  write, then each is written into the other slot. Both slots and the edit buffer are overwritten. */
+  swapStoredPresets = async (a: number, b: number): Promise<boolean> => {
+    if (!this.canCopySlots || a < 0 || b < 0 || a === b) return false;
+    try {
+      await swapSlots(slotOpsClient(), a, b);
+      this.noteBufferReplaced(`Swapped presets ${a} ↔ ${b}`); // history barrier — undo can't cross the buffer swap
+      library.refreshSlot(a);
+      library.refreshSlot(b);
+      this.showToast(`Swapped ${String(a).padStart(3, '0')} ↔ ${String(b).padStart(3, '0')}`, '#33c46b');
+      return true;
+    } catch (err) {
+      this.showToast((err as Error).message || 'Swap failed', '#d6543f');
       return false;
     }
   };
