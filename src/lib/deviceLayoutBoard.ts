@@ -49,8 +49,10 @@ export interface BoardCtl {
   h: number;
   view: string;
   views: readonly string[];
-  /** The param's served name (ControlSurface sets it from `p.name`/`e.name`). Needed to re-resolve a
-   *  layout control whose paramId is a device pseudo-id — see `btnPseudoParamKey`. */
+  /** The param's served name (ControlSurface sets it from `p.name`/`e.name`). Used ONLY by the
+   *  legacy name-match fallback for a layout control whose paramId is a device pseudo-id — see
+   *  `btnPseudoParamKey`. Newer ForgeFX servers rewrite those controls to real ids server-side, so
+   *  the fallback is never consulted there. */
   label?: string;
 }
 
@@ -96,12 +98,20 @@ function viewForWidget(widget: string, base: BoardCtl): string {
   return base.views.includes(candidate) ? candidate : base.view;
 }
 
-/** Some device layouts reach for a control the param table does not name under that id: the FM3 cab
+/** FALLBACK ONLY — for servers that predate the server-side rewrite.
+ *
+ *  Some device layouts reach for a control the param table does not name under that id: the FM3 cab
  *  page's per-cab M / S buttons carry `CABINET_BTN_MUTE<n>` / `CABINET_BTN_SOLO<n>` pseudo-ids
  *  (65286…65289) that are never live parameters, while the state they drive lives in `MUTE<n>` — the
- *  enum the block DOES serve, with options `-- / MUTE / SOLO`. Resolve by the served NAME after the
- *  `_BTN_` infix so those controls render instead of vanishing; the M/S pair collapses onto the one
- *  state control it really is (the board de-dupes by key). Unresolvable pseudo-params still gap. */
+ *  enum the block DOES serve, with options `-- / MUTE / SOLO`.
+ *
+ *  A current ForgeFX gen-3 server rewrites those pseudo controls to the REAL served param while serving
+ *  the layout (`resolvePseudoParamControls` in ForgeFX `server/src/devices.ts`), so `resolveControl`'s
+ *  primary `paramId` lookup already finds them and this name-matching path is NOT used. It is kept so a
+ *  layout served by an OLDER server still renders those controls rather than vanishing; matching the
+ *  served NAME after the `_BTN_` infix. Unresolvable pseudo-params still gap (e.g. the S button, whose
+ *  SOLO state is an OPTION of the MUTE enum, not a param) — so the M/S pair collapses onto the one state
+ *  control it really is (the board de-dupes by key). Do not extend this: push a new bridge server-side. */
 function btnPseudoParamKey(ctl: LayoutControl, byName: Map<string, BoardCtl>): string | undefined {
   const suffix = (ctl.paramName ?? '').split('_BTN_')[1];
   if (!suffix) return undefined;
@@ -125,8 +135,10 @@ function resolveControl(ctl: LayoutControl, byKey: Map<string, BoardCtl>, byName
       return { key: base.key, view: viewForWidget(ctl.widget, base) };
     }
   }
-  // A pseudo-param id the device never serves under that number (the cab page's M/S buttons) — bind it
-  // to the real param of the same name so the control renders rather than disappearing.
+  // FALLBACK (older servers only): a pseudo-param id the device never serves under that number (the cab
+  // page's M/S buttons) — bind it to the real param of the same served name so the control renders rather
+  // than disappearing. A current server has already rewritten these to real ids above (see
+  // btnPseudoParamKey), so this only runs against a layout served by an older ForgeFX.
   const btnKey = btnPseudoParamKey(ctl, byName);
   if (btnKey) {
     const base = byKey.get(btnKey);
