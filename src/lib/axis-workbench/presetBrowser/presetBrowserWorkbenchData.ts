@@ -49,6 +49,9 @@ export interface AxisPresetBrowserEntrySummary {
   converted: boolean;
   /** Display provenance ("FM3 → AM4") for a converted entry; null for every other source. */
   provenance: string | null;
+  /** User colour/flag tag hex (§2.13); null when the entry is untagged. Independent of the block-family
+   *  / CPU colours. */
+  colorHex?: string | null;
 }
 
 export interface AxisPresetBrowserSourceSummary {
@@ -79,6 +82,8 @@ export interface AxisPresetBrowserDataInput {
   sourceId?: AxisPresetBrowserSourceId | null;
   selectedEntryId?: string | null;
   tagsOf?: (entryId: string) => string[];
+  /** Resolve an entry's user colour/flag tag (§2.13). Defaults to none. */
+  colorOf?: (entryId: string) => AxisPresetColorId | null;
   /** Advanced/simple query conditions to filter the visible list (§2, §4.1). */
   conditions?: AxisPbCond[];
   /** Simple-mode free text applied on top of conditions. */
@@ -99,6 +104,7 @@ export interface AxisPresetBrowserPresenceViewSummary extends AxisPbPresenceView
 
 import { matchEntryFromSummary, matchPreset, type AxisPbCond } from './presetBrowserWorkbenchQuery';
 import type { SyncState } from '../../types';
+import { presetColorHex, type AxisPresetColorId } from '../../presetColors';
 import {
   AXIS_PB_PRESENCE_VIEWS,
   entryInPresenceView,
@@ -129,9 +135,9 @@ export function normalizeAxisPresetBrowserSourceId(sourceId: AxisPresetBrowserSo
 export function createAxisPresetBrowserDataView(input: AxisPresetBrowserDataInput): AxisPresetBrowserDataView {
   const activeSourceId = normalizeAxisPresetBrowserSourceId(input.sourceId);
   const syncStateOf = input.syncStateOf;
-  const entries = input.entries.map((entry) => normalizeEntry(entry, input.tagsOf, syncStateOf));
+  const entries = input.entries.map((entry) => normalizeEntry(entry, input.tagsOf, syncStateOf, input.colorOf));
   const filteredEntries = (input.filteredEntries ?? input.entries).map((entry) =>
-    normalizeEntry(entry, input.tagsOf, syncStateOf)
+    normalizeEntry(entry, input.tagsOf, syncStateOf, input.colorOf)
   );
   const counts = new Map<AxisPresetBrowserSourceId, number>([['all', entries.length]]);
 
@@ -208,7 +214,8 @@ function sortEntries(
 function normalizeEntry(
   entry: AxisPresetBrowserLibEntryLike,
   tagsOf?: (entryId: string) => string[],
-  syncStateOf?: (entry: AxisPresetBrowserLibEntryLike) => SyncState
+  syncStateOf?: (entry: AxisPresetBrowserLibEntryLike) => SyncState,
+  colorOf?: (entryId: string) => AxisPresetColorId | null
 ): AxisPresetBrowserEntrySummary {
   const blocks = entry.summary.blocks ?? [];
   const firstModel = entry.summary.model
@@ -238,7 +245,8 @@ function normalizeEntry(
     syncState: syncStateOf?.(entry) ?? 'none',
     cloudOnly: entry.id.startsWith('cloud:'),
     converted,
-    provenance: entry.provenance ?? null
+    provenance: entry.provenance ?? null,
+    colorHex: presetColorHex(colorOf?.(entry.id) ?? null)
   };
 }
 

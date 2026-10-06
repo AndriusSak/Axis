@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { library, type LibEntry } from '../../../library.svelte';
+  import { AXIS_PRESET_COLORS } from '../../../presetColors';
   import { editor } from '../../../editor.svelte';
   import { cloud, browseEntries } from '../../../cloud.svelte';
   import { startCrossConvert, openConvertedInConverter } from '../../../presetConvertSource';
@@ -119,6 +120,7 @@
     sourceId: snapshot.sourceId,
     selectedEntryId: snapshot.entryId,
     tagsOf: library.tagsOf,
+    colorOf: library.colorOf,
     conditions: activeConditions,
     simpleQuery: snapshot.advanced ? '' : snapshot.simpleQ,
     sort: snapshot.sort,
@@ -640,6 +642,25 @@
       </button>
     {/each}
   </div>
+
+  <!-- §2.13 COLOUR filter — alongside the saved filters; a user-chosen per-entry flag, distinct from the
+       block-family/CPU colours. Filter state lives on the shared library store. -->
+  <header class="section-head"><span>Colour</span><em>{library.colorCounts[library.colorFilter]}</em></header>
+  <div class="color-filters">
+    <button type="button" class="color-all" class:on={library.colorFilter === 'all'} onclick={() => (library.colorFilter = 'all')} title="Show all presets">All</button>
+    {#each AXIS_PRESET_COLORS as c}
+      <button
+        type="button"
+        class="color-dot"
+        class:on={library.colorFilter === c.id}
+        style:--c={c.hex}
+        title={`${c.label} (${library.colorCounts[c.id]})`}
+        aria-label={c.label}
+        onclick={() => (library.colorFilter = c.id)}
+      ></button>
+    {/each}
+    <button type="button" class="color-all" class:on={library.colorFilter === 'none'} onclick={() => (library.colorFilter = 'none')} title="Show only untagged presets">None</button>
+  </div>
 {/snippet}
 
 {#snippet listTopBar()}
@@ -818,6 +839,7 @@
               axisPresetBrowserWorkbenchController.toggleMark(entry.id);
             }}
           >{snapshot.marked[entry.id] ? '✓' : ''}</button>
+          {#if entry.colorHex}<span class="row-color" style:background={entry.colorHex} title="Colour flag" aria-label="Colour flag"></span>{/if}
           <span class="preset-number" class:sel={snapshot.entryId === entry.id}>{entry.number == null ? entry.sourceLabel : String(entry.number).padStart(3, '0')}</span>
           <span class="preset-main">
             {#if renamingId === entry.id}
@@ -2191,6 +2213,49 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+  }
+  /* §2.13 colour filter chips + row dot */
+  .color-filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+  }
+  .color-dot {
+    flex: none;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border-radius: 50%;
+    cursor: pointer;
+    background: var(--c);
+    border: 2px solid transparent;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  }
+  .color-dot.on {
+    border-color: var(--text);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 55%, transparent);
+  }
+  .color-all {
+    flex: none;
+    height: auto;
+    padding: 4px 9px;
+    border-radius: 7px;
+    cursor: pointer;
+    font: 700 10px/1 var(--font-mono);
+  }
+  .color-all.on {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    color: var(--text);
+  }
+  .row-color {
+    flex: none;
+    width: 9px;
+    height: 9px;
+    margin: 0 2px;
+    border-radius: 50%;
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3);
   }
   .quick-tag {
     height: auto;

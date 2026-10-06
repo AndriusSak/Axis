@@ -16,6 +16,7 @@
   import Icon, { type IconName } from './Icon.svelte';
   import MiniGrid from './MiniGrid.svelte';
   import type { LibEntry } from './library.svelte';
+  import { AXIS_PRESET_COLORS, presetColorHex } from './presetColors';
   import type { DecodedBlock, GridCell, PresetGrid, VersionInfo, SyncState } from './types';
 
   const ACCENT = '#35c9d6';
@@ -1151,6 +1152,15 @@
         </div>
         <div class="div"></div>
       {/if}
+      <div class="side-h"><span class="lbl">COLOUR</span><span class="ct">{library.colorCounts[library.colorFilter]}</span></div>
+      <div class="colors">
+        <button class="color-all" class:on={library.colorFilter === 'all'} onclick={() => { library.colorFilter = 'all'; sideOpen = false; }} title="Show all presets">All</button>
+        {#each AXIS_PRESET_COLORS as c}
+          <button class="color-dot" class:on={library.colorFilter === c.id} style:--c={c.hex} title={`${c.label} (${library.colorCounts[c.id]})`} onclick={() => { library.colorFilter = c.id; sideOpen = false; }}></button>
+        {/each}
+        <button class="color-all" class:on={library.colorFilter === 'none'} onclick={() => { library.colorFilter = 'none'; sideOpen = false; }} title="Show only untagged presets">None</button>
+      </div>
+      <div class="div"></div>
       <div class="side-h"><span class="lbl">SAVED FILTERS</span><span class="ct">{saved.length}</span></div>
       {#if saving}
         <div class="save-in"><input bind:value={saveName} onkeydown={(e) => { if (e.key === 'Enter') commitSave(); else if (e.key === 'Escape') saving = false; }} onblur={() => setTimeout(() => (saving = false), 120)} placeholder="Name this filter…" />
@@ -1191,6 +1201,7 @@
           <span class="num" class:sel>{e.source === 'file' ? 'FILE' : e.source === 'converted' ? 'CONV' : pad(e.summary.number)}</span>
           <div class="row-mid">
             <div class="row-top">
+              {#if library.colorOf(e.id)}<span class="row-color" style:background={presetColorHex(library.colorOf(e.id))} title="Colour flag" aria-label="Colour flag"></span>{/if}
               <span class="row-n">{e.summary.name}</span>
               {#if e.source === 'converted' && e.provenance}<span class="conv-prov" title={`Converted from ${e.provenance}`}>{e.provenance}</span>{/if}
               {#each library.tagsOf(e.id).slice(0, 3) as tg}<span class="tg" style:--c={tagColor(tg)}>{tg}</span>{/each}
@@ -1363,6 +1374,12 @@
   <!-- svelte-ignore a11y_no_static_element_interactions -->
   <div class="ctx" style:left={ctx.x + 'px'} style:top={ctx.y + 'px'} onpointerdown={(e) => e.stopPropagation()} oncontextmenu={(e) => e.preventDefault()}>
     <div class="ctx-title">{ctx.entry.summary.name}</div>
+    <div class="ctx-colors" role="group" aria-label="Colour flag">
+      {#each AXIS_PRESET_COLORS as c}
+        <button class="ctx-color" class:on={library.colorOf(ctx.entry.id) === c.id} style:--c={c.hex} title={c.label} aria-label={c.label} onclick={() => { library.setColor(ctx!.entry.id, c.id); ctx = null; }}></button>
+      {/each}
+      <button class="ctx-color none" class:on={!library.colorOf(ctx.entry.id)} title="No colour" aria-label="No colour" onclick={() => { library.setColor(ctx!.entry.id, 'none'); ctx = null; }}></button>
+    </div>
     {#each ctxItems(ctx.entry) as m}
       {#if m === 'div'}
         <div class="ctx-div"></div>
@@ -1712,4 +1729,16 @@
   .rn-btn.save { background: var(--accent); border-color: var(--accent); color: var(--accentink, #0a1416); }
   .rename-note { margin: 0; padding: 0 2px; font: 500 9.5px/1.35 'JetBrains Mono', monospace; color: var(--textmuted); }
   .ctx-l { flex: 1; }
+  /* colour/flag tags (§2.13): sidebar filter chips + row dot + context-menu picker row */
+  .colors { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 12px 8px; }
+  .color-dot { flex: none; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer; background: var(--c); border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
+  .color-dot.on { border-color: var(--text); box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 55%, transparent); }
+  .color-all { flex: none; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border2); background: var(--track); color: var(--text2); font: 700 10px/1 'JetBrains Mono', monospace; cursor: pointer; }
+  .color-all.on { border-color: var(--accent); color: var(--text); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+  .row-color { flex: none; width: 8px; height: 8px; border-radius: 50%; margin-right: 1px; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.3); }
+  .ctx-colors { display: flex; align-items: center; gap: 6px; padding: 2px 10px 8px; }
+  .ctx-color { flex: none; width: 18px; height: 18px; border-radius: 50%; padding: 0; cursor: pointer; background: var(--c); border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25); }
+  .ctx-color.on { border-color: var(--text); }
+  .ctx-color.none { background: transparent; border: 1px dashed var(--border3); }
+  .ctx-color.none.on { border-style: solid; border-color: var(--text); }
 </style>
