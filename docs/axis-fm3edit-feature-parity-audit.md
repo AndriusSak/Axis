@@ -597,12 +597,16 @@ had to be declared there — and `convertEditor`, which is typed as `EditorSurfa
 shape too (it now models row/column shift over its in-memory layout and leaves the device-backed channel
 ops inert, like its other §2.10 stubs). svelte-check went **8 errors → 0**.
 
-**OPEN — one Playwright geometry assertion regressed:** `28-block-pane-and-search.spec.ts:246`
-("many matches are visible at once at 1280x800") — visible control-search rows 6 → **5** against a `>= 6`
-threshold; 1440x900 passes (7). Row heights are unchanged (44px), so this is a pane-height change, not a
-row-density one; the prime suspect is the new Signal Grid border bars taking ~20px inside the grid
-frame. **Needs one browser run (revert `SignalGrid.svelte` alone → measure → restore) to confirm before
-any fix** — do not guess a layout change without it.
+**One regression came out of the merge, and it is FIXED (`1c7b62d`).** `28-block-pane-and-search.spec.ts:246`
+went red at 1280x800 (5 visible control-search rows vs a `>= 6` threshold; 1440x900 stayed fine at 7).
+Round 5 recorded 136/136 at `8ec6e40`, so it was this round's. **A/B on the merged tree, one suspect file
+at a time:** reverting `SignalGrid.svelte` alone **still failed** (5 rows), reverting `BlockEditor.svelte`
+alone **passed** (6) — the new grid column bar was innocent; the two new footer actions were the cause.
+Measured in-browser: 12 buttons need 1171 + 8×11 gap + 32 padding = **1291px inside a 1280px footer**,
+11px over, so the row wrapped (footer height 65 → 117px) and took exactly one 44px row from the block
+pane. Fix: footer button inset 16 → 12px (~85px slack) + shorter labels with the full wording kept in
+`title`/`aria-label`. Lesson: **chrome must not steal content area** — measure `scrollWidth` against
+sum(button widths) + gaps + padding before adding an action to a full toolbar.
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
