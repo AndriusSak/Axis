@@ -53,6 +53,40 @@ describe('refused discrete writes — setEnum wiring', () => {
   });
 });
 
+// P2.1 leftover — `setPinnedEnum` is the SAME defect class as P1.1's setEnum: a single DISCRETE
+// (continuous=false) pinned write shown optimistically while its result was swallowed with
+// `.catch(() => {})`. The device reject-watches a discrete write, so a refused value stayed on the
+// pinned tile indefinitely. It must mirror setEnum: await → outcome → `settleEnumWrite` (revert the
+// value, drop the optimistic history entry, toast the refusal). The pinned CONTINUOUS write
+// (`setPinnedParam`) stays fire-and-forget BY DESIGN, exactly like `setParam`, and is pinned here.
+describe('refused discrete writes — setPinnedEnum wiring (P2.1 leftover)', () => {
+  const editor = read('./editor.svelte.ts');
+
+  it('setPinnedEnum is async and awaits the discrete write (continuous=false)', () => {
+    expect(editor).toMatch(/setPinnedEnum = async \(effectId: number, e: EnumParam, value: number\)/);
+    expect(editor).toMatch(/await forgefx\.setParam\(effectId, e\.id, value, false\)/);
+  });
+
+  it('captures the pinned write outcome (ok → rejected, thrown → error)', () => {
+    // the pinned branch feeds the same shaped outcome the setEnum branch does
+    expect(editor).toMatch(/outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/);
+    expect(editor).toMatch(/outcome = \{ status: 'error' \}/);
+  });
+
+  it('applies the decision on the pinned enum: revert, drop history, toast', () => {
+    expect(editor).toMatch(/settleEnumWrite\(\s*e,\s*from,\s*historyId,\s*outcome/);
+    expect(editor).toMatch(/dropHistory: \(id\) => history\.drop\(id\)/);
+  });
+
+  it('no longer swallows the pinned discrete write result', () => {
+    expect(editor).not.toMatch(/forgefx\.setParam\(effectId, e\.id, value, false\)\.catch\(\(\) => \{\}\)/);
+  });
+
+  it('keeps the pinned CONTINUOUS knob path fire-and-forget BY DESIGN', () => {
+    expect(editor).toMatch(/forgefx\.setParam\(effectId, p\.id as number, v, true\)\.catch\(\(\) => \{\}\)/);
+  });
+});
+
 describe('refused discrete writes — history drop support', () => {
   const history = read('./history.svelte.ts');
 

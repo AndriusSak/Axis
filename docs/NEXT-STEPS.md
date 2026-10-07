@@ -111,6 +111,23 @@ npx playwright test --project=chromium                  # 142 tests; boots its o
 **Kill any lingering dev server on `:5199` before the merged-tree e2e run** — `reuseExistingServer`
 is on, so it will otherwise serve a feature-branch worktree instead of `main`.
 
+### Fresh sibling layout (why `npm ci` alone is not enough)
+
+The three repos sit side by side and Axis links the siblings as `file:` deps
+(`"forgefx-server": "file:../ForgeFX/server"`, which in turn links `file:../../forgefx-midi`). Their
+package `exports` point at **gitignored `dist/`**, so a fresh checkout has the links but no built
+artifacts — the first import fails until each package is built, in order. Run:
+
+```bash
+npm run setup:stack   # forgefx-midi build → ForgeFX/server build → svelte-kit sync
+```
+
+`setup:stack` is an **explicit, named script — deliberately NOT `prepare`/`postinstall`**. An install
+hook fires on *every* `npm ci`/`npm install`, including a consumer's install through the `file:`
+link, so it would silently build a sibling tree from someone else's checkout (and re-run on every
+install). The order it encodes is the same one `.github/actions/build-stack/action.yml` uses in CI:
+codec (`forgefx-midi`) first, then `ForgeFX/server`, then `svelte-kit sync` for Axis.
+
 ## Stale docs (banner-ed / corrected, kept as history)
 
 | Doc | Why it is stale |

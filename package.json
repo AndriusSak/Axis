@@ -25,7 +25,8 @@
     "mobile:sync": "npm run build:mobile && cap sync ios",
     "test": "vitest run",
     "test:workbench-visual": "node scripts/workbench-visual-smoke.mjs",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "setup:stack": "( cd ../forgefx-midi && npm ci && npm run build ) && ( cd ../ForgeFX/server && npm ci && npm run build ) && npx svelte-kit sync"
   },
   "dependencies": {
     "@capacitor/app": "8.1.0",
