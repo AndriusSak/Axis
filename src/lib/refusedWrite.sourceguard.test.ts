@@ -20,7 +20,7 @@ describe('refused discrete writes — setEnum wiring', () => {
   const editor = read('./editor.svelte.ts');
 
   it('imports the pure decision module', () => {
-    expect(editor).toMatch(/import \{ settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
+    expect(editor).toMatch(/import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
   });
 
   it('setEnum is async and awaits the discrete write (continuous=false / AM4 value route)', () => {
@@ -110,7 +110,7 @@ describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
 
   it('imports the pure write-set aggregation', () => {
     expect(editor).toMatch(
-      /import \{ settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+      /import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
     );
   });
 
@@ -165,5 +165,52 @@ describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
     expect(editor).not.toMatch(/if \(clip\.channel\) await forgefx\.setChannel\(eid, clip\.channel\)\.catch\(\(\) => \{\}\)/);
     // recallBlockEntry's swallowed setType
     expect(editor).not.toMatch(/if \(entry\.type\) await forgefx\.setType\(c\.effectId, entry\.type\.value\)\.catch\(\(\) => \{\}\)/);
+  });
+});
+
+// P4 follow-ups — setBpm / toggleTuner: a device-REFUSED SCALAR (tempo / tuner) write must not stay
+// on screen. Both write optimistically BEFORE the round-trip and both used to swallow the answer —
+// `setBpm` ended in `.catch(() => {})` with no revert at all (a refused tempo stayed displayed), and
+// `toggleTuner` reverted only in its `.catch` (a THROW), so an HTTP-200 `{ok:false}` refusal survived
+// on screen, silently. Both now AWAIT the write, capture the settlement (ok → rejected, throw →
+// error) and route it through the pure `paramWriteOutcome.settleScalarWrite` (revert to the captured
+// `from` + toast the refusal), exactly as the discrete-write helpers do.
+//
+// `tapTempo` stays fire-and-forget BY DESIGN — it is NOT an optimistic value write: the tap POST is a
+// device gesture we do not predict, and the code PULLS the resulting tempo back from the device
+// (`getTempo`), so the displayed bpm reflects reality rather than a swallowed local guess. It must
+// keep re-reading; this guard pins that.
+describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)', () => {
+  const editor = read('./editor.svelte.ts');
+
+  it('imports the pure scalar decision', () => {
+    expect(editor).toMatch(
+      /import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+    );
+  });
+
+  it('setBpm captures the tempo outcome (ok → rejected, thrown → error) instead of swallowing it', () => {
+    expect(editor).toMatch(
+      /const r = await forgefx\.setTempo\(n\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
+    );
+    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(this\.bpm = v\) \}, from, outcome/);
+    // the old silent swallow + no-revert line is gone
+    expect(editor).not.toMatch(/await forgefx\.setTempo\(n\)\.catch\(\(\) => \{\}\)/);
+  });
+
+  it('toggleTuner honours {ok:false}, not just thrown errors', () => {
+    expect(editor).toMatch(
+      /const r = await forgefx\.setTuner\(next\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
+    );
+    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, outcome/);
+    // the throw-only catch that ignored {ok:false} is gone
+    expect(editor).not.toMatch(/forgefx\.setTuner\(next\)\.catch\(/);
+  });
+
+  it('tapTempo stays fire-and-forget BY DESIGN but re-reads the tempo so its value reflects reality', () => {
+    // the tap POST itself is fire-and-forget (a device gesture, not a value we write)…
+    expect(editor).toMatch(/await forgefx\.tapTempo\(\)\.catch\(\(\) => \{\}\)/);
+    // …but the bpm shown afterwards is PULLED FROM THE DEVICE, not a swallowed local guess
+    expect(editor).toMatch(/this\.bpm = \(await forgefx\.getTempo\(\)\)\.bpm/);
   });
 });
