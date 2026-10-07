@@ -65,12 +65,22 @@ import it directly — no context or props threading.
   ```ts
   toggleTuner = async () => {
     const next = !this.tuner.active;
-    this.tuner = { active: next };
-    await forgefx.setTuner(next).catch(() => {
-      this.tuner = { active: !next };
-    });
+    const from = this.tuner.active;
+    this.tuner = { active: next };            // optimistic
+    let outcome: WriteSettlement;
+    try {
+      const r = await forgefx.setTuner(next);
+      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };   // 200 {ok:false} IS a refusal
+    } catch { outcome = { status: 'error' }; }
+    settleScalarWrite({ set: (v) => (this.tuner = { active: v }) }, from, outcome,
+                      { toast: (t, a) => this.showToast(t, a) }, 'Tuner');
   };
   ```
+
+  **A catch-only revert is NOT enough** — the server answers `200 {ok:false}` for a write the device
+  refused, so an optimistic value with only a `.catch()` stays on screen forever. The pure helpers in
+  `paramWriteOutcome.ts` (`settleEnumWrite`, `settleScalarWrite`, `settleWriteSet`) are the single
+  decision point; use them rather than hand-rolling the revert.
 
 Other stores: `cloud.svelte.ts` (true `$derived`, pure derivation + refresh),
 `library.svelte.ts` (device scan, `.syx` import, Zod-validated persisted
