@@ -1,10 +1,14 @@
 # Axis — next iteration: prioritized fix list (from the 2026-10-07 third-party review)
 
 **Status:** **P1.1–P1.3, ALL of P2, the P3 items (engines, `.npmrc` heap flag, unit sets, route 400s,
-audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites) and the P4 round
-(bpm/tuner outcome + Control Switch table) SHIPPED 2026-10-07** · **P5, P6 and P7 SHIPPED 2026-10-07 ·
-**open: the follow-ups below (the wider optimistic-write census, found during the rounds) and the
-hardware probes** ·
+audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites), the P4 round
+(bpm/tuner outcome + Control Switch table), and P5, P6, P7, P8, P9 and P10 ALL SHIPPED 2026-10-07** ·
+**open: the deliberate limitations and code-round items recorded below (the ABA staleness edge; the
+repeated-query-key surface divergence; the `editor.svelte.ts:2761` comment defect) — see the "Open after
+P10" note near the end of this file.** *(Correction, 2026-10-07: this header previously read "open: the
+follow-ups below (the wider optimistic-write census, found during the rounds) and the hardware probes" —
+the census closed in P5 (`e58482d`) and the probes were answered in P6/P8; the header also did not
+mention P8, P9 or P10 at all.)* ·
 **Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
 (full report + provenance: `~/repos/stack/review-2026-10-07/REPORT.md`; the review's rejected claims
 are in its §5 — read that before re-litigating any item here).
@@ -123,7 +127,8 @@ user-initiated discrete write, while the cost of the short window is a false "ac
 client now trusts (P1.1). **The real knob was `timeoutMs`, not `quietMs`**: `request()` resolves on
 `match` (immediate), `quietMs` silence after the last inbound frame, or the `timeoutMs` hard cap — and on
 ACCEPT the device is silent, so the quiet timer never even starts and the window *is* the timeout. Both
-are now set to 250 for that reason (`gen3.ts:282-290`).
+are now set to 250 for that reason (`gen3.ts` `#write`, `:314`, window at `:325`; was cited as
+`:282-290`, drifted).
 The missing **delayed-rejection test** exists now: `MockTransport` answers synchronously and ignores the
 windows, which is exactly why the case was unreachable, so the new `write-window` suite drives a
 `WindowTransport` that replays `#once`'s real resolution semantics with a schedule of delayed frames —
@@ -295,7 +300,11 @@ Not from the original review: what the rounds themselves surfaced as the next be
 - **The docs were also teaching the defect:** `src/lib/CLAUDE.md` called a catch-only revert "THE
   canonical action shape". Corrected, with the example matching the shipped `toggleTuner`.
 
-**Still open — the same class, found by the P4 sweep and NOT fixed (deliberately):**
+**Was still open after P4 (the same class, found by the P4 sweep) — every one of these was subsequently
+closed in P5/P6; kept below as the P4-sweep record:**
+- *Superseded:* `toggleBypass`/`setChannel`/`selectScene` and `retype` were hardened in P5 (`e58482d`),
+  the grid/routing ops in P5 (`4e4bc56`), and `pasteBlock`'s op-loop in P6 (`77c9f60`) — the outcome
+  sweep is now finished end to end (P5/P6 sections).
 - **`toggleBypass` (~:1740), `setChannel` (~:1753), `selectScene` (~:2564)** — optimistic value,
   throw-only catch, ignores a `200 {ok:false}`, and they return `{ok:boolean}` like the fixed sites.
   `toggleBypass` additionally toasts a success that may not have happened. **The next obvious round.**
@@ -438,6 +447,28 @@ have no range row at all. "Disabled with the exact reason" is the correct final 
 
 ---
 
+## P7 — shipped 2026-10-07 (the AM4/v1 route fallback removed)
+
+*(Added in this pass — P7 previously had no section of its own, only passing mentions in the P3 header
+and the P9 table.)* The user decided the legacy AM4 / v1-server **route** fallback is not needed, so the
+deprecated API surface is gone end to end; AM4 **device** support stays (profiles, catalog,
+`drivers/am4.ts`, the mock-AM4 fixtures).
+
+- Axis `36c014e` (from `c4410b2`): 35 sites across four files lost their version-branched route
+  selection (the v2/unified call survives everywhere) and all 13 `am4*` client helpers were deleted after
+  zero callers were verified. `am4Deprecation.ts`/`.test.ts` were replaced by **`noAm4Routes.test.ts`**,
+  which scans every non-test `src/` file and fails on any `/am4/` substring or `am4*` helper. Positive
+  `isV2` capability gates and all `isAm4` **device** branches are deliberately kept.
+- ForgeFX `ea19c85` (from `53da109`): the 16 `/am4/*` registrations, the `deprecated()` shim,
+  `ALIAS_SUNSET`, the alias bookkeeping, `writeGate.ts`'s 7 `/am4/*` entries and `remote.ts`'s relay
+  patterns went; `alias-parity.test.ts` was deleted with its `run-all` registration.
+- `route-parity` got stricter — its exception list is `GET /events` **only**, asserted *equal* rather
+  than counted (see P2.4).
+- **No AM4 hardware was tested, and none will be:** Andy owns an FM3 only, so the removed
+  `#syncTelemetry` early-return stays unverified on AM4 **by choice** — do not re-raise it.
+
+---
+
 ## P8 — shipped 2026-10-07 (probe honesty, the silent-write verdict, read-route validation)
 
 Three ForgeFX workstreams, all offline, all merged with `--no-ff` and zero conflicts.
@@ -460,8 +491,11 @@ Three ForgeFX workstreams, all offline, all merged with `--no-ff` and zero confl
   0/2/3 so it can never be mistaken for a completed run. This is the guard that would have prevented the
   incident: the plan would have shown `original 0.0000 → would write 0.1 → would restore 0.0`.
 - **Silent-write semantics: verdict (b) — no distinct signal exists, and NO behaviour was changed**
-  (`64902c9`, zero `src/` files touched). The trace: discrete write → `gen3.ts:1453` → `#write`
-  (`:291-305`) → `request({timeoutMs: 250, quietMs: 250, match: isOurReject})` → `{ok: !rejected}`.
+  (`64902c9`, zero `src/` files touched). The trace: discrete write → `setParam` (`gen3.ts:1515`) →
+  `#write` (`gen3.ts:314`, the 250 ms window at `:325`) → `request({timeoutMs: 250, quietMs: 250, match:
+  isOurReject})` → `{ok: !rejected}`. *(Citations corrected 2026-10-07: the old `gen3.ts:1453` and
+  `:291-305` were drifted — `:1453` is now the block-bulk-read poll in `#primeEditSnapshot`, and `#write`
+  moved to `:314`.)*
   **Silence — whether the device accepted or silently ignored — is `{ok:true}` → HTTP 200 → Axis reads
   `status:'ok'`.** Continuous and GLOBAL writes go through `#send` and collect no reply at all, so they are
   `{ok:true}` unconditionally. Therefore mapping silence to `ok:false` would break **every** accepted write.
@@ -471,6 +505,9 @@ Three ForgeFX workstreams, all offline, all merged with `--no-ff` and zero confl
   `setTempo`) fire-and-forget. Pinned by a new 16-case suite (ForgeFX is now **42 suites**) which locks the
   indistinguishability itself: accept and ignore produce the same verdict **and a byte-identical outgoing
   frame**, and all ten `#write`-routed ops return `{ok:true}` under silence.
+  *(Correction — P10: the byte-identical-frames case was a **tautology by construction** — `#send` never
+  reads the reply script — and was reworked in P10 (`45d6a28`) to assert the primitive instead
+  (`sendQueued` used, `request()` called 0 times). See the P10 section.)*
 - **Read-route validation finished** (`3fb8f20`): ten read routes whose params are parsed now answer **400**
   on malformed input (non-integer, negative, `> 0x3fff`), in the **shared** handlers so both surfaces
   inherit it. This was a *silent-misread* class rather than a cosmetic one: the driver's own `enc14` masks a
@@ -506,7 +543,7 @@ verdict column is the orchestrator's, not the reviewer's.**
 | **The staleness guard fails on ABA** — `stale = value !== sent` is reachable on an odd-length boolean toggle burst (true/false/true with the first refused wipes the third) | **CONFIRMED by reading `paramWriteOutcome.ts:79`** | P9 round |
 | A double refusal can leave an unconfirmed value on screen | **CONFIRMED as described** | P9 round |
 | `editor.svelte.ts:2600` claims a scene switch is reject-watched — false on gen3 (`setScene` → `#send` → `{ok:true}` unconditionally) | **CONFIRMED** | P9 round |
-| `ToolRail.svelte:40-44` `showTools` still ends `: editor.isAm4` (should be `: false`) → an AM4 with no caps gets a Tools button opening an empty modal | **CONFIRMED** (minor; only reachable on a v1 server or before caps load) | P9 round |
+| `ToolRail.svelte:40-44` `showTools` still ends `: editor.isAm4` (should be `: false`) → an AM4 with no caps gets a Tools button opening an empty modal | **CONFIRMED** (minor; only reachable on a v1 server or before caps load) | **NOT fixed in P9** — no P9 workstream touched `ToolRail.svelte` (the P9 round shipped only the three items listed in its own section below); being fixed in **P11** |
 | The above retraction (GLOBAL writes "YES" rests on a same-path echo) | **CONFIRMED as a documentation defect** | Retracted in this commit |
 | `/fc/state` "driver 503" note was wrong | **CONFIRMED** | Corrected in this commit |
 | P7 AM4 collapse: "no behavioural defect in the collapsed route sites" | **Accepted** — every removed guard was `!isV2 && isAm4`, false whenever `isV2` | No action |
@@ -534,7 +571,8 @@ that would settle the GLOBAL question completely.
   fixture and asserts VALUES, so this class cannot pass vacuously again — and the round *verified* the
   strengthened test fails on the old code by stashing only the src change. It also found a latent
   double-lookup in `knob-coverage`'s fixture that had only ever "passed" because `?? 0` fabricated a value.
-  Decision + the precise live question: `docs/decisions/0004-global-bulk-read-unknown.md`.
+  Decision + the precise live question: `ForgeFX/docs/decisions/0004-global-bulk-read-unknown.md`
+  (the ForgeFX-repo ADR; the Axis-side rendering decision is `docs/decisions/0003-global-inert.md`).
 - **`GET /fc/state` cannot read pid 0 from malformed input** (`953ea5c`, ForgeFX). Shared `fcStateH` guard
   (absent/'' → 0 as before; non-integer/negative always rejected; each axis bounded by the device's
   **declared** FC geometry — layouts 9 / views 4 / switches 3, which *is* available at the seam, contrary to
@@ -556,7 +594,9 @@ that would settle the GLOBAL question completely.
 / 174 files** · `svelte-check` 0/0 · build ok · Playwright **142/142**. Route counts unchanged (83 app /
 92 router).
 
-- **✅ DONE (P10) — the Axis side of the new `null` contract.** ForgeFX now legitimately sends
+- **✅ DONE (P10) — the Axis side of the new `null` contract.** *(Forward-pointer written into the P9
+  section at the time; the canonical, fuller record is the "P10 — shipped 2026-10-07" section below —
+  this block is kept as the historical note.)* ForgeFX now legitimately sends
   `value: null` for an unresolved GLOBAL param; Axis was widened to match. `NamedParam.value` /
   `NamedParam.norm` / `EnumParam.value` are `number | null` (`src/lib/types.ts`) with an optional
   `unresolved` reason, and every consumer renders/handles unknown EXPLICITLY — never a fabricated 0:
@@ -573,8 +613,10 @@ that would settle the GLOBAL question completely.
     `captureParamValue`, `captureEntry` and `#applyClip` SKIP an unresolved value instead of storing/writing 0.
   - **Pinned**: unit tests in `src/lib/nullContract.test.ts` (pure modules + source-scans of the
     components) and `e2e/34-null-param-unknown.spec.ts` (a null-valued knob renders inert, never a knob
-    at 0). NOTE: Playwright was not run in this round — the e2e spec is unexecuted and is the one claim
-    that still needs the orchestrator's run to confirm.
+    at 0). *(Correction: the note that "Playwright was not run in this round — the e2e spec is
+    unexecuted" is superseded — the spec has since run, its `hasText: 'Bright'` selector was made exact
+    (aria-label / anchored regex, no assertion weakened), and it **passes**; see the P10 merged-tree
+    verification and its process note.)*
 
 ## P10 — shipped 2026-10-07 (the null contract, and tests that can actually fail)
 
@@ -626,7 +668,11 @@ does not normalise an array either). Pinned by route-parity (app 400 / router 20
 error strings), **not fixed** — unifying the parsers needs a `src/` change, so it is a decision item.
 
 **Merged-tree verification — GREEN:** forgefx-midi **84** · ForgeFX **43 suites** · Axis **1835 unit tests
-/ 175 files** · `svelte-check` 0/0 · build ok · Playwright **143** (chromium).
+/ 175 files** · `svelte-check` 0/0 · build ok · Playwright **144** (chromium).
+*(First P10 run reported 143; the authoritative re-run —
+`~/repos/stack/review-2026-10-07/verify-stack-p10b.out` — is **144 passed**. `route-parity` is now
+**90 cases** (`ROUTE_PARITY_CASE_COUNT` = 84 validation rows + 6); no document had stated the current
+count, whose last recorded figure was 77 at P9.)*
 
 **Process note worth keeping.** The merged-tree gate first reported `FAILURES PRESENT` from the new e2e
 spec, and the child could not have seen it (it was forbidden from running Playwright, so its spec shipped
@@ -668,13 +714,47 @@ refusal closes the watch IMMEDIATELY (`gen3.ts` #write `match: isOurReject`), an
 the silent ACCEPT, which never reverts. Overlap is reachable via a write queued behind slow reads
 (bulk reads up to 2.5 s, the `meters` serial reads, the edit poll) or a transport drop mid-burst.
 
+## Open after P11 — limitations and code-round items still standing (2026-10-07)
+
+Not new findings; the deliberate residue of the P1–P10 rounds, collected here so a later session does not
+have to re-derive it. None is a "chase it now" bug — each is either a recorded limitation or a `src/`
+change a documentation-only pass cannot make.
+
+- ~~**ABA staleness edge (P9, deliberate, `89a0d49`).**~~ **CLOSED in P11** (`a04c9c6`) — see the P11
+  section above. *This entry was written against the P9 state: `stale = value !== sent` was reachable on an
+  odd-length same-value burst, and the argument that the pure settle signature "provably cannot carry"
+  write-initiation ordering was overstated — a module-level sequencer fits it and is now implemented.* The
+  pinned test now asserts the FIXED behaviour instead of the defect.
+- **Repeated-query-key surface divergence (P10, deliberate — needs a `src/` change).** `?eid=1&eid=2`
+  → Fastify 400, browser router 200, on `/preset/monitors/live`, `/preset/looper` and `/fc/state`. Pinned
+  by `route-parity` (app 400 / router 200 per route); unifying the parsers is a decision item, not done.
+- **`editor.svelte.ts:2761` comment defect (found while writing this pass — a `src/` fix, not editable
+  here).** The P9 comment above `setBpm` cites `gen3.ts:1551` for `setTempo` — but `:1551` is `setBypass`
+  (`setTempo` is `:1610`) — and calls `setTuner` unconditional, while `registryCore.ts:814` returns
+  `{ok:false}` when the device has no tuner capability. The conclusion (neither is reject-watched on
+  gen3) still holds for the FM3, but the citations and the "unconditional" claim are wrong as written;
+  the same `{ok:true}`-unconditionally wording appears in `paramWriteOutcome.ts:195`. **A `src/` round
+  should cite the symbols and drop "unconditional".**
+- **The LED incident's `0.0000` is still attributed to the broken bulk read in places outside this
+  document** — the code comments at `gen3.ts:265` and `gen3.ts:753`, `PROVENANCE.md:490-491`
+  and the ForgeFX ADR `ForgeFX/docs/decisions/0004-global-bulk-read-unknown.md`. That attribution is
+  **suspected, unconfirmed** (the probe reads through the per-pid GET, not `blockParams` — see Q1 above).
+  Those files are outside this pass's scope (one is the read-only PROVENANCE.md); correct them in the
+  next `src/`/provenance round.
+- **Q1 (GLOBAL write) unproven and Q5 (`0x64` latency) open** — both need the FM3 attached (see
+  "Hardware questions" above).
+
+---
+
 ## Do NOT chase (checked and rejected by the review)
 
-- **Edit-watch sweep vs channel-A baseline** (`gen3.ts:1371`): the sweep slice and its baseline are
+- **Edit-watch sweep vs channel-A baseline** (`gen3.ts` `#editSnapshot` / `#watchedChannel`, ~`:1403-1440`;
+  cited as `:1371` in error — the code has since moved): the sweep slice and its baseline are
   *both* channel 0, so a front-panel edit on channel B-D does not alter the diffed bytes and emits no
   event. The `watchedChannel` branch is for the open block, which is the case that needed fixing.
-- **"Axis ignores the save result"**: `save()` reads `r.ok` (`editor.svelte.ts:2811`). Only the 120 ms
-  window (P2.2) is exposed.
+- **"Axis ignores the save result"**: `save()` reads `r.ok` (`editor.svelte.ts:2931`; was cited as `:2811`
+  — drifted). Only the write-confirmation window (P2.2) is exposed — and that is **250 ms** since
+  `987dfb7`, not the 120 ms this item used to name.
 - **`GLOBAL_REMOTE_MUTE` as a rendering gap**: 0 layout refs in the FM3 layout — unserved, but also
   unreferenced.
 - **P1.3's original "mixed real/zero snapshot" mechanism**: not reachable — see the correction in P1.3
@@ -683,35 +763,58 @@ the silent ACCEPT, which never reverts. Overlap is reachable via a write queued 
 ## Hardware questions — MEASURED against a live FM3, 2026-10-07
 
 Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`, model `0x11`). Raw output:
-`~/repos/stack/review-2026-10-07/` — read-only pass and `--writes` pass. **All five are now closed:**
+`~/repos/stack/review-2026-10-07/probe-ro2.txt` (read-only pass) and `probe-writes.txt` (`--writes` pass).
+**Status is per-question, numbered by the probe's own Q1–Q5 ids** (this list used to renumber the
+questions differently and **omitted Q2**). Q1 RETRACTED (unproven) · Q2 measured (same-path caveat) ·
+Q3 answered · Q4 answered · Q5 STILL OPEN — so the earlier blanket "**All five are now closed**" was
+wrong.
 
-1. **Does the FM3 ever send a scaled enum wire value? — NO (Q3, `does NOT match`).** Observation:
-   `PHASER_ORDER` raw wire value **1** vs displayMax 10 (enumCount 6, channel 0) — a plain ordinal.
-   **P2.3 is LATENT, not live:** the fix is correct and worth keeping as defence, but nothing on this
-   firmware exercises it. Do not go looking for a scaled-value bug; there is none.
-2. **How late can a genuine `0x64` rejection arrive? — STILL OPEN, and the question was mis-framed (Q5).**
-   The probe's deliberate invalid write (bogus eid 16382) produced **no `0x64` at all** — the FM3
-   *silently ignores* an unknown eid rather than refusing it. So the late-rejection window cannot be
-   measured this way, and the P2.2 window (250 ms) was never approached because nothing arrived.
-   **The finding that matters: absence of a refusal is NOT acceptance.** A silently-ignored write and an
-   accepted write look identical to a client that waits for a refusal. Follow-up filed below.
-   ⚠ The probe's own reporting is incoherent here — it printed `no 0x64 arrived within 2000 ms` and
-   `latency 251 ms` in the same breath (251 ms matches the writer's own 250 ms window, so it is almost
-   certainly the probe's timer, not a device latency). **Probe reporting defect — fix before trusting Q5.**
-3. **Do GLOBAL writes actually succeed? — RETRACTED, still UNPROVEN (was marked "YES" in error).**
-   The only evidence was `GLOBAL_FS_BRIGHTNESS` reading 0.0000 → writing 0.1000 → **reading back
-   0.1000**. Two independent findings now invalidate that reading: (a) P8 established that a read-back
-   which merely *echoes our own write* is not verification, and the codec documents a SET returning a
-   value echo; (b) the review below found the GLOBAL **read** path itself is broken (out-of-range index →
-   `?? 0`), which is also what produced the 0.0000 in the first place. So the write may well work — but
-   nothing on record proves it. **The audit's "write side unverified" caveat STANDS.** Re-establishing
-   this needs an independent read (a different sub-action, or the front panel) — see the P9 section.
-4. ~~Is there a 4th FC port (`PFC4`)?~~ **ANSWERED — no.** `PFC4` is evidenced only in the **Axe-Fx III**
-   layouts (`axe-fx-iii/layouts.generated.ts:13698-13699`); the FM3 has FC ports 1-3. Nothing to fix.
-5. **Does the FM3 ever pad a complete bulk read? — NO (Q4, `matches the expectation`).** Cab (eid 62):
-   the `0x74` head advertised **424** `itemCount`, the assembled read delivered **424** values, extra 0.
-   The P1.3 torn-read guard (`values.length >= itemCount` ⇒ complete) is **safe as written**; no tolerance
-   needed. (This also confirms the P1.3 harness bug fix was against a real invariant.)
+**Q1 — Does the FM3 accept a GLOBAL write and read back what we wrote? (`GLOBAL_FS_BRIGHTNESS` 7115)
+— RETRACTED, still UNPROVEN (was marked "YES" in error).**
+The only evidence was reading 0.0000 → writing 0.1000 → **reading back 0.1000**. Two independent findings
+invalidate it: (a) P8 established that a read-back which merely *echoes our own write* is not
+verification, and the codec documents a SET returning a value echo; (b) the GLOBAL **bulk** read path is
+broken (out-of-range index → `?? 0`, P9). But **which path produced the observed 0.0000 is NOT
+established**: the probe reads through the **per-pid GET** (`probe-device.ts:254` → `driver.readParams`,
+`gen3.ts:865`), *not* through `blockParams`, and that per-pid GET is itself an untested suspect — and
+possibly an honest read path for GLOBAL. So the attribution "the broken bulk read produced the 0" is
+**suspected, unconfirmed**: the bulk path is demonstrably broken for those pids, and the probe's own
+read path is unverified. The write may well work — but nothing on record proves it, and the audit's
+"write side unverified" caveat **STANDS**. Re-establishing it needs an independent read (a different
+sub-action, or the front panel) — see the P9 section and `docs/decisions/0003-global-inert.md`.
+
+**Q2 — Is a Cab 2 Mute/Solo write accepted and read back? (`CABINET_MUTE2`) — measured, on an unverified
+read path (this question was missing from the list above).**
+Observation: read ordinal 1; wrote 2; read back 2; restored 1 (read back 1). The read *and* the write go
+through the Cab **block bulk read** (`blockParams`, an fn=0x1F bulk path). Caveat — exactly as P8
+established for Q1 — the read-back is the *same* path that read the original, so it proves only that the
+write landed, not that the original was captured correctly. Verdict is "matches the expectation" with
+that same-path caveat.
+
+**Q3 — Does the FM3 ever send a scaled enum wire value? — NO (`does NOT match`).** Observation:
+`PHASER_ORDER` raw wire value **1** vs displayMax 10 (enumCount 6, channel 0) — a plain ordinal.
+**P2.3 is LATENT, not live:** the fix is correct and worth keeping as defence, but nothing on this
+firmware exercises it. Do not go looking for a scaled-value bug; there is none.
+
+**Q4 — Does the FM3 ever pad a complete bulk read? — NO (`matches the expectation`).** Cab (eid 62): the
+`0x74` head advertised **424** `itemCount`, the assembled read delivered **424** values, extra 0. The
+P1.3 torn-read guard (`values.length >= itemCount` ⇒ complete) is **safe as written**; no tolerance
+needed. (This also confirms the P1.3 harness bug fix was against a real invariant.)
+
+**Q5 — How late can a genuine `0x64` rejection arrive? — STILL OPEN, and the question was mis-framed.**
+The probe's deliberate invalid write (bogus eid 16382) produced **no `0x64` at all** — the FM3
+*silently ignores* an unknown eid rather than refusing it. So the late-rejection window cannot be
+measured this way, and the P2.2 window (250 ms) was never approached because nothing arrived.
+**The finding that matters: absence of a refusal is NOT acceptance.** A silently-ignored write and an
+accepted write look identical to a client that waits for a refusal. Follow-up filed below.
+*(Correction: the earlier "⚠ the probe's own reporting is incoherent here — **Probe reporting defect —
+fix before trusting Q5**" was **fixed in P8** (`280d978`) — Q5's observation is now single-sourced with
+three mutually-exclusive outcomes (refused / silent / accepted) and never reports a fabricated latency.
+Do not re-flag it.)*
+
+**Is there a 4th FC port (`PFC4`)? — ANSWERED: no** (not one of the probe's Q ids). `PFC4` is evidenced
+only in the **Axe-Fx III** layouts (`axe-fx-iii/layouts.generated.ts:13698-13699`); the FM3 has FC ports
+1-3. Nothing to fix.
 
 ### Filed by the measurement — **all actioned in P8 (below); kept as the filed record**
 

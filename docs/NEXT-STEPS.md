@@ -8,10 +8,13 @@ bottom.
 
 ## Where `main` is
 
-- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P7 fix rounds**
-  (2026-10-07, below). Latest merged-tree verification: **1815 unit tests / 173 files** · `svelte-check`
-  **0 errors / 0 warnings** · build **ok** (bare `npm run build` — the heap flag lives in `.npmrc`) ·
-  **Playwright 142/142** (34 spec files) · ForgeFX **42 suites** · forgefx-midi **84**.
+- Rounds **R16–R20**, **R21–R24**, **R25–R28** and the **P1–P10 fix rounds** are merged
+  (2026-10-07). Latest merged-tree verification (`~/repos/stack/review-2026-10-07/verify-stack-p10b.out`):
+  **Axis 1835 unit tests / 175 files** · `svelte-check` **0 errors / 0 warnings** · build **ok**
+  (bare `npm run build` — the heap flag lives in `.npmrc`) · **Playwright 144** (chromium) · ForgeFX
+  **43 suites** · forgefx-midi **84**. *(Corrected: these were the P7/P8-era numbers 1815 / 173, 142 and
+  42 suites — a session comparing today's 1835/175/144 against the stale figure would read a false
+  regression.)*
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
 
 ## Shipped recently (do not redo)
@@ -31,22 +34,28 @@ bottom.
 **The next iteration's input is
 [`axis-review-2026-10-07-next-iteration-fix-list.md`](axis-review-2026-10-07-next-iteration-fix-list.md)**
 — an independent 3-pass review of this tree, every item re-read in the code before filing.
-**P1.1–P1.3 and P2.1 / P2.3 / P2.4 / P2.5 shipped 2026-10-07**, plus most of P3 (engines, the `.npmrc`
-heap flag, one float-vs-enum unit set, 400s on bad route params, and the audit's stale claims). **Open:
-P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (the AM4 removal is done (P7); and AM4 itself is out of scope — Andy has an FM3 only and will not test an AM4)
-alias sunset, `prepare` scripts vs gitignored `dist/`, `version.ts` consistency check, the stale
-`ROADMAP.md` citations in code). See the doc's status header for commits and the merged-tree counts. The
-doc also carries a **"do not chase" list** (claims the review checked and rejected) and the hardware
-probes that remain — read that before re-opening anything.
+**All of P1–P10 shipped 2026-10-07.** P2.2 included: the write-confirmation window decision was made —
+both windows are **250 ms** (`987dfb7`), not the old 120 ms. The remaining P3 items all shipped too
+(engines, the `.npmrc` heap flag, one float-vs-enum unit set, 400s on bad route params, the AM4 alias
+sunset (P7), `prepare` scripts vs gitignored `dist/` → `setup:stack`, the `version.ts` guard, and the
+stale `ROADMAP.md` citations in code); evidence per item is in the fix-list's P3 section.
+**Genuinely open after P10:** the deliberately-open *limitations* (the ABA staleness edge; the
+repeated-query-key surface divergence) and the code-round items the fix-list's **"Open after P10"** note
+lists — plus the FM3 hardware questions that remain (below). See the doc's status header for commits and
+the merged-tree counts. The doc also carries a **"do not chase" list** (claims the review checked and
+rejected) — read that before re-opening anything.
 
 ### Blocked on hardware (needs the FM3 / the Deck)
 - **Cab 2 Mute/Solo write** (audit §3.7) — toggle cab 2's M/S on the unit and confirm it reads back;
   if writes are ignored, revise `285c11b` rather than paper over it.
-- **GLOBAL Setup params** — **resolved offline 2026-10-07 (P1.2, `2fa29d9`)**: the device's own layout
-  widget is now the serving evidence, so `FS_BRIGHTNESS`/`FS_LCD_CONTRAST` (7115/7116) and the FC
-  default-layout/clone dropdowns serve, and `server/test/drivers/layout-param-coverage.test.ts` enforces
-  the invariant in CI. No clean-store `/diag/ranges` sweep is needed. What remains hardware-only is
-  whether GLOBAL **writes** are accepted (§3.7).
+- **GLOBAL Setup params** — **serving resolved offline 2026-10-07 (P1.2, `2fa29d9`)**: the device's own
+  layout widget is now the serving evidence, so `FS_BRIGHTNESS`/`FS_LCD_CONTRAST` (7115/7116) and the FC
+  default-layout/clone dropdowns **serve as controls**, and `server/test/drivers/layout-param-coverage.test.ts`
+  enforces the invariant in CI. No clean-store `/diag/ranges` sweep is needed. **Correction (P9/P10):**
+  "serve" does not mean a *readable value* — the GLOBAL family is not provably positional, so since P9 its
+  **values are `null` (unresolved)** and since P10 it **renders inert** and is unwritable. What remains
+  hardware-only is whether GLOBAL **writes** are accepted (§3.7); see
+  `docs/decisions/0003-global-inert.md`.
 - **DynaCab 2-axis pad** — verified in e2e only, not on the Deck (§3.6 item 6).
 - **§2.5 user-cab IR upload** — the FM3 accepts custom IRs (manual "Loading User Cabs", p.118); the
   multi-frame SyEx upload must be implemented, then load-tested on the device.
@@ -70,8 +79,12 @@ probes that remain — read that before re-opening anything.
 
 ### Honestly impossible (no wire op — keep the honest negatives)
 - Slot **Move / Delete everywhere** (no slot-erase op), **Clear Preset** (no clear/init op),
-  **Scene MIDI block** (eid 190, zero calibration), **FC config / Devices / CS MIDI**, **MLM warning**
+  **Scene MIDI block** (eid 190, zero calibration), **Devices / mirroring**, **MLM warning**
   (stopped as unverifiable), **generic per-block Mute** (no served param — points at Bypass).
+  *(Correction: **CS MIDI and FC config are NOT in this list.** The P2.5 narrowing showed CS MIDI is a
+  *layout* gap — its trio 6979/6985/6986 serve and the CS exclusives already render — and FC Config is
+  PARTIAL via the layout-widget rule (P1.2); the P4 Control Switch group shipped. Only
+  **Devices/mirroring** remains genuinely wire-absent.)*
 
 ### N/A on FM3
 - Global blocks (Axe-Fx only), NAM Manager (Axe-Fx III only — announced coming soon; FM3
@@ -105,7 +118,7 @@ npx vitest run <the branch's test files> && npm run check
 npx vitest run
 npm run check
 npm run build   # the heap flag now lives in .npmrc (`node-options`) — no NODE_OPTIONS prefix needed
-npx playwright test --project=chromium                  # 142 tests; boots its own :5199 server
+npx playwright test --project=chromium                  # 144 tests; boots its own :5199 server
 ```
 
 **Kill any lingering dev server on `:5199` before the merged-tree e2e run** — `reuseExistingServer`
