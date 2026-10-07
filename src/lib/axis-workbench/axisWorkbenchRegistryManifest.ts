@@ -16,6 +16,8 @@ export const AXIS_WORKBENCH_BASE_PANEL_TYPES = [
   'axis.placeholder',
   'axis.sceneManager',
   'axis.live',
+  // Quick Build (parity audit §2.9 remainder) — the FM3-Edit one-click block placement panel.
+  'axis.quickBuild',
   // Cross-preset batch parameter set (parity audit §2.11) — "Set a parameter in multiple presets".
   'axis.batchSet',
   // Cross-device preset converter page panels (M4 · META-24). Each sets the OFFLINE editor surface
@@ -85,5 +87,6 @@ export const AXIS_WORKBENCH_ACTION_IDS = [
   'axis.openSetup',
   'axis.openTheme',
   'axis.openBatchSet',
+  'axis.openQuickBuild',
   AXIS_PIN_SELECTED_PARAMETERS_ACTION
 ] as const;
