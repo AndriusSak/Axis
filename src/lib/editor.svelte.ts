@@ -1774,6 +1774,7 @@ class EditorStore {
       this.showToast('Nothing to paste into this block', '#f5a623');
       return;
     }
+    const results: WriteSettlement[] = [];
     for (const w of writes) results.push(await this.#writeSettlement(forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous)));
     const report = settleWriteSet(results, { subject: `Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}` });
     if (report.checkpoint) history.checkpoint(`Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}`, false); // logged, not undoable (per-param history is noisy)
