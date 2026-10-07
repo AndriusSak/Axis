@@ -290,7 +290,7 @@ never faked.
 | **Move an entire row / column** (grid border sliders) | **Implemented** | `planGridShiftRow`/`planGridShiftColumn` (`gridShift.ts`) + `editor.shiftRow/shiftColumn` + Signal Grid row/column border controls; an off-edge move is refused with a named reason (never a silent drop); modeled offline in `convertEditor` too. `grep moveRow` → 0 only because the planners are named `planGridShift*`. |
 | Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
 | **Quick Build panel** (Q) | **Implemented (R24)** — a dedicated `axis.quickBuild` panel places blocks through the existing `editor.place`; the `Q` chord opens it (palette unchanged) | `AxisQuickBuildPanel.svelte`, `quickBuild.ts`, `shortcuts.ts` |
-| **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
+| **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Implemented (R25)** — a grid-nav toggle (bare `G` chord + header pill) suppresses the automatic per-block param read on select/navigate/place/route; an explicit open always fetches, and a param edit in nav mode refuses with a named reason | `gridNavMode.ts`, `SignalGrid.svelte` |
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
 ### 2.10 Channel operations — **DONE** (select + copy/paste/reset, across blocks, scenes and presets)
@@ -728,17 +728,28 @@ Verification on the merged tree: Axis **1679 unit tests / 160 files** · `svelte
 | R23 | §2.4 Manage Presets drag-and-drop | Done — HTML5 DnD over the SAME `slotReorderOps` permutation + dry-run/confirm/abort path (no second reorder path) | `a5e767d` |
 | R24 | §2.9 Quick Build panel (Q) | Done — `axis.quickBuild` panel + `axis.openQuickBuild`, one-click placement via the existing `editor.place`, wired to the `Q` chord | `10bb746` |
 
-**Deferred after R21–R24 (needs the device, a decision, or a bigger build):**
-- **§2.2 per-preset Performance Pages** — storage now known (§6.5): the per-preset page is in the preset
-  binary, so it is decodable **offline**; the surface is a feature build (decode in `presetBody.ts` +
-  an Axis panel). The **global** page + exact frames need a capture.
-- **§2.9 Grid Navigation Mode** — the last §2.9 Absent row; needs a clear definition of "skip the param
-  fetch" before it can be speced honestly.
+**Round R25–R28 — merged 2026-10-07** (orchestrator: Lykos; four parallel subagents, one git worktree
+each; **Axis-only / offline-provable** — R27 is e2e-only). All four merged into `main` with **zero
+conflicts**. Verification on the merged tree: Axis **1720 unit tests / 164 files** · `svelte-check`
+**0 errors, 0 warnings** · build **ok** · Playwright **142/142** (136 existing + 6 new).
+
+| # | Item | Result | Commit |
+|---|---|---|---|
+| R25 | §2.9 Grid Navigation Mode | Done — `gridNavMode.ts` policy + a grid-nav toggle (bare `G` + header pill); suppresses the per-block fetch on nav/place/route, explicit open always fetches, param edit refuses with a named reason | `fdae2d1` |
+| R26 | Convert-editor offline block copy/paste | Done — `convertBlockClip.ts` + `copyBlock`/`pasteBlock` over the SAME `planPasteBlock`/`applyRouteOps` path (occupied = settings paste, shunt = replace, empty = place); named refusals, no silent drop | `fede807` |
+| R27 | Browser proof for R21–R24 | Done — 4 new Playwright specs (`30`–`33`) proving the batch-set entry, Quick Build + `Q`, Manage Presets DnD and the modifier CURVE READ-BACK + Controllers usage panel in Chromium | `2d8c1b0` |
+| R28 | Dead-nav / dishonest stubs | Done — legacy rail `perform`/`sets`/`scenes` no longer toast (visible + disabled with the real reason), `gateRailItems` no longer proxies them through `caps.gridRouting`, PresetBrowser's non-device-row `SOON` stubs are disabled-with-reason | `2244c2c` |
+
+**Deferred (needs the device, a bigger build, or a sibling repo):**
+- **§2.2 per-preset Performance Pages** — storage known (§6.5); the per-preset page is in the preset
+  binary, but the byte layout is **not evidenced** here (no fixture with a known perform config), so the
+  decode needs a capture/fixture — and the decoder lives in the **forgefx-midi** repo, so this needs a
+  forgefx-midi worktree, not an Axis-only round. The **global** page needs the system path.
 - **§2.5 user-cab IR upload**, **§2.8 PC/CC tables**, **§3.7 GLOBAL probes** — hardware.
 - **§3.8 per-preset FC definitions** — blocked on the body decode for that structure.
 - **§2.3 Setlists** — parked (no FC).
-- **§2.7 `.bnk` bank import / Preset+Cab bundle** — needs a way to read user-cab bytes; check for an
-  existing route before treating as endpoint-free.
+- **§2.7 `.bnk` bank import / Preset+Cab bundle** — BLOCKED: the only cab route is `GET /cab/irs`
+  (names); nothing returns user-cab BYTES, so a bundle would need a new endpoint.
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
