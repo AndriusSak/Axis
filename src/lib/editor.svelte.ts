@@ -26,7 +26,7 @@ import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue,
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
-import { settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
+import { settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
 import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
 import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
 import { blockLibrary } from './blockLibrary.svelte';
@@ -2707,11 +2707,24 @@ class EditorStore {
       return false;
     }
   };
+  // tempo/tuner are DISCRETE control writes the device reject-watches ({ok:false} on refusal) and the
+  // UI writes them optimistically, so — like setEnum — AWAIT and route the outcome through the pure
+  // `settleScalarWrite`: a refused tempo/tuner reverts to the captured `from` and toasts (P4 follow-ups).
   setBpm = async (bpm: number) => {
     const n = Math.round(bpm);
     if (!Number.isFinite(n) || n < 20 || n > 250) return;
+    const from = this.bpm;
     this.bpm = n; // optimistic
-    await forgefx.setTempo(n).catch(() => {});
+    let outcome: WriteSettlement;
+    try {
+      const r = await forgefx.setTempo(n);
+      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      outcome = { status: 'error' };
+    }
+    settleScalarWrite({ set: (v) => (this.bpm = v) }, from, outcome, {
+      toast: (text, accent) => this.showToast(text, accent)
+    }, 'Tempo');
   };
   tapTempo = async () => {
     await forgefx.tapTempo().catch(() => {});
@@ -2723,10 +2736,18 @@ class EditorStore {
   };
   toggleTuner = async () => {
     const next = !this.tuner.active;
-    this.tuner = { active: next };
-    await forgefx.setTuner(next).catch(() => {
-      this.tuner = { active: !next };
-    });
+    const from = this.tuner.active;
+    this.tuner = { active: next }; // optimistic
+    let outcome: WriteSettlement;
+    try {
+      const r = await forgefx.setTuner(next);
+      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      outcome = { status: 'error' };
+    }
+    settleScalarWrite({ set: (v) => (this.tuner = { active: v }) }, from, outcome, {
+      toast: (text, accent) => this.showToast(text, accent)
+    }, 'Tuner');
   };
 
   // ── connection picker ──

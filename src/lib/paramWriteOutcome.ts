@@ -160,3 +160,49 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
   }
   return { requested, landed, failed, rejected, errored, checkpoint, allLanded, noneLanded, toast };
 }
+
+// ── P4 follow-ups — a SCALAR (non-enum) optimistic write must honour the outcome too ─────────────
+//
+// The same optimistic-write defect class as P1.1/P2.1, on a plain scalar held on a runes FIELD
+// rather than a param object: `setBpm` sets `this.bpm = n` (tempo) and `toggleTuner` sets
+// `this.tuner = { active: next }` BEFORE the round-trip. Both are discrete control writes the device
+// reject-watches, so ForgeFX answers HTTP 200 `{ok:false}` on a refusal (or the transport throws).
+// `setBpm` had NO revert at all (a refused tempo stayed displayed), and `toggleTuner` reverted only
+// in its `.catch` — a throw — so a `{ok:false}` refusal stayed displayed. Neither surfaced anything.
+//
+// `settleScalarWrite` is the smallest scalar counterpart to `settleEnumWrite`: there is no history
+// entry to drop (a tempo/tuner change is not an undoable param edit) and the scalar lives on a FIELD,
+// so the store hands a setter rather than a mutable param object. It reuses `decideWriteOutcome` so
+// the wording/accent stay in the same toast family as the discrete-write helpers — "Write rejected by
+// device — <label>" / "Write failed — <label>". Accepted → nothing happens; refused/failed → the
+// scalar is reverted to the captured `from` and the refusal is surfaced.
+
+/** Minimal view of an optimistic SCALAR (non-enum) write target: the store supplies a setter for the
+ *  value it wrote optimistically (tempo `bpm`, tuner `active`), because that value lives on a runes
+ *  field, not on a param object. */
+export interface ScalarWriteTarget<T> {
+  set(value: T): void;
+}
+
+/** The one side effect the store supplies for a scalar settle: show a toast. */
+export interface ScalarWriteIo {
+  toast(text: string, accent: string): void;
+}
+
+/**
+ * Apply a settled SCALAR write to the optimistic state: when the write was NOT accepted, revert the
+ * scalar to the captured `from` and surface the refusal (same wording as the discrete-write helpers).
+ * Returns the decision so callers/tests can assert it. Pure: no device, no store.
+ */
+export function settleScalarWrite<T>(
+  target: ScalarWriteTarget<T>,
+  from: T,
+  outcome: WriteSettlement,
+  io: ScalarWriteIo,
+  label: string
+): WriteDecision {
+  const d = decideWriteOutcome(outcome, label);
+  if (!d.keep) target.set(from);
+  if (d.toast) io.toast(d.toast.text, d.toast.accent);
+  return d;
+}
