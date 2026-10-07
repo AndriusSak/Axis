@@ -63,7 +63,10 @@ export interface EditorSurface {
   openCell: (c: Cell) => Promise<void>;
   closeEditor: () => void;
   move: (src: Cell, row: number, col: number) => Promise<void>;
-  removeAt: (row: number, col: number) => Promise<void>;
+  // The store returns whether the removal landed (so the caller toasts success only for a landed
+  // clear — a refused `{ok:false}` must not be reported as removed); the offline convert editor
+  // returns void. Both satisfy the seam.
+  removeAt: (row: number, col: number) => Promise<boolean | void>;
   removeSelected: () => Promise<void>;
   connect: (src: Cell, destRow: number, destCol: number) => Promise<void>;
   disconnect: (srcRow: number, srcCol: number, destRow: number) => Promise<void>;
