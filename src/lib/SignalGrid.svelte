@@ -11,6 +11,8 @@
   import { blockHelp, helpSlugForPack, resetHelpCache } from './help';
   import { theme } from './theme.svelte';
   import { resolveAxisGridMetrics, resolveAxisGridPresentation, type AxisGridView } from './axis-workbench/gridView';
+  import { shouldFetchOnGridAction } from './gridNavMode';
+  import { gridNavMode } from './gridNavMode.svelte';
 
   // optional grid-view override (workbench gridbar). 'full' fixes tiles at the block-size px and
   // scrolls; 'map' pins the glyph minimap; 'auto' fits to the pane and steps full → map as the pane
@@ -98,6 +100,10 @@
   const present = $derived(
     resolveAxisGridPresentation({ view, metricsMode: metrics?.mode ?? null, isMobile: mob })
   );
+  // Grid Navigation Mode (audit §2.9): the reactive mode value from the standalone toggle store (NOT
+  // the editor store — editorSurface.ts stays untouched). Feeds the fetch policy the grid consults
+  // (shouldFetchOnGridAction) and the pill's on-state indicator below.
+  const gridNav = $derived(gridNavMode.value);
   const paneMobile = $derived(present.paneMobile);
   const paged = $derived(present.paged);
   // pane-local paging state for the workbench mobile tier (never touches the editor's real-mobile state).
@@ -467,6 +473,13 @@
   let hudTimer: ReturnType<typeof setTimeout> | null = null;
   function onBlockWheel(cell: Cell, e: WheelEvent) {
     if (!hasSwipe(cell)) return;
+    // Grid Navigation Mode: in-place param gestures genuinely need the block's served params, which
+    // the mode deliberately leaves unread — surface the named reason, never edit against stale data.
+    const d = shouldFetchOnGridAction(gridNav, 'paramEdit');
+    if (d.kind === 'refuse') {
+      editor.showToast(d.reason);
+      return;
+    }
     e.preventDefault();
     editor.adjustSwipe(cell, -e.deltaY / 1600);
     showHud(cell);
@@ -523,8 +536,14 @@
         // swipe on a block: vertical adjusts the active control, horizontal cycles (continuously)
         if (gesture.moved && hasSwipe(gesture.cell)) {
           gesture.swiping = true;
-          if (gesture.axis === 'v') {
+          // Grid Navigation Mode: in-place param gestures are refused with the named reason — the
+          // mode deliberately did not fetch this block's params, so never edit against stale data.
+          const d = shouldFetchOnGridAction(gridNav, 'paramEdit');
+          if (d.kind === 'refuse') {
+            editor.showToast(d.reason);
+          } else if (gesture.axis === 'v') {
             editor.adjustSwipe(gesture.cell, (gesture.lastY - e.clientY) / 220);
+            showHud(gesture.cell);
           } else {
             // each ~90px of horizontal travel advances one control (deliberate, low overshoot);
             // keep moving to keep cycling. Right = previous, left = next (reversed per feedback).
@@ -537,8 +556,8 @@
               editor.cycleControl(gesture.cell, 1);
               gesture.cycleX -= STEP;
             }
+            showHud(gesture.cell);
           }
-          showHud(gesture.cell);
         }
         gesture.lastY = e.clientY;
       }
@@ -599,6 +618,22 @@
     };
   });
 
+  // ── Grid Navigation Mode (audit §2.9) ──
+  // While ON, a tap on a placed block only moves the grid cursor (device mirror + selection
+  // highlight) and must NOT open the block editor — opening is what triggers the per-block parameter
+  // read (editor.openCell → #loadParams). The policy is shouldFetchOnGridAction in gridNavMode.ts;
+  // the DOUBLE TAP is the EXPLICIT open action and always fetches. Bypass stays on the tile dot /
+  // Space, so nothing is lost by the remap.
+  function navSelect(cell: Cell) {
+    editor.selectCellOnDevice(cell.row, cell.col); // device cursor follows the selection (no fetch)
+    const key = `${cell.row},${cell.col}`;
+    // Never leave ANOTHER block's params displayed under the new selection: if the editor is open
+    // for a different block, close it (its params were fetched for that block — showing them here
+    // would be stale). Tapping the already-open block keeps the editor (its params are fresh).
+    if (editor.editorOpen && editor.selKey !== key) editor.closeEditor();
+    editor.selKey = key;
+  }
+
   function tap(cell: Cell) {
     if (cell.kind === 'shunt') {
       editor.removeAt(cell.row, cell.col);
@@ -607,6 +642,23 @@
     }
     const key = `${cell.row},${cell.col}`;
     const now = Date.now();
+    // Grid Navigation Mode: tap = move the cursor WITHOUT the per-block fetch
+    // (shouldFetchOnGridAction('gridNav', 'select') → skip). A second tap on the SAME cell inside
+    // 300ms is the EXPLICIT open ('openEditor' → fetch).
+    if (shouldFetchOnGridAction(gridNav, 'select').kind === 'skip') {
+      if (lastTap && lastTap.key === key && now - lastTap.t < 300) {
+        lastTap = null;
+        const open = shouldFetchOnGridAction(gridNav, 'openEditor');
+        if (open.kind === 'fetch') void editor.openCell(cell); // explicit open → always fetches
+      } else {
+        lastTap = { key, t: now };
+        navSelect(cell); // no editor, no fetch — the grid keeps rendering the chain it already holds
+        setTimeout(() => {
+          if (lastTap && lastTap.key === key) lastTap = null;
+        }, 300);
+      }
+      return;
+    }
     if (lastTap && lastTap.key === key && now - lastTap.t < 300) {
       lastTap = null;
       editor.toggleBypass(cell);
@@ -932,6 +984,24 @@
     {/if}
   {/if}
   </div>
+
+  <!-- Grid Navigation Mode (audit §2.9): the pill is BOTH the toggle and the visible on-state
+       indicator (accent glow + lit dot while ON). Floats over the grid corner like .regrid; the 'G'
+       shortcut (shortcuts.ts → +page.svelte → gridNavMode store) toggles the same state. -->
+  <button
+    class="gridnav-pill"
+    class:on={gridNav === 'gridNav'}
+    class:paged={paged}
+    aria-pressed={gridNav === 'gridNav'}
+    title={gridNav === 'gridNav'
+      ? 'Grid Navigation Mode is ON — taps move the grid cursor without loading block parameters. Double-tap a block to open its editor. (G)'
+      : 'Grid Navigation Mode is OFF — turn it on for fast grid ops that skip the parameter fetch. (G)'}
+    onclick={() => gridNavMode.toggle()}
+  >
+    <span class="gndot" aria-hidden="true"></span>
+    <span class="gn-label">Grid Nav</span>
+  </button>
+
   {#if fixedTile && editor.status !== 'loading' && editor.status !== 'offline'}
     <!-- outside the scrolling viewport so it stays pinned while the fixed-size grid pans -->
     <button class="regrid pin" class:unsaved={!editor.layout.crcValid} onclick={() => editor.load()} title="Re-read the grid from the device{editor.layout.crcValid ? '' : ' · edit buffer unsaved'}">↻</button>
@@ -1633,6 +1703,47 @@
   .regrid.unsaved {
     border-color: var(--amber-border);
     color: var(--amber);
+  }
+
+  /* Grid Navigation Mode (audit §2.9) — floating grid-header toggle + on-state indicator.
+     Mirrors .regrid's corner-pinned pattern; when ON the dot lights up and the pill gets the accent
+     ring so the engaged state is visible at a glance. On the paged presentation it clears the right
+     page-arrow column. */
+  .gridnav-pill {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    z-index: 6;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 26px;
+    padding: 0 10px;
+    border: 1px solid var(--border2);
+    border-radius: 13px;
+    background: color-mix(in srgb, var(--surface) 85%, transparent);
+    backdrop-filter: blur(4px);
+    color: var(--textdim);
+    font: 600 11px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .gridnav-pill.paged {
+    right: 56px; /* left of the mobile page-arrow column */
+  }
+  .gridnav-pill:hover {
+    border-color: var(--accent);
+    color: var(--text);
+  }
+  .gridnav-pill.on {
+    border-color: var(--accent);
+    color: var(--accent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 0 10px color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+  .gndot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
   }
   .hint {
     color: var(--text-dim);

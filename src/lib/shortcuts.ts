@@ -158,6 +158,18 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     matches: [{ key: 'q' }],
   },
   {
+    // Grid Navigation Mode (audit §2.9) — a bare G flips the fast-grid toggle. The mode is a tiny
+    // standalone store (gridNavMode.svelte.ts — deliberately NOT an editor-store member, so the
+    // EditorSurface seam stays untouched); the Signal Grid's header pill shows + toggles the same
+    // state. While ON, taps move the grid cursor without the per-block parameter fetch and the
+    // explicit open (double tap) is what reads params (see gridNavMode.ts for the policy).
+    id: 'gridNavMode',
+    label: 'Toggle Grid Navigation Mode',
+    chord: 'G',
+    status: 'wired',
+    matches: [{ key: 'g' }],
+  },
+  {
     id: 'resetChannel',
     label: 'Reset the selected block to model defaults',
     chord: '⌘I',
