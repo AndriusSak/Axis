@@ -40,6 +40,11 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     expect(idOf(ev('i', { metaKey: true }))).toBe('resetChannel');
     expect(idOf(ev('c', { metaKey: true }))).toBe('copyBlock');
     expect(idOf(ev('v', { metaKey: true }))).toBe('pasteBlock');
+    // §2.12 remainder — wired by the shortcut-parity round
+    expect(idOf(ev('m', { metaKey: true }))).toBe('managePresets');
+    expect(idOf(ev(' ', { shiftKey: true }))).toBe('engageAllScenes');
+    expect(idOf(ev('ArrowUp'))).toBe('nudgeValueUp');
+    expect(idOf(ev('ArrowDown'))).toBe('nudgeValueDown');
   });
 
   it('modifiers must match exactly — a bare key never fires on a modified one', () => {
@@ -47,6 +52,8 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     expect(idOf(ev('p', { metaKey: true }))).toBeNull();
     expect(idOf(ev('k'))).toBeNull(); // palette needs ⌘
     expect(idOf(ev('z'))).toBeNull(); // undo needs ⌘
+    expect(idOf(ev(' ', { shiftKey: true }))).toBe('engageAllScenes'); // ⇧Space is engage-all…
+    expect(idOf(ev(' '))).toBe('bypass'); // …and bare Space stays bypass
   });
 
   it('typing guard: bare chords are skipped while editing, meta chords with allowWhileEditing survive', () => {
@@ -58,6 +65,10 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     expect(idOf(ev('p'), true)).toBeNull();
     expect(idOf(ev(' '), true)).toBeNull();
     expect(idOf(ev('Backspace'), true)).toBeNull();
+    // …including the arrow nudges, so the caret moves inside a value field instead.
+    expect(idOf(ev('ArrowUp'), true)).toBeNull();
+    expect(idOf(ev('ArrowDown'), true)).toBeNull();
+    expect(idOf(ev(' ', { shiftKey: true }), true)).toBeNull();
     // Cmd+K (palette) and Cmd+S (save) are explicitly allowed from a field.
     expect(idOf(ev('k', { metaKey: true }), true)).toBe('palette');
     expect(idOf(ev('s', { metaKey: true }), true)).toBe('save');
@@ -79,15 +90,18 @@ describe('shortcut registry — FM3-Edit parity map', () => {
   });
 });
 
-describe('shortcut registry — registered-but-not-yet-wired gaps', () => {
-  it('still maps each FM3-Edit chord that has no backing action', () => {
-    expect(idOf(ev('m', { metaKey: true }))).toBe('managePresets');
-    expect(idOf(ev(' ', { shiftKey: true }))).toBe('engageAllScenes');
-    expect(idOf(ev('ArrowUp'))).toBe('nudgeValueUp');
-    expect(idOf(ev('ArrowDown'))).toBe('nudgeValueDown');
+describe('shortcut registry — status discipline', () => {
+  it('the former §2.12 gaps are now wired with a real backing action', () => {
+    for (const id of ['managePresets', 'engageAllScenes', 'nudgeValueUp', 'nudgeValueDown']) {
+      const def = SHORTCUTS.find((s) => s.id === id);
+      expect(def, `${id} must stay registered`).toBeTruthy();
+      expect(def!.status, `${id} must be wired`).toBe('wired');
+      expect(def!.reason, `${id} must not carry a stale reason`).toBeUndefined();
+      expect(WIRED_IDS, `${id} must be a wired id`).toContain(id);
+    }
   });
 
-  it('every not-yet-wired entry documents why', () => {
+  it('every remaining not-yet-wired entry documents why', () => {
     for (const s of SHORTCUTS.filter((s) => s.status === 'not-yet-wired')) {
       expect(s.reason, `${s.id} needs a reason`).toBeTruthy();
     }
@@ -120,5 +134,16 @@ describe('routes/+page.svelte — shortcut registry hookup (source guard)', () =
 
   it('keeps the typing guard', () => {
     expect(page).toMatch(/isEditingTarget\(/);
+  });
+
+  it('wires the new §2.12 cases to their real backing actions', () => {
+    // ⌘M opens the Manage-Presets / preset-browser surface (workbench page, else the legacy library).
+    expect(page).toMatch(/case 'managePresets':[\s\S]*?activatePage\(AXIS_PAGE_PRESET_BROWSER\)/);
+    expect(page).toMatch(/case 'managePresets':[\s\S]*?editor\.openLibrary\(\)/);
+    // ⇧Space engages every block in the current scene through the store's sceneOps bulk sequence.
+    expect(page).toMatch(/case 'engageAllScenes':[\s\S]*?editor\.engageAllScenes\(\)/);
+    // ↑/↓ nudge the selected/open parameter.
+    expect(page).toMatch(/case 'nudgeValueUp':[\s\S]*?editor\.nudgeParam\(1\)/);
+    expect(page).toMatch(/case 'nudgeValueDown':[\s\S]*?editor\.nudgeParam\(-1\)/);
   });
 });

@@ -169,37 +169,37 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     matches: [{ key: 'v', mod: true }],
   },
 
-  // ── registered, not yet wired: FM3-Edit has these, Axis has no backing action ──
+  // ── wired: FM3-Edit parity chords whose backing action now exists ──
+  // ⌘M opens the Manage-Presets / preset-browser surface (the workbench Preset Browser page, else the
+  // legacy library screen); ⇧Space engages every block in the current scene through the Scene Manager's
+  // own bulk sequence (sceneOps.bulkBypass — no wire op); ↑/↓ nudge the selected/open parameter by one
+  // step (paramNudge.ts over the served min/max/norm or enum ordinal list, applied via setParam/setEnum).
   {
     id: 'managePresets',
     label: 'Manage presets',
     chord: '⌘M',
-    status: 'not-yet-wired',
-    reason: 'No Manage-Presets screen/action exists (audit §2.4).',
+    status: 'wired',
     matches: [{ key: 'm', mod: true }],
   },
   {
     id: 'engageAllScenes',
     label: 'Engage all scenes',
     chord: '⇧Space',
-    status: 'not-yet-wired',
-    reason: 'No bulk scene-engage action (audit §2.1, needs §6.3).',
+    status: 'wired',
     matches: [{ key: 'space', shift: true }],
   },
   {
     id: 'nudgeValueUp',
     label: 'Nudge value up',
     chord: '↑',
-    status: 'not-yet-wired',
-    reason: 'No selected-parameter value-nudge action.',
+    status: 'wired',
     matches: [{ key: 'arrowup' }],
   },
   {
     id: 'nudgeValueDown',
     label: 'Nudge value down',
     chord: '↓',
-    status: 'not-yet-wired',
-    reason: 'No selected-parameter value-nudge action.',
+    status: 'wired',
     matches: [{ key: 'arrowdown' }],
   },
 ] as const;

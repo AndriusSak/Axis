@@ -542,6 +542,12 @@ class ConvertEditor {
     const key = convertScratch.focusKey;
     if (key) convertScratch.setParam(key, e.id, value);
   };
+  /** Selected parameter (the ↑/↓ nudge target). Stored for parity with the live surface; the offline
+   *  converter has no global arrow-nudge wiring of its own, so this is just selection bookkeeping. */
+  selectedParamId = $state<number | null>(null);
+  selectParam = (id: number) => {
+    this.selectedParamId = id;
+  };
   cabState = async (_eid: number): Promise<CabState> => null as unknown as CabState;
 
   // ── device-only concerns — safe stubs (components already degrade) ──
