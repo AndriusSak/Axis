@@ -49,8 +49,10 @@ export interface ParamWrite {
   name: string;
 }
 
-/** Snapshot the given channel's params for a later paste. Only params carrying a device paramId
- *  are captured — a param without an id cannot be written back. */
+/** Snapshot the given channel's params for a later paste. Only params carrying a device paramId AND a
+ *  device-RESOLVED value are captured — a param without an id cannot be written back, and a param the
+ *  device could not resolve (null norm/value, non-positional GLOBAL) must not be captured as a
+ *  fabricated 0. */
 export function captureChannel(
   block: string,
   channel: string | null,
@@ -61,9 +63,9 @@ export function captureChannel(
     block,
     channel,
     knobs: params
-      .filter((p) => p.id != null)
-      .map((p) => ({ id: p.id as number, name: p.name, norm: p.norm ?? 0 })),
-    enums: enums.filter((e) => e.id != null).map((e) => ({ id: e.id, name: e.name, value: e.value }))
+      .filter((p) => p.id != null && p.norm != null)
+      .map((p) => ({ id: p.id as number, name: p.name, norm: p.norm as number })),
+    enums: enums.filter((e) => e.id != null && e.value != null).map((e) => ({ id: e.id, name: e.name, value: e.value as number }))
   };
 }
 

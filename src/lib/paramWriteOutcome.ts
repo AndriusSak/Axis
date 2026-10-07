@@ -44,8 +44,11 @@ export function decideWriteOutcome(outcome: WriteSettlement, paramName: string):
   return { keep: false, keepHistory: false, toast: { text, accent: REFUSED_COLOR } };
 }
 
-/** Minimal view of the discrete param the write targets — only the mutable `value` is touched. */
-export interface EnumWriteTarget { name: string; value: number }
+/** Minimal view of the discrete param the write targets — only the mutable `value` is touched.
+ *  `value` may be `null` (the server could not resolve the ordinal — non-positional GLOBAL); an
+ *  unknown on-screen value is never equal to the value this write sent, so a late refusal will not
+ *  clobber it (the revert is skipped), and there is no fabricated 0 to restore. */
+export interface EnumWriteTarget { name: string; value: number | null }
 
 /** The side effects the store supplies: drop the optimistic history entry + show a toast. */
 export interface EnumWriteIo {

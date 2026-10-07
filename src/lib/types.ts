@@ -16,27 +16,35 @@ export interface ParamDef {
   group?: 'inputEQ' | 'outputEQ' | 'graphicEQ';
 }
 
-/** A named parameter value read back from the device (GET /block/{name}/params). */
+/** A named parameter value read back from the device (GET /block/{name}/params).
+ *  `value`/`norm` are `null` when the device could not resolve the value (ForgeFX's non-positional
+ *  GLOBAL bulk read) — an UNKNOWN reading, NEVER a fabricated 0 (indistinguishable from a real zero).
+ *  `unresolved` carries the server's reason and is present exactly when the value is null. */
 export interface NamedParam {
   /** Device-true paramId — disambiguates duplicate display labels (e.g. amp's two "Depth"s). */
   id?: number;
   name: string;
-  value: number;
+  value: number | null;
   unit?: string;
-  norm?: number;
+  norm?: number | null;
   /** Device-true display bounds (for a live readout while dragging). */
   min?: number;
   max?: number;
   /** Log10 taper (e.g. frequency cuts) — interpolate geometrically, not linearly. */
   log?: boolean;
+  /** Why the value is unknown — set (with a null value) by the server for an unresolvable param. */
+  unresolved?: string;
 }
 
-/** A discrete (enum) parameter read back from the device — rendered as a dropdown/switch. */
+/** A discrete (enum) parameter read back from the device — rendered as a dropdown/switch.
+ *  `value` is `null` when the current ordinal could not be read — UNKNOWN, never a fabricated 0. */
 export interface EnumParam {
   id: number;
   name: string;
-  value: number;
+  value: number | null;
   options: { value: number; label: string }[];
+  /** Why the value is unknown — set (with a null value) by the server for an unresolvable param. */
+  unresolved?: string;
 }
 
 /** Editor widget kind for a layout control (from the official editor's per-control renderer).

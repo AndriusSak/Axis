@@ -15,7 +15,7 @@ import { baseName, packFor, statusColor } from './blocks';
 import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, type SwipeCtrl } from './layouts';
 import { surfApplyRemote } from './surfaceStore.svelte';
 import { isRemoteBuild } from './cloudBrowser';
-import { paramValue } from './format';
+import { paramValueAtNorm } from './format';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
@@ -517,7 +517,7 @@ class EditorStore {
     const m = this.meters[cell.effectId] ?? { defaultId: ctl.id, defaultName: ctl.name, typeName: '', vals: {} as Record<number, MeterVal> };
     const prev = m.vals[ctl.id];
     const norm = clamp01((prev?.norm ?? 0.5) + deltaNorm);
-    m.vals = { ...m.vals, [ctl.id]: { ...(prev ?? { value: 0 }), norm, value: paramValue({ norm, min: prev?.min, max: prev?.max, unit: prev?.unit, log: prev?.log }) } };
+    m.vals = { ...m.vals, [ctl.id]: { ...(prev ?? { value: 0 }), norm, value: paramValueAtNorm(norm, { min: prev?.min, max: prev?.max, unit: prev?.unit, log: prev?.log }) } };
     this.meters = { ...this.meters, [cell.effectId]: m };
     // keep the open editor's knob in sync if this is the selected block
     if (this.selected?.effectId === cell.effectId) {
@@ -616,7 +616,9 @@ class EditorStore {
   setPinnedParam = (effectId: number, p: NamedParam, v: number) => {
     if (this.selected?.effectId === effectId) { this.setParam(p, v); return; }
     if (p.id == null) return;
-    const from = p.norm ?? 0;
+    // Never drag an unresolved param from a fabricated 0 (see setParam) — its pinned control is inert.
+    if (p.norm == null) return;
+    const from = p.norm;
     p.norm = v; // optimistic on the hydrated object
     this.pinnedParams = { ...this.pinnedParams }; // nudge reactivity
     const cell = this.#cellFor(effectId);
@@ -635,6 +637,8 @@ class EditorStore {
    *  screen (P2.1 leftover; the continuous `setPinnedParam` above stays fire-and-forget BY DESIGN). */
   setPinnedEnum = async (effectId: number, e: EnumParam, value: number) => {
     if (this.selected?.effectId === effectId) { this.setEnum(e, value); return; }
+    // Unresolved ordinal (non-positional GLOBAL) — no honest `from`; leave it (its control renders inert).
+    if (e.value == null) return;
     const from = e.value;
     e.value = value; // optimistic
     this.pinnedParams = { ...this.pinnedParams };
@@ -1275,7 +1279,7 @@ class EditorStore {
         const m = this.meters[e.effectId];
         if (m) {
           const prev = m.vals[e.paramId];
-          const value = prev ? paramValue({ norm: e.norm, min: prev.min, max: prev.max, unit: prev.unit, log: prev.log }) : 0;
+          const value = prev ? paramValueAtNorm(e.norm, { min: prev.min, max: prev.max, unit: prev.unit, log: prev.log }) : 0;
           m.vals = { ...m.vals, [e.paramId]: { ...(prev ?? { value: 0 }), norm: e.norm, value } };
           this.meters = { ...this.meters, [e.effectId]: { ...m } };
         }
@@ -1626,8 +1630,10 @@ class EditorStore {
         if (r.type?.name) m.typeName = r.type.name;
         if (m) {
           for (const p of this.params)
-            if (p.id != null && (p.id === m.defaultId || this.swipeFor(this.slugOf(c)).some((x) => x.id === p.id)))
-              m.vals[p.id] = { norm: p.norm ?? 0, value: p.value ?? 0, unit: p.unit, min: p.min, max: p.max, log: p.log };
+            // A param the device could not resolve (null value/norm) seeds NO meter value — a fabricated
+            // 0 would be indistinguishable from a real zero. The tile just has no fill for that param.
+            if (p.id != null && p.norm != null && p.value != null && (p.id === m.defaultId || this.swipeFor(this.slugOf(c)).some((x) => x.id === p.id)))
+              m.vals[p.id] = { norm: p.norm, value: p.value, unit: p.unit, min: p.min, max: p.max, log: p.log };
           this.meters = { ...this.meters, [c.effectId]: { ...m } };
         }
       }
@@ -1640,7 +1646,10 @@ class EditorStore {
 
   // ── param writes (optimistic + debounced continuous) ──
   setParam = (p: NamedParam, v: number) => {
-    const from = p.norm ?? 0; // pre-optimistic value — the undo target (first call of a drag wins)
+    // An unresolved param (server null value/norm — non-positional GLOBAL) has no honest undo target:
+    // writing from a fabricated 0 would recreate, on the client, the exact defect the server fix ended.
+    if (p.norm == null) return;
+    const from = p.norm; // pre-optimistic value — the undo target (first call of a drag wins)
     p.norm = v;
     const c = this.selected;
     if (!c || (!c.pack && !this.paramsWithoutPack)) return;
@@ -1648,7 +1657,7 @@ class EditorStore {
     if (p.id != null && c.effectId != null) {
       const m = this.meters[c.effectId];
       if (m && m.vals[p.id]) {
-        m.vals[p.id] = { ...m.vals[p.id], norm: v, value: paramValue({ norm: v, min: p.min, max: p.max, unit: p.unit, log: p.log }) };
+        m.vals[p.id] = { ...m.vals[p.id], norm: v, value: paramValueAtNorm(v, { min: p.min, max: p.max, unit: p.unit, log: p.log }) };
         this.meters = { ...this.meters, [c.effectId]: { ...m } };
       }
     }
@@ -1676,6 +1685,7 @@ class EditorStore {
     // Guard BEFORE the optimistic write: an early return here sends nothing, records no history and
     // reverts nothing, so it must not leave an unsent value on screen (Opus A/B 2026-10-07).
     if (!c || (!c.pack && !this.paramsWithoutPack)) return;
+    if (e.value == null) return; // unresolved ordinal (non-positional GLOBAL) — never step from a fabricated 0
     const from = e.value;
     e.value = value; // optimistic
     const historyId = from !== value ? history.record({
@@ -2332,8 +2342,10 @@ class EditorStore {
   #applyClip = async (eid: number, clip: BlockClipboard, subject: string): Promise<WriteSetReport> => {
     const results: WriteSettlement[] = [];
     if (clip.type) results.push(await this.#writeSettlement(forgefx.setType(eid, clip.type.value)));
-    for (const p of clip.named) if (p.id != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, p.id, p.norm ?? 0, true)));
-    for (const e of clip.enums) results.push(await this.#writeSettlement(forgefx.setParam(eid, e.id, e.value, false)));
+    // Skip any captured value the device could not resolve (null norm/ordinal) — writing a fabricated
+    // 0 would recreate the very defect the null contract exists to eliminate (non-positional GLOBAL).
+    for (const p of clip.named) if (p.id != null && p.norm != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, p.id, p.norm, true)));
+    for (const e of clip.enums) if (e.value != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, e.id, e.value, false)));
     if (clip.channel) results.push(await this.#writeSettlement(forgefx.setChannel(eid, clip.channel)));
     // The type + param writes are all "settings"; the caller shows the success line, so only a
     // partial/failed apply produces a toast here.

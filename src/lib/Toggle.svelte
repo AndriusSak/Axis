@@ -9,18 +9,19 @@
     value,
     options,
     onChange
-  }: { label: string; value: number; options: Opt[]; onChange: (v: number) => void } = $props();
+  }: { label: string; value: number | null; options: Opt[]; onChange: (v: number) => void } = $props();
 
   const onOpt = $derived(options[1] ?? options[0]);
   const offOpt = $derived(options[0]);
+  const unknown = $derived(value == null);
   const on = $derived(value === onOpt?.value);
-  const valueText = $derived((on ? onOpt : offOpt)?.label ?? String(value));
-  const flip = () => onChange((on ? offOpt : onOpt)?.value ?? value);
+  const valueText = $derived(unknown ? '—' : (on ? onOpt : offOpt)?.label ?? String(value));
+  const flip = () => { if (!unknown) onChange((on ? offOpt : onOpt)?.value ?? value!); };
 </script>
 
 <div class="wrap">
   <div class="val mono" class:on>{valueText}</div>
-  <button class="switch" class:on aria-pressed={on} aria-label={label} title={label} onclick={flip}>
+  <button class="switch" class:on class:unknown aria-pressed={on} aria-label={label} title={unknown ? `${label} — value unavailable` : label} onclick={flip} disabled={unknown}>
     <span class="knob"></span>
   </button>
   <div class="label">{label}</div>
@@ -63,6 +64,11 @@
     background: var(--ok-tint);
     border-color: var(--ok-border);
     box-shadow: inset 0 0 10px rgba(70, 209, 127, 0.25);
+  }
+  .switch.unknown {
+    border-style: dashed;
+    opacity: 0.55;
+    cursor: default;
   }
   .knob {
     position: absolute;

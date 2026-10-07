@@ -84,10 +84,13 @@ export function captureEntry(input: CaptureInput): BlockLibraryEntry {
   const now = input.now ?? Date.now();
   const params: StoredParam[] = [];
   for (const p of input.named) {
-    if (p.id == null || RESERVED.has(p.name.toLowerCase())) continue;
-    params.push({ id: p.id, name: p.name, kind: 'knob', value: p.norm ?? 0 });
+    // Skip a param with no device paramId (unwritable) and any the device could not resolve (null
+    // norm — non-positional GLOBAL): capturing a fabricated 0 would store a value the device never read.
+    if (p.id == null || p.norm == null || RESERVED.has(p.name.toLowerCase())) continue;
+    params.push({ id: p.id, name: p.name, kind: 'knob', value: p.norm });
   }
   for (const e of input.enums) {
+    if (e.value == null) continue; // unresolved ordinal — never captured as 0
     params.push({ id: e.id, name: e.name, kind: 'enum', value: e.value });
   }
   return {

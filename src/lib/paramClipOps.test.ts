@@ -49,9 +49,11 @@ describe('captureParamValue', () => {
     expect(clip).toEqual({ paramId: 20, name: 'Model', value: 3, continuous: false, block: 'Amp 1' });
   });
 
-  it('defaults a missing norm to 0', () => {
-    const clip = captureParamValue({ id: 5, name: 'Q', value: 3 }, 'X', true);
-    expect(clip?.value).toBe(0);
+  it('never captures an unresolved value as 0 (missing/null norm → null clip)', () => {
+    // The old behaviour folded a missing norm to a fabricated 0. An unresolved value must yield no clip.
+    expect(captureParamValue({ id: 5, name: 'Q', value: 3 }, 'X', true)).toBeNull(); // no norm
+    expect(captureParamValue({ id: 5, name: 'Q', value: null, norm: null }, 'X', true)).toBeNull();
+    expect(captureParamValue({ id: 5, name: 'Q', value: null }, 'X', false)).toBeNull(); // enum ordinal unknown
   });
 
   it('returns null for a param with no device paramId (cannot be written back — never guessed)', () => {

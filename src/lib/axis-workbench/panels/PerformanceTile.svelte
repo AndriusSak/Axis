@@ -42,7 +42,7 @@
   const blockLabel = $derived(binding.block ?? '');
   const valueText = $derived.by(() => {
     if (named) return withUnit(fmtNumber({ norm: named.norm, value: named.value, min: named.min, max: named.max, log: named.log }), named.unit);
-    if (enumParam) return enumParam.options.find((option) => option.value === enumParam.value)?.label ?? String(enumParam.value);
+    if (enumParam) return enumParam.options.find((option) => option.value === enumParam.value)?.label ?? (enumParam.value == null ? '—' : String(enumParam.value));
     return missing ? '--' : '…';
   });
   const tip = $derived(
@@ -54,12 +54,13 @@
   function step(dir: number) {
     if (editMode || effectId == null) return;
     if (named) {
+      if (named.norm == null) return; // unresolved value — never step from a fabricated 0
       editor.setPinnedParam(effectId, named, nudgeNorm(named.norm, dir * 0.01));
       return;
     }
     if (enumParam) {
       const options = enumParam.options;
-      if (!options.length) return;
+      if (!options.length || enumParam.value == null) return; // unresolved ordinal — nothing to cycle from
       const at = options.findIndex((option) => option.value === enumParam.value);
       const next = options[(at + dir + options.length) % options.length];
       editor.setPinnedEnum(effectId, enumParam, next.value);

@@ -29,21 +29,23 @@ export type NudgePlan =
 const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 
 /** The normalized step for one unit of the served display value (see the header note). */
-export function stepNorm(p: { norm?: number; min?: number; max?: number; log?: boolean }): number {
+export function stepNorm(p: { norm?: number | null; min?: number; max?: number; log?: boolean }): number {
   if (p.min == null || p.max == null || !(p.max > p.min)) return UNCALIBRATED_STEP;
   if (p.log && p.min > 0) {
     // Geometric taper: one value unit is a value-relative fraction, so the norm delta depends on
-    // where the knob currently sits. Use the current display value (clamped to the floor).
-    const v = Math.max(paramValue({ norm: p.norm, min: p.min, max: p.max, log: true }), p.min);
+    // where the knob currently sits. Use the current display value (clamped to the floor). An
+    // unresolved norm yields no value → the floor (never a fabricated 0-based position).
+    const v = Math.max(paramValue({ norm: p.norm, min: p.min, max: p.max, log: true }) ?? p.min, p.min);
     return Math.log((v + 1) / v) / Math.log(p.max / p.min);
   }
   return 1 / (p.max - p.min);
 }
 
-/** Nudge a continuous knob by one step. Null when the knob has no id or is already at the end. */
+/** Nudge a continuous knob by one step. Null when the knob has no id, its value is unresolved (null
+ *  norm — never stepped from a fabricated 0), or it is already at the end. */
 export function nudgeNamed(p: NamedParam, dir: 1 | -1): NudgePlan | null {
-  if (p.id == null) return null;
-  const norm = clamp01(p.norm ?? 0);
+  if (p.id == null || p.norm == null) return null;
+  const norm = clamp01(p.norm);
   const step = stepNorm(p);
   if (!(step > 0)) return null;
   const next = clamp01(norm + dir * step);
@@ -53,6 +55,7 @@ export function nudgeNamed(p: NamedParam, dir: 1 | -1): NudgePlan | null {
 
 /** Step a discrete param by one entry in its served options (ordinal) list. */
 export function nudgeEnum(e: EnumParam, dir: 1 | -1): NudgePlan | null {
+  if (e.value == null) return null; // unresolved ordinal — nothing to step from (never 0)
   const i = e.options.findIndex((o) => o.value === e.value);
   if (i < 0) return null; // current value is not in the served list — cannot define "one step"
   const j = i + dir;

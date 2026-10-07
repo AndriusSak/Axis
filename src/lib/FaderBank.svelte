@@ -29,12 +29,21 @@
 <svelte:window onpointermove={move} onpointerup={up} />
 <div class="bank scroll">
   {#each bands as b (b.key)}
+    {@const known = b.gain.norm != null}
     <div class="col">
-      <div class="v mono">{fmtCompact(b.gain)}</div>
-      <div class="track" style="--c:{accent}" role="slider" aria-label={b.label} aria-valuenow={Math.round((b.gain.norm ?? 0) * 100)} tabindex="0" onpointerdown={(e) => down(e, b.gain)}>
-        <div class="fill" style="height:{Math.round((b.gain.norm ?? 0) * 100)}%"></div>
-        <div class="handle" style="bottom:calc({Math.round((b.gain.norm ?? 0) * 100)}% - 7px)"></div>
-      </div>
+      <div class="v mono">{known ? fmtCompact(b.gain) : '—'}</div>
+      {#if known}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div class="track" style="--c:{accent}" role="slider" aria-label={b.label} aria-valuenow={Math.round(b.gain.norm! * 100)} tabindex="0" onpointerdown={(e) => down(e, b.gain)}>
+          <div class="fill" style="height:{Math.round(b.gain.norm! * 100)}%"></div>
+          <div class="handle" style="bottom:calc({Math.round(b.gain.norm! * 100)}% - 7px)"></div>
+        </div>
+      {:else}
+        <!-- unresolved gain (null norm) — inert, an em-dash, never a fader parked at 0 -->
+        <div class="track unknown" title={b.gain.unresolved ?? 'value unavailable'} role="presentation">
+          <span class="ukdash">—</span>
+        </div>
+      {/if}
       <div class="lbl">{b.label}</div>
     </div>
   {/each}
@@ -71,6 +80,18 @@
     border: 1px solid var(--border);
     cursor: ns-resize;
     touch-action: none;
+  }
+  .track.unknown {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-style: dashed;
+    opacity: 0.7;
+    cursor: help;
+  }
+  .ukdash {
+    font: 700 12px/1 var(--font-mono);
+    color: var(--textdim);
   }
   .fill {
     position: absolute;

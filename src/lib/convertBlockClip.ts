@@ -76,8 +76,8 @@ export function planClipWrites(target: ScratchBlock, clip: BlockClipboard): Clip
     }
     writes.push({ index: i, value, name });
   };
-  for (const p of clip.named) if (p.id != null) add(p.name, p.value ?? p.norm ?? 0);
-  for (const e of clip.enums) add(e.name, e.value);
+  for (const p of clip.named) if (p.id != null && (p.value != null || p.norm != null)) add(p.name, p.value ?? p.norm!);
+  for (const e of clip.enums) if (e.value != null) add(e.name, e.value);
 
   return { writes, dropped, retype: clip.type ? { typeName: clip.type.name, typeValue: clip.type.value } : null };
 }

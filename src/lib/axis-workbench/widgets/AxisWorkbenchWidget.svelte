@@ -182,7 +182,7 @@
       // withUnit keeps device tokens verbatim (dB/OCT, SECONDS, …), single-spaced; % attaches with no space.
       return withUnit(raw, paramNamed.unit);
     }
-    if (paramEnum) return paramEnum.options.find((option) => option.value === paramEnum.value)?.label ?? String(paramEnum.value);
+    if (paramEnum) return paramEnum.options.find((option) => option.value === paramEnum.value)?.label ?? (paramEnum.value == null ? '--' : String(paramEnum.value));
     return paramPreview == null ? '--' : String(Math.round(paramPreview));
   });
   const paramDash = $derived(`${Math.max(0, Math.min(56.5, ((paramNorm ?? 0.5)) * 56.5)).toFixed(1)} 150`);
@@ -281,10 +281,12 @@
   function nudgeParam(delta: number) {
     if (editMode || paramEffectId == null) return;
     if (paramNamed) {
-      editor.setPinnedParam(paramEffectId, paramNamed, clamp01((paramNamed.norm ?? 0) + delta));
+      if (paramNamed.norm == null) return; // unresolved value — never nudge from a fabricated 0
+      editor.setPinnedParam(paramEffectId, paramNamed, clamp01(paramNamed.norm + delta));
       return;
     }
     if (paramEnum) {
+      if (paramEnum.value == null) return; // unresolved ordinal — nothing to step from
       const index = paramEnum.options.findIndex((option) => option.value === paramEnum.value);
       const next = paramEnum.options[Math.max(0, Math.min(paramEnum.options.length - 1, index + Math.sign(delta)))];
       if (next) editor.setPinnedEnum(paramEffectId, paramEnum, next.value);
@@ -292,10 +294,10 @@
   }
 
   function paramPointerDown(event: PointerEvent) {
-    if (editMode || !paramNamed || paramEffectId == null || event.button !== 0) return;
+    if (editMode || !paramNamed || paramEffectId == null || paramNamed.norm == null || event.button !== 0) return;
     event.preventDefault();
     const startY = event.clientY;
-    const startNorm = paramNamed.norm ?? 0;
+    const startNorm = paramNamed.norm;
     const eid = paramEffectId;
     const named = paramNamed;
     const onMove = (move: PointerEvent) => {
@@ -310,7 +312,7 @@
   }
 
   function paramWheel(event: WheelEvent) {
-    if (editMode || !paramNamed) return;
+    if (editMode || !paramNamed || paramNamed.norm == null) return;
     event.preventDefault();
     nudgeParam(event.deltaY < 0 ? 0.015 : -0.015);
   }
