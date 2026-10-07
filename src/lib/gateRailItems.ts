@@ -55,6 +55,25 @@ const EFFECT_NAME: Readonly<Record<string, string>> = {
   controllers: 'CONTROLLERS'
 };
 
+/**
+ * Rail entries whose screen the LEGACY shell has no host for. They are kept visible (never a silent
+ * removal) and render DISABLED with the exact reason — the no-dead-nav rule, 01-shell.md §9. Their
+ * availability is a property of the SURFACE, not of `caps.gridRouting`:
+ *   - perform → the real Live / Performance page is a workbench panel (`axis.live`, audit §2.2). This
+ *     rail mounts only when the workbench is disabled (`routes/+page.svelte`), so it cannot open it.
+ *   - sets    → Setlists / Songs require an FC-6 or FC-12 foot controller and are PARKED (audit §2.3).
+ *   - scenes  → the Scene Manager is a workbench page (audit §2.1); the legacy shell has no scenes
+ *     screen (per-scene switching stays available from the TopBar selector / mobile drawer).
+ * Never a device id, never a fake — each reason names the real blocker.
+ */
+export const RAIL_UNAVAILABLE_REASONS: Readonly<Record<string, string>> = {
+  perform:
+    'Live / Performance is a workbench page — this legacy rail can’t open it. Use the workbench shell to reach Perform.',
+  sets: 'Sets & Songs (Setlists) require an FC-6 or FC-12 foot controller — parked; this rig has no FC controller.',
+  scenes:
+    'Scene Manager is a workbench page — this legacy rail can’t open it. Switch scenes from the TopBar selector or the mobile drawer.'
+};
+
 function servedVirtualSlugs(caps: DeviceCaps | null): Set<string> {
   return new Set((caps?.virtualEffects ?? []).map((v) => v.slug));
 }
@@ -93,8 +112,11 @@ function virtualAvailability(input: GateRailInput, slug: string): { enabled: boo
 
 /**
  * Resolve one rail entry. `build`/`library` are always available. Setup/Controllers are ALWAYS
- * visible — disabled + reason when the capability is absent (§3.5). The out-of-scope ids (fc and the
- * coming-soon routing family) keep the legacy capability filter.
+ * visible — disabled + reason when the capability is absent (§3.5). perform/sets/scenes are legacy-
+ * shell surfaces with no host in this rail: they are NOT driven by `caps.gridRouting` (their
+ * availability is a surface/FC fact, not a grid-cable one) — perform/sets stay visible and DISABLED
+ * with the honest reason, scenes is visible only where the device actually has a scene grid. `fc`
+ * keeps the legacy capability filter.
  */
 export function gateRailItem(input: GateRailInput, id: string): GateRailItemState {
   const { isV2, isAm4, caps } = input;
@@ -104,6 +126,14 @@ export function gateRailItem(input: GateRailInput, id: string): GateRailItemStat
   if (slug) {
     const { enabled, reason } = virtualAvailability(input, slug);
     return { id, visible: true, enabled, reason };
+  }
+
+  const unavailable = RAIL_UNAVAILABLE_REASONS[id];
+  if (unavailable) {
+    // perform/sets have no grid relationship at all → always visible. scenes is filtered only where the
+    // device genuinely has no scene grid (AM4), which is a real capability, not an arbitrary proxy.
+    const visible = id === 'scenes' ? (isV2 && caps ? !!caps.gridRouting : !isAm4) : true;
+    return { id, visible, enabled: false, reason: unavailable };
   }
 
   if (isV2 && caps) {

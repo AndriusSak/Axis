@@ -45,7 +45,7 @@
 
   const closeDrawer = () => (editor.drawerOpen = false);
 
-  function pick(id: string, label: string) {
+  function pick(id: string) {
     closeDrawer(); // mobile: dismiss the drawer on any nav pick
     if (id === 'build') {
       editor.openBuild();
@@ -61,8 +61,10 @@
       editor.openVirtual(v.eid, v.slug, v.name);
       return;
     }
-    // not-yet-built screens stay un-highlighted and just announce WIP
-    editor.showToast(label + ' — coming soon', '#35c9d6');
+    // No fallthrough: every remaining rail id (perform/sets/scenes) is gated DISABLED by gateRailItems
+    // (no-dead-nav rule, 01-shell §9), so its button is not clickable and cannot arrive here. There is
+    // deliberately no placeholder WIP toast — an unavailable screen renders disabled with its reason in
+    // the tooltip instead of lying about it.
   }
 
   // USB-MIDI units (Axe-Fx III / FM9) expose In + Out as separate ports — pick one and pair the
@@ -113,7 +115,7 @@
         class:active={editor.railActive === r.id}
         disabled={!r.enabled}
         title={r.enabled ? r.label : r.reason}
-        onclick={() => pick(r.id, r.label)}
+        onclick={() => pick(r.id)}
       >
         <span class="ic">{r.icon}</span>
         <span class="sh">{r.short}</span>
@@ -175,7 +177,7 @@
             class:active={editor.railActive === r.id}
             disabled={!r.enabled}
             title={r.enabled ? r.label : r.reason}
-            onclick={() => pick(r.id, r.label)}
+            onclick={() => pick(r.id)}
           >
             <span class="d-ic">{r.icon}</span><span class="d-lbl">{r.label}</span>
           </button>
