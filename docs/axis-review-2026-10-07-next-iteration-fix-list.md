@@ -327,9 +327,13 @@ landed, plus the two things the fix round deliberately left open.
   in BOTH `match` and `rejected`. **This partially defeats P2.2, which is why it matters.**
 - **[MEDIUM] A late rejection overwrites a newer value.** `Axis/src/lib/paramWriteOutcome.ts`
   `settleEnumWrite` does `if (!d.keep) target.value = from` with **no check that the value on screen is
-  still the one this write set**. A discrete write now holds the window ~250 ms, so A→B then B→C is an
-  easy user sequence: if B is rejected, the display is reverted to B's `from` (= A), wiping C. Fix: revert
-  only when the current value still equals the value this write set, or keep a per-param sequence token.
+  still the one this write set**. Two writes on one control CAN overlap — a write queued behind slow
+  reads (bulk reads up to 2.5 s, the `meters` serial reads, the edit poll) or a transport drop
+  mid-burst. It is **not** the confirmation window that makes this easy: a refusal closes the watch
+  immediately via `match: isOurReject`, and the 250 ms gates only the silent ACCEPT (which never
+  reverts). So A→B then B→C is reachable: if B is rejected, the display is reverted to B's `from`
+  (= A), wiping C. Fix: revert only for the control's LATEST write and revert to the last
+  device-CONFIRMED value — a per-control write-sequencer token (P11).
 - **[MEDIUM] The optimistic value is set before the guard.** `Axis/src/lib/editor.svelte.ts:1687-1691`:
   `e.value = value` runs first; the `if (!c || (!c.pack && !this.paramsWithoutPack)) return;` then exits
   without sending, recording history or reverting — so an unsent value stays on screen. Fix: guard first,
@@ -358,8 +362,9 @@ semantics), so a completed wait with no 0x64 is an accept — not an error.
 
 - **The write-outcome sweep is finished** (`e58482d`, Axis). `settleEnumWrite` gained a required `sent`
   argument and now reverts **only when the on-screen value is still the one this write set**
-  (`stale = target.value !== sent`) — so a late rejection can no longer wipe a newer value, which the
-  250 ms discrete window made easy (A→B then B→C). Design note: the guard lives in the pure module
+  (`stale = target.value !== sent`) — so a late rejection can no longer wipe a newer value from an
+  overlapping write (A→B then B→C; overlap comes from queueing behind slow reads or a transport drop,
+  NOT from the confirmation window — see the P11 correction). Design note: the guard lives in the pure module
   because that is the only place the node-env harness can prove it; the history-drop and the refusal
   toast still apply to a stale settlement. Also fixed: `setEnum` guards **before** its optimistic write;
   `toggleBypass`, `setChannel` and `selectScene` settle their outcome (no more throw-only catch, and
@@ -542,7 +547,9 @@ that would settle the GLOBAL question completely.
   fixed, deliberately:** closing it needs per-control write-initiation ordering, which the pure settle
   signature provably cannot carry; the documented upgrade is a token minted at write time, and it would
   widen a contract seven store call sites depend on. `paramWriteOutcome.aba.test.ts` pins both cases, so a
-  real fix will break the test loudly. The false reject-watch comments are corrected, and
+  real fix will break the test loudly. **[P11 correction — the "provably cannot carry" argument was
+  overstated: a module-level write sequencer fits the pure signature with no store-minted token; both
+  cases are now FIXED and the tests assert the CORRECT behaviour, not the defect. See the P11 section.]** The false reject-watch comments are corrected, and
   `src/lib/CLAUDE.md` now carries the reject-watch rule.
 
 **Merged-tree verification — GREEN:** forgefx-midi **84** · ForgeFX **43 suites** · Axis **1820 unit tests
@@ -629,6 +636,37 @@ both controls rendering correctly. The selector was made exact (aria-label / anc
 assertion was weakened**. Two environment facts: `npx playwright test` without `--project=chromium` fails on
 **firefox**, which is not installed on this host (the stack script runs chromium only), and a spec that ships
 unexecuted is not evidence.
+
+## P11 — shipped 2026-10-07 (the write-settlement sequencer: ABA + double refusal FIXED)
+
+P9 chose to document the ABA caveat rather than fix it, arguing the pure settle signature "provably
+cannot carry" write-initiation ordering. **That argument was overstated.** A module-level write
+sequencer fits the pure module, needs no store-minted token, and runs in the node-env harness with
+plain objects:
+
+- `beginWrite(key, current)` mints a monotonic token on a control's key BEFORE the await.
+- The settle helpers take that token; `stale = token.n !== latest` — WRITE-IDENTITY, not a value compare
+  — so an odd-length same-value burst (A→B→C→B) can no longer make an older write look un-superseded.
+- A non-stale refusal reverts to the last device-CONFIRMED value (updated on every accepted write),
+  never to the optimistic `from` — so a double refusal cannot leave an unconfirmed value on screen.
+- Keys: the enum param OBJECT (stable identity, held in a WeakMap) or a stable string for scalars
+  (`bypass:<eid>` / `channel:<eid>` / `scene` / `tempo` / `tuner`, in a Map). A key's state is DROPPED
+  when its last in-flight write settles, so the maps cannot grow and each burst re-seeds `confirmed`
+  from the idle on-screen value.
+
+Call sites updated: `setEnum`, `setPinnedEnum` (both mint on the enum object); `toggleBypass`,
+`setChannel`, `selectScene`, `setBpm`, `toggleTuner` (stable string keys). `#writeSettlement` and the
+batch sites (`settleWriteSet`, which reload from the device, not optimistically) are unchanged.
+`paramWriteOutcome.aba.test.ts` now asserts the CORRECT behaviour (the ABA and double-refusal cases)
+rather than pinning the defect; the unit suites exercise the sequencer directly; and
+`refusedWrite.sourceguard.test.ts` gained a P11 block pinning `beginWrite` at every site. The stale
+line citation (`editor.svelte.ts:1679`) was dropped for a symbol reference — cite the symbol, not the
+line (this exact rot class).
+
+**Mechanism correction.** The claim that "the 250 ms window makes a 3-write burst easy" is wrong: a
+refusal closes the watch IMMEDIATELY (`gen3.ts` #write `match: isOurReject`), and the 250 ms gates only
+the silent ACCEPT, which never reverts. Overlap is reachable via a write queued behind slow reads
+(bulk reads up to 2.5 s, the `meters` serial reads, the edit poll) or a transport drop mid-burst.
 
 ## Do NOT chase (checked and rejected by the review)
 

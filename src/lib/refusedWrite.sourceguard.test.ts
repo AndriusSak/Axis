@@ -43,7 +43,7 @@ describe('refused discrete writes — setEnum wiring', () => {
   const editor = stripComments(read('./editor.svelte.ts'));
 
   it('imports the pure decision module', () => {
-    expect(editor).toMatch(/import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
+    expect(editor).toMatch(/import \{ beginWrite, settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
   });
 
   it('setEnum is async and awaits the discrete write (continuous=false)', () => {
@@ -66,8 +66,8 @@ describe('refused discrete writes — setEnum wiring', () => {
   it('applies the decision: revert value, drop the optimistic history entry, toast the refusal', () => {
     expect(editor).toMatch(/dropHistory: \(id\) => history\.drop\(id\)/);
     expect(editor).toMatch(/history\.drop\(/); // the store gained the drop method this calls
-    // the order matters: the write result is fed in (with the sent value for the stale guard), not discarded
-    expect(editor).toMatch(/settleEnumWrite\(\s*e,\s*from,\s*value,\s*historyId,\s*outcome/);
+    // the order matters: the write result is fed in (with the write-initiation token for the stale guard), not discarded
+    expect(editor).toMatch(/settleEnumWrite\(\s*e,\s*token,\s*value,\s*historyId,\s*outcome/);
   });
 
   it('no longer swallows the discrete write result', () => {
@@ -106,7 +106,7 @@ describe('refused discrete writes — setPinnedEnum wiring (P2.1 leftover)', () 
   });
 
   it('applies the decision on the pinned enum: revert, drop history, toast', () => {
-    expect(editor).toMatch(/settleEnumWrite\(\s*e,\s*from,\s*value,\s*historyId,\s*outcome/);
+    expect(editor).toMatch(/settleEnumWrite\(\s*e,\s*token,\s*value,\s*historyId,\s*outcome/);
     expect(editor).toMatch(/dropHistory: \(id\) => history\.drop\(id\)/);
   });
 
@@ -143,7 +143,7 @@ describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
 
   it('imports the pure write-set aggregation', () => {
     expect(editor).toMatch(
-      /import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+      /import \{ beginWrite, settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
     );
   });
 
@@ -218,7 +218,7 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
 
   it('imports the pure scalar decision', () => {
     expect(editor).toMatch(
-      /import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+      /import \{ beginWrite, settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
     );
   });
 
@@ -226,7 +226,7 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
     expect(editor).toMatch(
       /const r = await forgefx\.setTempo\(n\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, from, n, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, token, n, outcome/);
     // the old silent swallow + no-revert line is gone
     expect(editor).not.toMatch(/await forgefx\.setTempo\(n\)\.catch\(\(\) => \{\}\)/);
   });
@@ -235,7 +235,7 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
     expect(editor).toMatch(
       /const r = await forgefx\.setTuner\(next\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, next, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, token, next, outcome/);
     // the throw-only catch that ignored {ok:false} is gone
     expect(editor).not.toMatch(/forgefx\.setTuner\(next\)\.catch\(/);
   });
@@ -268,7 +268,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 
   it('toggleBypass honours {ok:false} (not just a throw) and gates the success toast', () => {
     expect(editor).toMatch(/#writeSettlement\(forgefx\.setBypass\(c\.effectId, next\)\)/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, from, next, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, token, next, outcome/);
     expect(editor).not.toMatch(/c\.bypassed = !next;/); // the old throw-only revert is gone
     // success history + toast are now behind the settlement decision
     expect(editor).toMatch(/if \(d\.keep\) \{\s*history\.record\(\{ kind: 'bypass'/);
@@ -276,7 +276,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 
   it('setChannel honours {ok:false}, not just a throw', () => {
     expect(editor).toMatch(/#writeSettlement\(forgefx\.setChannel\(c\.effectId, ch\)\)/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, prev, ch, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, token, ch, outcome/);
     expect(editor).not.toMatch(/c\.channel = prev;/); // the old throw-only revert is gone
   });
 
@@ -284,7 +284,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
     expect(editor).toMatch(
       /#writeSettlement\(forgefx\.setScene\(ui - 1\)\)/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, prev, ui, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, token, ui, outcome/);
     expect(editor).not.toMatch(/this\.scene = prev;/); // the old throw-only revert is gone
   });
 
@@ -328,11 +328,11 @@ describe('P6 — scalar stale guard wiring + pasteBlock routes through the grid-
 
   it('every scalar call site supplies the reader + the sent value (get + sent)', () => {
     // bypass, channel, scene, tempo, tuner — all five, in the settleScalarWrite target+args shape
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, from, next, outcome/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, prev, ch, outcome/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, prev, ui, outcome/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, from, n, outcome/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, next, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, token, next, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, token, ch, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, token, ui, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, token, n, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, token, next, outcome/);
     // no call site is left SETTER-ONLY — a target without `get` would silently skip the guard
     expect(editor).not.toMatch(/settleScalarWrite\(\{ set: \(v\) =>/);
   });
@@ -345,5 +345,45 @@ describe('P6 — scalar stale guard wiring + pasteBlock routes through the grid-
     expect(editor).not.toMatch(/for \(const op of plan\.ops\) await this\.#runOp\(op\);/);
     // and the placement refusal toast is surfaced (it wins over the settings toast)
     expect(editor).toMatch(/const toast = outcome\.toast \?\? r\.toast;/);
+  });
+});
+
+// P11 — write-initiation sequencing. The stale guard is only correct with a per-control write token:
+// every optimistic-write site mints one with `beginWrite(key, current)` BEFORE it awaits the write,
+// and passes that token to the settle helper (the call-shape regexes above pin the token argument).
+// Without this wiring the settle helpers cannot tell an ABA burst from a live value, nor revert to a
+// device-confirmed value. Keys are the enum param OBJECT for enums (stable identity) and a stable
+// string for scalars (`bypass:<eid>` / `channel:<eid>` / `scene` / `tempo` / `tuner`).
+describe('P11 — optimistic-write sites mint a sequencing token before the await', () => {
+  const editor = stripComments(read('./editor.svelte.ts'));
+
+  it('imports beginWrite from the pure module', () => {
+    expect(editor).toMatch(
+      /import \{ beginWrite, settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+    );
+  });
+
+  it('setEnum mints the token on the enum param object BEFORE it awaits the write', () => {
+    const body = methodBody(editor, 'setEnum = async (e: EnumParam, value: number)');
+    const mint = body.indexOf('beginWrite(e, from)');
+    const awaited = body.indexOf('const outcome = await this.#writeSettlement(');
+    expect(mint).toBeGreaterThan(-1);
+    expect(awaited).toBeGreaterThan(mint); // mint BEFORE the await
+  });
+
+  it('setPinnedEnum mints the token on the enum param object BEFORE the await', () => {
+    const body = methodBody(editor, 'setPinnedEnum = async (effectId: number, e: EnumParam, value: number)');
+    const mint = body.indexOf('beginWrite(e, from)');
+    const awaited = body.indexOf('const outcome = await this.#writeSettlement(');
+    expect(mint).toBeGreaterThan(-1);
+    expect(awaited).toBeGreaterThan(mint);
+  });
+
+  it('every scalar site mints a token on a stable string key', () => {
+    expect(editor).toMatch(/beginWrite\(`bypass:\$\{c\.effectId\}`, from\)/);
+    expect(editor).toMatch(/beginWrite\(`channel:\$\{c\.effectId\}`, prev\)/);
+    expect(editor).toMatch(/beginWrite\('scene', prev\)/);
+    expect(editor).toMatch(/beginWrite\('tempo', from\)/);
+    expect(editor).toMatch(/beginWrite\('tuner', from\)/);
   });
 });
