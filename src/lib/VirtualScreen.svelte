@@ -5,6 +5,7 @@
   import { editor } from './editor.svelte';
   import ControlSurface from './ControlSurface.svelte';
   import MidiRemoteSection from './MidiRemoteSection.svelte';
+  import ModifierUsagePanel from './ModifierUsagePanel.svelte';
 
   // accent per context (matches the rail's visual language)
   const ACCENT: Record<string, string> = {
@@ -37,6 +38,11 @@
         {#if editor.virtual.slug === 'global'}
           <!-- Setup → MIDI/Remote (parity audit §2.8): served GLOBAL MIDI params + honest gated rows -->
           <MidiRemoteSection />
+        {/if}
+        {#if editor.virtual.slug === 'controllers'}
+          <!-- Controllers → MODIFIERS IN USE (parity audit §3.2 remainder): which parameters currently
+               have a modifier assigned, from the decoded assignments (no new endpoint). -->
+          <ModifierUsagePanel />
         {/if}
         <ControlSurface slug={editor.virtual.slug} {accent} />
       </div>
