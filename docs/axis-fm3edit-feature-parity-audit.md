@@ -804,5 +804,5 @@ conflicts**. Verification on the merged tree: Axis **1720 unit tests / 164 files
 | Virtual effects | `ForgeFX/server/src/drivers/registryCore.ts` (`GEN3_VIRTUAL_EFFECTS`) |
 | FM3 parameter catalog (2021 rows) | `forgefx-midi/catalog/fm3.json` |
 | Existing open handoff work | `docs/handoff-cab-mute-and-dynacab.md` |
-| Prior gap analysis (partly stale) | `docs/ROADMAP.md`, `docs/axis_layout_rework_review_and_remaining_plan.md` |
+| Prior gap analysis (partly stale) | `docs/ROADMAP.md` (kept); the workbench layout-rework plan/status/verification docs were shipped-work history and were removed 2026-10-07 — recover any with `git show <sha>:docs/<file>` (see `docs/NEXT-STEPS.md`) |
 | Defect backlog (all merged) | `~/repos/stack/BACKLOG.md` |
