@@ -1,6 +1,7 @@
 <script lang="ts">
   import { editor } from './editor.svelte';
   import { history } from './history.svelte';
+  import { gateRailItem } from './gateRailItems';
 
   const RAIL = [
     { id: 'build', label: 'Build', short: 'Grid', icon: '▦' },
@@ -25,20 +26,15 @@
   const virtualFor = (id: string): { eid: number; slug: string; name: string } | undefined =>
     editor.caps?.virtualEffects?.find((v) => v.slug === VIRTUAL_SLUG[id]) ?? VIRTUAL[id];
 
-  // Rail filtering is capability-driven on API v2 (virtual tools from caps.virtualEffects, FC from
-  // caps.fc.model, routing-flavored screens from caps.gridRouting); legacy v1 keeps the isAm4 branch.
+  // Rail visibility + availability is capability-driven (gateRailItems.ts, parity audit §3.5). Setup
+  // and Controllers are NEVER silently removed: when the served capabilities do not carry their virtual
+  // effect the entry stays visible and renders DISABLED with the exact reason in its tooltip, so the
+  // user learns why the screen is unavailable instead of finding it gone (no-dead-nav rule, 01-shell §9).
+  // build/library are always available; the out-of-scope ids (FC + the coming-soon routing family) keep
+  // the legacy capability filter.
   const railItems = $derived.by(() => {
-    const caps = editor.caps;
-    if (editor.isV2 && caps) {
-      const ve = new Set((caps.virtualEffects ?? []).map((v) => v.slug));
-      return RAIL.filter((r) =>
-        r.id === 'build' || r.id === 'library' ? true
-        : r.id === 'settings' ? ve.has('global')
-        : r.id === 'controllers' ? ve.has('controllers')
-        : r.id === 'fc' ? !!caps.fc?.model || ve.has('fc')
-        : !!caps.gridRouting); // scenes / perform / sets (coming-soon) ride the grid-routing family
-    }
-    return editor.isAm4 ? RAIL.filter((r) => r.id === 'build' || r.id === 'library') : RAIL;
+    const input = { isV2: editor.isV2, isAm4: editor.isAm4, caps: editor.caps };
+    return RAIL.map((r) => ({ ...r, ...gateRailItem(input, r.id) })).filter((r) => r.visible);
   });
   // Device Tools shows whenever the device has ANY tool capability (legacy v1: AM4 only).
   const showTools = $derived(
@@ -110,7 +106,15 @@
       </svg>
     </div>
     {#each railItems as r}
-      <button class="item" data-tour={r.id} class:active={editor.railActive === r.id} title={r.label} onclick={() => pick(r.id, r.label)}>
+      <button
+        class="item"
+        class:gated={!r.enabled}
+        data-tour={r.id}
+        class:active={editor.railActive === r.id}
+        disabled={!r.enabled}
+        title={r.enabled ? r.label : r.reason}
+        onclick={() => pick(r.id, r.label)}
+      >
         <span class="ic">{r.icon}</span>
         <span class="sh">{r.short}</span>
       </button>
@@ -165,7 +169,14 @@
     <div class="d-body scroll">
       <div class="d-nav">
         {#each railItems as r}
-          <button class="d-item" class:active={editor.railActive === r.id} onclick={() => pick(r.id, r.label)}>
+          <button
+            class="d-item"
+            class:gated={!r.enabled}
+            class:active={editor.railActive === r.id}
+            disabled={!r.enabled}
+            title={r.enabled ? r.label : r.reason}
+            onclick={() => pick(r.id, r.label)}
+          >
             <span class="d-ic">{r.icon}</span><span class="d-lbl">{r.label}</span>
           </button>
         {/each}
@@ -280,6 +291,17 @@
     color: var(--accent);
     background: var(--accent-tint);
     border-color: var(--accent-border);
+  }
+  /* §3.5 capability-gated entry: visibly disabled with its reason in the tooltip — never a silent
+     removal, and never clickable (native `disabled` swallows the click). */
+  .item:disabled,
+  .item.gated {
+    opacity: 0.38;
+    cursor: not-allowed;
+  }
+  .item:disabled:hover {
+    background: transparent;
+    color: var(--text-mut);
   }
   .acct { position: relative; }
   .av {
@@ -439,6 +461,12 @@
     color: var(--accent);
     background: var(--accent-tint);
     border-color: var(--accent-border);
+  }
+  /* §3.5: a capability-gated entry stays visible in the drawer, disabled, reason in its tooltip. */
+  .d-item:disabled,
+  .d-item.gated {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
   .d-ic {
     font-size: 18px;
