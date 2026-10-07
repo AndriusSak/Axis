@@ -598,7 +598,7 @@ class EditorStore {
       if (eid === this.selected?.effectId) continue; // open block is already live via editor.params
       if (!placed.has(eid) || this.pinnedParams[eid]) continue; // not in this preset, or already hydrated
       try {
-        const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(eid) : await forgefx.blockParams(eid);
+        const r = await forgefx.blockParams(eid);
         this.pinnedParams = {
           ...this.pinnedParams,
           [eid]: { named: r.named.filter((p) => !['type', 'bypass'].includes(p.name.toLowerCase())), enums: r.enums ?? [] }
@@ -702,8 +702,7 @@ class EditorStore {
       load: () => this.load(),
       reloadParams: () => this.#loadParams(),
       echoParam: (eid, pid, norm) => this.applyDeviceEvent({ type: 'param', effectId: eid, paramId: pid, norm }),
-      toast: (text, accent) => this.showToast(text, accent),
-      isLegacyAm4: () => !this.isV2 && this.isAm4
+      toast: (text, accent) => this.showToast(text, accent)
     });
     setRequestFailureReporter(this.#onReqFailure); // auto-report every 5xx/network failure to Faro
     this.loadPorts(); // know the transport early (drives slowLink → meter throttling over MIDI)
@@ -717,7 +716,7 @@ class EditorStore {
     this.#initCloud();
     this.#initLocal();
     this.#openEvents();
-    // auto-detect the attached unit FIRST (so load() knows whether to use the AM4 4-slot path), and
+    // auto-detect the attached unit FIRST (so caps/the device profile are known before load()), and
     // warn if it isn't a model we have a live codec for
     try {
       this.detected = await forgefx.detect();
@@ -1330,9 +1329,8 @@ class EditorStore {
     else if (id === 'tags' || id === 'collections' || id === 'favs') library.applyRemoteConfig(id, data);
   };
   // pull current scene + tempo once at load (device → UI), each gated by its capability so a device
-  // without the feature never eats a timeout (legacy v1: skip both on the AM4 — it ignores the frames)
+  // without the feature never eats a timeout
   #syncTelemetry = async () => {
-    if (!this.isV2 && this.isAm4) return; // legacy: gen-3 scene/tempo frames; the AM4 ignores them → 5s timeouts that clog the queue
     try {
       if (this.sceneCount > 0) { const si = (await forgefx.getScene()).index; if (si >= 0) this.scene = si + 1; } // ignore a failed read (-1)
       if (this.hasTempo) this.bpm = (await forgefx.getTempo()).bpm;
@@ -1392,8 +1390,9 @@ class EditorStore {
     }
   };
 
-  /** @deprecated AM4 (model 0x15) detection — kept ONLY for the legacy v1-server fallback paths
-   *  (API v2 gates everything through `caps`). Do not add new call sites. */
+  /** AM4 (model 0x15) device detection — used by the remaining `caps`-fallback capability gates
+   *  and the tool-rail device branches. Route selection no longer branches on it: every device
+   *  (AM4 included) goes through the unified API. */
   get isAm4(): boolean {
     return this.detected?.modelId === 0x15;
   }
@@ -1471,13 +1470,9 @@ class EditorStore {
 
   load = async () => {
     if (!this.everLoaded) this.status = 'loading';
-    // API v2: the unified /preset/grid + /preset/blocks serve EVERY device (AM4 included).
-    // Legacy v1 fallback: the AM4 only answers its own /am4/grid.
-    const legacyAm4 = !this.isV2 && this.isAm4;
+    // The unified /preset/grid + /preset/blocks serve EVERY device (AM4 included).
     try {
-      const [grid, blocks] = legacyAm4
-        ? [await forgefx.am4Grid(), []]
-        : await Promise.all([forgefx.grid(), forgefx.presetBlocks().catch(() => [])]);
+      const [grid, blocks] = await Promise.all([forgefx.grid(), forgefx.presetBlocks().catch(() => [])]);
       this.layout = layoutFromGrid(grid, blocks);
       // an armed link keeps pointing at a cell that may be gone after a reload (preset switch,
       // external edit) — disarm rather than complete a connect from a phantom source
@@ -1496,7 +1491,7 @@ class EditorStore {
       if (!this.everLoaded) this.status = 'offline';
       // We were connected and a (re)load failed — a real device-comm error worth a debug report. Debounced
       // + dismissible + only if upload is configured, so it never spams (see offerDebugReport).
-      else this.offerDebugReport({ kind: 'device-comm', route: legacyAm4 ? '/am4/grid' : '/preset/grid', message: (e as Error)?.message?.slice(0, 200) });
+      else this.offerDebugReport({ kind: 'device-comm', route: '/preset/grid', message: (e as Error)?.message?.slice(0, 200) });
     }
   };
 
@@ -1610,10 +1605,9 @@ class EditorStore {
     if (!c || (!c.pack && !this.paramsWithoutPack)) return; // some devices serve params without a gen-3 pack
     this.sheetState = 'loading';
     try {
-      // API v2: the unified /preset/blocks/:addr/params serves every device (AM4 addr = pidLow).
-      // Legacy v1 fallback: the AM4 reads via its own /am4/blocks route. Same BlockParams DTO either
-      // way, so the rest of this method is model-agnostic.
-      const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
+      // The unified /preset/blocks/:addr/params serves every device (AM4 addr = pidLow). Same
+      // BlockParams DTO either way, so the rest of this method is model-agnostic.
+      const r = await forgefx.blockParams(c.effectId);
       this.params = r.named.filter((p) => !['type', 'bypass'].includes(p.name.toLowerCase()));
       this.enums = r.enums ?? [];
       this.blockType = r.type ?? null;
@@ -1665,12 +1659,10 @@ class EditorStore {
       block: c.display, param: p.name, min: p.min, max: p.max, unit: p.unit, log: p.log
     });
     clearTimeout(this.#sendTimers[p.id]);
-    // API v2: the unified PUT {value, continuous:true} writes every device (AM4 addr = pidLow).
-    // Legacy v1 fallback: the AM4 writes via its own SET_NORM route.
+    // The unified PUT {value, continuous:true} writes every device (AM4 addr = pidLow).
     const eid = c.effectId, pid = p.id as number;
-    const legacyAm4 = !this.isV2 && this.isAm4;
     this.#sendTimers[pid] = setTimeout(
-      () => (legacyAm4 ? forgefx.am4SetParamNorm(eid, pid, v) : forgefx.setParam(eid, pid, v, true)).catch(() => {}),
+      () => forgefx.setParam(eid, pid, v, true).catch(() => {}),
       60
     );
   };
@@ -1694,7 +1686,7 @@ class EditorStore {
     // Route through the shared settlement wrapper (#writeSettlement) so the discrete-write outcome
     // capture cannot drift from the batch sites (item: duplicated settlement logic).
     const outcome = await this.#writeSettlement(
-      !this.isV2 && this.isAm4 ? forgefx.am4SetParamValue(c.effectId, e.id, value) : forgefx.setParam(c.effectId, e.id, value, false)
+      forgefx.setParam(c.effectId, e.id, value, false)
     );
     settleEnumWrite(e, from, value, historyId, outcome, {
       dropHistory: (id) => history.drop(id),
@@ -2483,7 +2475,7 @@ class EditorStore {
       return;
     }
     try {
-      const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
+      const r = await forgefx.blockParams(c.effectId);
       const entry = blockLibrary.add({
         id: newEntryId(),
         name: (name?.trim() || `${c.display} · CH ${c.channel ?? '?'}`),
@@ -2512,7 +2504,7 @@ class EditorStore {
     try {
       const results: WriteSettlement[] = [];
       if (entry.type) results.push(await this.#writeSettlement(forgefx.setType(c.effectId, entry.type.value)));
-      const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
+      const r = await forgefx.blockParams(c.effectId);
       const writes = recallWrites(entry, r.named ?? [], r.enums ?? []);
       for (const w of writes) results.push(await this.#writeSettlement(forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous)));
       const report = settleWriteSet(results, { subject: `Recalled “${entry.name}”`, noun: 'setting' });
@@ -2607,7 +2599,7 @@ class EditorStore {
     this.scene = ui; // optimistic
     // A scene switch is a discrete write the device reject-watches ({ok:false} on refusal), so route
     // it through the scalar settlement: a refusal reverts the optimistic scene and toasts.
-    const outcome = await this.#writeSettlement(!this.isV2 && this.isAm4 ? forgefx.am4SetScene(ui - 1) : forgefx.setScene(ui - 1));
+    const outcome = await this.#writeSettlement(forgefx.setScene(ui - 1));
     const d = settleScalarWrite({ get: () => this.scene, set: (v) => (this.scene = v) }, prev, ui, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Scene');
@@ -2855,9 +2847,8 @@ class EditorStore {
     this.presetOpen = true;
   };
   selectPreset = async (n: number) => {
-    if (!this.isV2 && this.isAm4) return this.loadAm4Preset(n); // legacy v1 fallback: AM4's own codec route
     try {
-      await forgefx.selectPreset(n); // API v2: unified for every device (AM4 number = stored location)
+      await forgefx.selectPreset(n); // unified for every device (AM4 number = stored location)
       this.lastPreset = n;
       this.bufferSource = null; // slot load replaced the buffer — it no longer holds a local file
       this.#histSwitch(n);
@@ -2888,8 +2879,7 @@ class EditorStore {
         loaded: () => (this.preset ? { number: this.preset.number, name: this.preset.name } : null),
         lastSlot: () => this.lastPreset,
         reload: async (slot) => {
-          if (!this.isV2 && this.isAm4) await forgefx.am4SwitchPreset(slot); // legacy v1 fallback
-          else await forgefx.selectPreset(slot);
+          await forgefx.selectPreset(slot);
         },
         // Same refresh a slot load does: current-preset ref + grid + the open block's params.
         refresh: async () => {
@@ -2907,18 +2897,6 @@ class EditorStore {
     const n = Math.max(0, cur + dir);
     return this.selectPreset(n);
   };
-  /** @deprecated legacy v1 fallback — AM4: load a stored location (0..103) into the edit buffer,
-   *  then re-read the 4-slot grid. API v2 goes through the unified selectPreset(). */
-  loadAm4Preset = async (location: number) => {
-    try {
-      await forgefx.am4SwitchPreset(location);
-      this.presetOpen = false;
-      await this.load();
-      if (this.selKey) await this.#loadParams();
-    } catch {
-      this.showToast('Load failed', '#d6543f');
-    }
-  };
 
   // ── save (DESTRUCTIVE: overwrites a preset slot) ──
   saveOpen = $state(false);
@@ -2929,9 +2907,9 @@ class EditorStore {
   };
   save = async (n: number) => {
     try {
-      // API v2: the unified /preset/store saves every device (AM4 number = stored location; the
-      // response additionally carries its bank-letter code). Legacy v1 AM4 uses its own codec route.
-      const r = !this.isV2 && this.isAm4 ? await forgefx.am4StorePreset(n) : await forgefx.store(n);
+      // The unified /preset/store saves every device (AM4 number = stored location; the response
+      // additionally carries its bank-letter code).
+      const r = await forgefx.store(n);
       this.saveOpen = false;
       if (!r.ok) {
         this.showToast('Save rejected by device', '#d6543f');

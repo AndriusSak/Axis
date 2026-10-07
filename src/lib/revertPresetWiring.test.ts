@@ -19,9 +19,8 @@ describe('revert preset wiring', () => {
     expect(src).toMatch(/bankLetter: this\.bankLetterAddressing/);
     // a successful revert must insert a history barrier (drop the stale local-file link too)
     expect(src).toMatch(/noteBufferReplaced: \(label\) => this\.noteBufferReplaced\(label\)/);
-    // same-slot reload: selectPreset on v2, the AM4 codec route on the legacy v1 fallback
+    // same-slot reload: selectPreset (unified for every device, AM4 included)
     expect(src).toMatch(/forgefx\.selectPreset\(slot\)/);
-    expect(src).toMatch(/forgefx\.am4SwitchPreset\(slot\)/);
   });
 
   it('the History panel offers Revert on the dirty buffer banner', () => {

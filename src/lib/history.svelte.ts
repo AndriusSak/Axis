@@ -73,7 +73,6 @@ interface HistoryHost {
   reloadParams(): Promise<void>;
   echoParam(eid: number, paramId: number, norm: number): void;
   toast(text: string, accent?: string): void;
-  isLegacyAm4(): boolean;
 }
 
 class HistoryStore {
@@ -259,15 +258,14 @@ class HistoryStore {
 
   #applyOp = async (op: HistoryOp, dir: 'undo' | 'redo'): Promise<void> => {
     const W = (n: number) => n + 1; // write API is 1-indexed; ops store the 0-indexed layout coords
-    const legacyAm4 = this.#host?.isLegacyAm4() ?? false;
     switch (op.kind) {
       case 'param': {
         const v = dir === 'undo' ? op.from : op.to;
         if (op.continuous) {
-          await (legacyAm4 ? forgefx.am4SetParamNorm(op.eid, op.paramId, v) : forgefx.setParam(op.eid, op.paramId, v, true));
+          await forgefx.setParam(op.eid, op.paramId, v, true);
           this.#host?.echoParam(op.eid, op.paramId, v);
         } else {
-          await (legacyAm4 ? forgefx.am4SetParamValue(op.eid, op.paramId, v) : forgefx.setParam(op.eid, op.paramId, v, false));
+          await forgefx.setParam(op.eid, op.paramId, v, false);
         }
         return;
       }
@@ -296,7 +294,7 @@ class HistoryStore {
       }
       case 'scene': {
         const ui = dir === 'undo' ? op.from : op.to;
-        return void await (legacyAm4 ? forgefx.am4SetScene(ui - 1) : forgefx.setScene(ui - 1));
+        return void await forgefx.setScene(ui - 1);
       }
       case 'sceneName': return void await forgefx.setSceneName(op.index, dir === 'undo' ? op.from : op.to);
       case 'presetName': return void await forgefx.setPresetName(dir === 'undo' ? op.from : op.to);
