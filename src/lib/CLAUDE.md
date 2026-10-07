@@ -194,7 +194,7 @@ stack in order — `npm run setup:stack` does exactly that.
   agents before committing non-trivial changes.
 - Task tracking in Plane is mandatory — see the root `CLAUDE.md`, Task tracking
   section (that file is gitignored and local-only by design).
-- Where work is planned and recorded: `docs/NEXT-STEPS.md` is the orientation
-  file, `docs/axis-fm3edit-feature-parity-audit.md` is the live backlog, and the
-  dated fix lists under `docs/` hold round inputs. Do not resurrect
-  `docs/ROADMAP.md` or the other banner-stale plans.
+- Where work is planned and recorded: `docs/NEXT-STEPS.md` is the single live status
+  file (open items, decisions, do-not-chase), and `docs/axis-fm3edit-feature-parity-audit.md`
+  is the live backlog. Completed narratives live in the commit history, NOT in `docs/`.
+  Do not resurrect `docs/ROADMAP.md` or the other banner-stale plans.
