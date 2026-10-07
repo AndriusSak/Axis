@@ -24,6 +24,8 @@ import { runSaveAsTemplate, templateBytes, TEMPLATE_DIR, type PresetTemplate } f
 import { presetTemplates } from './presetTemplates.svelte';
 import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue, type ChannelClip } from './blockOps';
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
+import { bulkBypass, type SceneIo } from './sceneOps';
+import { planNudge } from './paramNudge';
 import { blockLibrary } from './blockLibrary.svelte';
 import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
 import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
@@ -182,6 +184,14 @@ class EditorStore {
   virtual = $state<{ eid: number; slug: string; name: string } | null>(null);
   /** True when the full Preset Browser rail screen is open (replaces the grid/editor view). */
   inLibrary = $state(false);
+  /** Param id the user last selected in the open block editor — the ↑/↓ nudge target (parity §2.12).
+   *  Set by ControlSurface on a control pointer-down; cleared whenever the open block/virtual changes.
+   *  Null → the nudge falls back to the block's primary control (see paramNudge.planNudge). */
+  selectedParamId = $state<number | null>(null);
+  /** Select the open block's current parameter (the ↑/↓ nudge target). */
+  selectParam = (id: number) => {
+    this.selectedParamId = id;
+  };
 
   // ── view + chrome ──
   globalMode = $state<ViewMode>('basic');
@@ -1527,6 +1537,7 @@ class EditorStore {
     this.selectCellOnDevice(c.row, c.col);
     if (c.kind === 'shunt') return; // shunts have no editor
     this.selKey = `${c.row},${c.col}`;
+    this.selectedParamId = null; // new block → no parameter selected yet
     this.editorOpen = true;
     this.editingTabs = false;
     this.activePage = this.#defaultPage();
@@ -1542,6 +1553,7 @@ class EditorStore {
   };
   closeEditor = () => {
     this.editorOpen = false;
+    this.selectedParamId = null;
   };
 
   // Return to the Signal Grid (Build) from any rail/virtual screen.
@@ -1555,6 +1567,7 @@ class EditorStore {
   openLibrary = () => {
     this.virtual = null;
     this.editorOpen = false;
+    this.selectedParamId = null;
     this.inLibrary = true;
     this.railActive = 'library';
   };
@@ -1565,6 +1578,7 @@ class EditorStore {
     this.virtual = { eid, slug, name };
     this.inLibrary = false;
     this.selKey = null;
+    this.selectedParamId = null;
     this.editorOpen = false;
     this.editingTabs = false;
     this.activePage = '';
@@ -1654,6 +1668,23 @@ class EditorStore {
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
     });
     (!this.isV2 && this.isAm4 ? forgefx.am4SetParamValue(c.effectId, e.id, value) : forgefx.setParam(c.effectId, e.id, value, false)).catch(() => {});
+  };
+  /**
+   * Nudge the currently selected/open parameter of the open block by one step (parity §2.12 ↑/↓).
+   * The step + target come from `paramNudge.ts` over the SERVED metadata (min/max/norm or the enum
+   * ordinal list); the write goes through the existing setParam/setEnum actions. Returns false when
+   * there is nothing to nudge (no open block, no served step, already at the end) so the page can let
+   * the arrow key through instead of swallowing it.
+   */
+  nudgeParam = (dir: 1 | -1): boolean => {
+    // A parameter is "open" on a real block editor (editorOpen) or a virtual rail screen (virtual);
+    // `selected` synthesizes a cell for both. Nothing open → let the arrow key through.
+    if (!this.selected || (!this.editorOpen && !this.virtual)) return false;
+    const plan = planNudge(this.params, this.enums, this.selectedParamId, dir);
+    if (!plan) return false;
+    if (plan.kind === 'param') this.setParam(plan.param, plan.norm);
+    else this.setEnum(plan.enum, plan.value);
+    return true;
   };
   toggleBypass = async (cell?: Cell) => {
     const c = cell ?? this.selected;
@@ -2363,6 +2394,29 @@ class EditorStore {
    *  active scene directly, so it calls this after a bulk/copy op to catch the grid badges up even when
    *  no scene switch happened. Debounced like the other scene reflection paths. */
   reflectSceneState = () => this.#scheduleSceneReload(0);
+  /**
+   * Engage every block in the CURRENT scene (parity §2.12 ⇧Space). Uses the Scene Manager's own bulk
+   * sequence — `sceneOps.bulkBypass` (per-block bypass writes over the existing endpoint; there is no
+   * bulk/scene wire op) — then reflects the active scene so the grid badges catch up. Returns the
+   * number of blocks written, or null when the device has no scenes.
+   */
+  engageAllScenes = async (): Promise<number | null> => {
+    if (this.sceneCount < 1) return null;
+    const io: SceneIo = {
+      setScene: (i) => forgefx.setScene(i),
+      sceneState: () => forgefx.sceneState(),
+      setBypass: (eid, b) => forgefx.setBypass(eid, b),
+      setChannel: (eid, ch) => forgefx.setChannel(eid, ch),
+    };
+    try {
+      const res = await bulkBypass(this.scene - 1, false, io);
+      this.reflectSceneState();
+      this.showToast(`Engaged all in ${this.sceneName(this.scene)} — ${res.ok} ${res.ok === 1 ? 'block' : 'blocks'}`, '#5fc46b');
+      return res.ok;
+    } catch {
+      return null;
+    }
+  };
   /** Rename a scene (1-based) in the working buffer, then re-read to confirm the device took it.
    *  Optimistic; reverts on failure or if the read-back doesn't match. Not persisted to flash (store is separate). */
   renameScene = async (ui: number, name: string) => {

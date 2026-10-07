@@ -40,6 +40,8 @@
   import { mobileBoot } from '$lib/mobile.svelte';
   import { notifyReady as otaNotifyReady, checkForUpdate as otaCheck } from '$lib/direct/ota';
   import { isAxisWorkbenchFeatureEnabled } from '$lib/axis-workbench/featureGate';
+  import { axisWorkbenchController } from '$lib/axis-workbench/axisWorkbenchStore.svelte';
+  import { AXIS_PAGE_PRESET_BROWSER } from '$lib/axis-workbench/axisWorkbenchPages';
   import { pollIntervalsFor } from '$lib/pollIntervals';
   import { resolveShortcut, isEditingTarget } from '$lib/shortcuts';
 
@@ -177,6 +179,30 @@
           if (!t) return;
           e.preventDefault();
           void editor.pasteBlock(t.row, t.col);
+          return;
+        }
+        // §2.12 remainder — FM3-Edit manage-presets / engage-all-scenes / arrow value-nudges.
+        case 'managePresets': {
+          e.preventDefault();
+          // The workbench (default) opens its Preset Browser page; the legacy shell opens its library screen.
+          if (workbenchEnabled) axisWorkbenchController.activatePage(AXIS_PAGE_PRESET_BROWSER);
+          else editor.openLibrary();
+          return;
+        }
+        case 'engageAllScenes': {
+          if (editor.sceneCount < 1) return; // no scenes on this device → don't swallow the key
+          e.preventDefault();
+          void editor.engageAllScenes(); // Scene Manager bulk sequence (sceneOps.bulkBypass)
+          return;
+        }
+        case 'nudgeValueUp': {
+          if (!editor.nudgeParam(1)) return; // nothing open to nudge → let the arrow key through
+          e.preventDefault();
+          return;
+        }
+        case 'nudgeValueDown': {
+          if (!editor.nudgeParam(-1)) return;
+          e.preventDefault();
           return;
         }
 

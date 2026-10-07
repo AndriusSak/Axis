@@ -208,11 +208,13 @@
   });
   const viewOf = (c: Ctl) => viewByKey.get(c.key) ?? c.view;
   function resKnobDown(e: PointerEvent, id: number) {
+    editor.selectParam(id);
     vd = { id, sy: e.clientY, sn: knob(id)?.norm ?? 0 };
     dragging = true;
     showTip(e.currentTarget as HTMLElement, id, false);
   }
   function openResSel(e: MouseEvent, id: number) {
+    editor.selectParam(id);
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     resSel = resSel?.id === id ? null : { id, left: r.left, top: r.bottom + 4, width: Math.max(r.width, 180) };
   }
@@ -662,6 +664,7 @@
   function toggleEnum(id: number) {
     const e = enm(id);
     if (!e) return;
+    editor.selectParam(id); // the touched toggle/select becomes the ↑/↓ nudge target
     const off = e.options[0]?.value ?? 0,
       on = e.options[1]?.value ?? 1;
     editor.setEnum(e, e.value === on ? off : on);
@@ -745,6 +748,7 @@
       drag = { id, x: w.x, y: w.y, w: w.w, h: w.h, valid: true };
       return;
     }
+    if (pid >= 0) editor.selectParam(pid); // remember the last-touched control as the ↑/↓ nudge target
     if (kind === 'cont') {
       vd = { id: pid, sy: e.clientY, sn: knob(pid)?.norm ?? 0 };
       dragging = true; // keep the value bubble alive for the whole adjust, even if the cursor leaves

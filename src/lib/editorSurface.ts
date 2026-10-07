@@ -112,6 +112,8 @@ export interface EditorSurface {
   // ── block / params mutators (incl. device-only cabState, routed through the surface) ──
   setParam: (p: NamedParam, v: number) => void;
   setEnum: (e: EnumParam, value: number) => void;
+  /** Select the open block's current parameter — the ↑/↓ nudge target (parity §2.12). */
+  selectParam: (id: number) => void;
   cabState: (eid: number) => Promise<CabState>;
 
   // ── telemetry / meters / swipe controls ──
