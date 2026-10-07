@@ -2772,9 +2772,10 @@ class EditorStore {
   };
   // tempo/tuner writes are optimistic and routed through the pure `settleScalarWrite` so a THROWN
   // transport error reverts to the captured `from` and toasts (P4 follow-ups). NOTE (P9): on gen3
-  // NEITHER is reject-watched — `setTempo` (gen3.ts:1551) and `setTuner` (registryCore.ts:829) return
-  // `{ok:true}` UNCONDITIONALLY, so the server never answers `{ok:false}` on these paths and the
-  // settlement's refusal branch cannot fire on a device refusal for this device; only a throw does.
+  // NEITHER is reject-watched: `setTempo` goes out through the fire-and-forget path (no reply is
+  // collected), and `setTuner` answers `{ok:false}` only for a device that lacks tuner capability —
+  // never on a device refusal. So the settlement's refusal branch cannot fire from a refusal here;
+  // only a thrown transport error reaches it. (Cite symbols, not line numbers — those rot.)
   setBpm = async (bpm: number) => {
     const n = Math.round(bpm);
     if (!Number.isFinite(n) || n < 20 || n > 250) return;
