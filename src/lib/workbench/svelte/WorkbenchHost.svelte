@@ -41,8 +41,20 @@
   // no rail widgets and we're not editing, `bottom` mode drops the rail entirely
   // (fixes "the full sidebar is always visible in bottom mode").
   const hasRailWidgets = $derived(selectVisibleWidgetsByZone($controller.document, 'rail').length > 0);
+  // T23: phone-width flag (matches the 760px CSS breakpoint) gates bottom-sheet
+  // swipe-to-close so the gesture is inert on tablet/desktop. Declared here (ahead
+  // of `showRail`) because the rail render rule reads it — see below.
+  let isPhone = $state(false);
+  // F3 — on phone the widgets-only rail (bottom-nav mode) is a 64px static left
+  // strip that steals width from the ~390px frame, shrinking `.aw-frame` so the
+  // bottom bar can no longer fit its own controls (nav entries, `+`, scene chips
+  // all clipped to zero visible area). When the rail carries NO rail widgets it
+  // exists only because edit mode forces it (`shouldRenderRail`), so on phone we
+  // suppress it: the bar keeps the full frame width and its controls stay
+  // reachable. A rail that carries real rail widgets keeps its strip (V14c/V14d).
   const showRail = $derived(
-    shouldRenderRail({ mode: navMode, hasRailWidgets, editMode: $controller.editMode })
+    shouldRenderRail({ mode: navMode, hasRailWidgets, editMode: $controller.editMode }) &&
+      !(isPhone && navMode === 'bottom' && !hasRailWidgets)
   );
   const showRailNav = $derived(shouldRenderRailNav(navMode));
   const rootClass = $derived(theme?.className ? `aw-root ${theme.className}` : 'aw-root');
@@ -87,9 +99,8 @@
   // resolver never mutates layout contents — it only picks a profile id, and the
   // controller dispatches `profile.activate` solely when the resolved id differs.
   let rootEl = $state<HTMLElement | null>(null);
-  // T23: phone-width flag (matches the 760px CSS breakpoint) gates bottom-sheet
-  // swipe-to-close so the gesture is inert on tablet/desktop.
-  let isPhone = $state(false);
+  // T23: phone-width flag (declared above, read by `showRail`) — the effect below
+  // keeps it in sync with the shell width.
   $effect(() => {
     const el = rootEl;
     if (!el || typeof ResizeObserver === 'undefined') return;

@@ -220,10 +220,11 @@
     min-width: 0;
   }
   /* Bottom-nav mode (design §9): entries lay out horizontally. Directive 2 — the
-     bar must NEVER scroll horizontally, so this row never gets `overflow-x:auto`.
-     Entries are icon-only here (label hidden below) and shrink flexibly so a
-     handful of entries always fit; the container clips as a last resort rather
-     than paint a scrollbar. */
+     bar must never PAINT a horizontal scrollbar, so at desktop widths the row
+     never scrolls: entries are icon-only and shrink flexibly so a handful always
+     fit, and the container clips as a last resort. On PHONE the row does become
+     touch-swipeable (scrollbar hidden) when there are more entries than fit — see
+     the ≤760px block at the end of this file (F1/F3). */
   .aw-nav[data-nav-mode='bottom'] {
     flex-direction: row;
     gap: 6px;
@@ -309,11 +310,42 @@
       width: 56px;
       flex: none;
     }
-    /* V14d — bottom-nav on phone: persistent, icon-only, no horizontal scroll.
-       Entries shrink flexibly so a handful always fit the bar width; the label is
-       already hidden by the bottom-mode rule above (carried by title/aria). */
+    /* V14d — bottom-nav on phone: persistent, icon-only. F1/F3: with nine
+       entries (grid…account) the row is wider than the bar, and `overflow:hidden`
+       clipped the trailing entries (Setup/Theme/Axis Cloud) to zero visible area
+       with no way to reach them. Directive 2 forbids a PAINTED scrollbar, so the
+       row is swipe-scrollable with the scrollbar hidden: at rest the entries are
+       shrunk enough to fit the bar exactly (no swipe needed), and in edit mode
+       (extra `+` control) any surplus is a touch-swipe away instead of clipped.
+       The label is already hidden by the bottom-mode rule above (title/aria carry
+       it). */
     .aw-nav[data-nav-mode='bottom'] {
       flex: 1 1 auto;
+      gap: 4px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    .aw-nav[data-nav-mode='bottom']::-webkit-scrollbar {
+      display: none;
+    }
+    .aw-nav[data-nav-mode='bottom'] .aw-nav-entry {
+      width: 26px;
+      flex: 0 1 26px;
+      min-width: 22px;
+    }
+    .aw-nav[data-nav-mode='bottom'] .aw-nav-add-page {
+      width: 30px;
+      flex: 0 1 30px;
+      min-width: 24px;
+    }
+    /* A footer entry's `margin-left:auto` is meaningless on an overflowing phone
+       row and would spill the leading entries off the LEFT (negative x — which
+       LTR scrollWidth never counts, so they'd be unreachable). Drop it on phone so
+       the row always flows left→right. */
+    .aw-nav[data-nav-mode='bottom'] .aw-nav-entry[data-fixed='rail.footer'] {
+      margin-left: 0;
     }
   }
 </style>

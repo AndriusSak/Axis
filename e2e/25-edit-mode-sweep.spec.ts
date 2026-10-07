@@ -164,19 +164,14 @@ test('overflow chip menu (top-bar zone) @1440 opens inside the viewport', async 
 });
 
 /**
- * FINDING (expected-to-fail): the `⋯` overflow chip menu is positioned
- * `top: calc(100% + 8px)` relative to its chip, so when the overflowing zone is
- * the BOTTOM bar the menu opens DOWNWARD and lands entirely below the viewport
- * (measured at 1440x900: chip at y=868, menu rect 183,908 270x1209 → visibleH=0;
- * its "✥ Rearrange in Customize" button at y≈966+ is unreachable).
- * Root cause lives in src/lib/workbench/svelte/WidgetZone.svelte (`.aw-overflow-menu`
- * placement) — OWNED BY ANOTHER WORKSTREAM, so this is reported, not fixed.
- * `test.fail()` keeps the suite green while documenting the exact defect; if the
- * owner fixes the placement this test starts passing and Playwright flags the
- * unexpected pass for removal.
+ * Bottom-bar overflow: the `⋯` chip menu must stay inside the viewport when the
+ * overflowing zone is the BOTTOM bar (previously `.aw-overflow-menu` opened
+ * `top: calc(100% + 8px)` DOWNWARD and landed entirely below the fold — chip at
+ * y=868, menu rect 183,908 270x1209, visibleH=0). `WidgetZone.svelte` now opens
+ * it upward from the zone top with a viewport-capped, internally-scrollable
+ * height for the bottom zone.
  */
 test('overflow chip menu (bottom bar zone) @1440 opens inside the viewport', async ({ page }) => {
-  test.fail(true, 'WidgetZone.svelte owns .aw-overflow-menu placement: it opens downward off the bottom of the viewport for the bottom bar zone');
   await page.setViewportSize({ width: 1440, height: 900 });
   await installGridMock(page);
   await bootCleanWorkbench(page);
