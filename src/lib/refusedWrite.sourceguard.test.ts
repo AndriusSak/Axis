@@ -20,7 +20,7 @@ describe('refused discrete writes — setEnum wiring', () => {
   const editor = read('./editor.svelte.ts');
 
   it('imports the pure decision module', () => {
-    expect(editor).toMatch(/import \{ settleEnumWrite, type WriteSettlement \} from '\.\/paramWriteOutcome'/);
+    expect(editor).toMatch(/import \{ settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
   });
 
   it('setEnum is async and awaits the discrete write (continuous=false / AM4 value route)', () => {
@@ -63,5 +63,73 @@ describe('refused discrete writes — history drop support', () => {
   it('exposes a drop(id) that removes a recorded entry and fixes the cursor', () => {
     expect(history).toMatch(/drop = \(id: string \| null\) =>/);
     expect(history).toMatch(/findIndex\(\(e\) => e\.id === id\)/);
+  });
+});
+
+// P2.1 — a SET of writes (paste / recall / cab apply) reports what LANDED, not what was requested.
+// The old idiom `for (const w of writes) await forgefx.setParam(...).catch(() => {})` then an
+// unconditional `showToast(\`… ${writes.length} …\`)` over an already-fired history.checkpoint is
+// gone: every batch site now captures each write's settlement and routes it through
+// `paramWriteOutcome.settleWriteSet`, and only checkpoints when something actually landed.
+describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
+  const editor = read('./editor.svelte.ts');
+
+  it('imports the pure write-set aggregation', () => {
+    expect(editor).toMatch(
+      /import \{ settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/
+    );
+  });
+
+  it('captures each write settlement instead of swallowing it (one private helper)', () => {
+    expect(editor).toMatch(/#writeSettlement = async \(p: Promise<\{ ok: boolean \}>\): Promise<WriteSettlement>/);
+    expect(editor).toMatch(/return r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/);
+    expect(editor).toMatch(/return \{ status: 'error' \}/);
+    // fed by every batch site: pasteChannel, applyCab, #applyClip (type+named+enums+channel), recall
+    const feeds = editor.match(/this\.#writeSettlement\(/g) ?? [];
+    expect(feeds.length).toBeGreaterThanOrEqual(8);
+  });
+
+  it('routes pasteChannel / applyCab / recall results through settleWriteSet', () => {
+    expect(editor).toMatch(/settleWriteSet\(results, \{ subject: `Pasted channel \$\{clip\.channel/);
+    expect(editor).toMatch(/settleWriteSet\(results, \{ subject: `\$\{c\.display\} cab changed`, successToast: false \}\)/);
+    expect(editor).toMatch(/settleWriteSet\(results, \{ subject: `Recalled “\$\{entry\.name\}”`, noun: 'setting' \}\)/);
+  });
+
+  it('#applyClip returns a WriteSetReport (model type + params + channel = one write set)', () => {
+    expect(editor).toMatch(/#applyClip = async \(eid: number, clip: BlockClipboard, subject: string\): Promise<WriteSetReport>/);
+    expect(editor).toMatch(/return settleWriteSet\(results, \{ subject, noun: 'setting', successToast: false \}\)/);
+  });
+
+  it('checkpoints ONLY when a write actually landed', () => {
+    expect(editor).toMatch(/if \(report\.checkpoint\) history\.checkpoint\(`Pasted channel/);
+    expect(editor).toMatch(/if \(report\.checkpoint\) history\.checkpoint\(`Recalled/);
+    expect(editor).toMatch(/if \(r\.checkpoint\) history\.checkpoint\(`Pasted settings onto/);
+    expect(editor).toMatch(/if \(r\.checkpoint\) history\.checkpoint\(`Pasted \$\{clip\.display\} settings/);
+  });
+
+  it('toasts the helper outcome, not the requested count', () => {
+    expect(editor).toMatch(/if \(report\.toast\) this\.showToast\(report\.toast\.text, report\.toast\.accent\)/);
+    // the old "requested as landed" lines are gone
+    expect(editor).not.toMatch(/Pasted \$\{writes\.length\} values from channel/);
+    expect(editor).not.toMatch(/Recalled “\$\{entry\.name\}” — \$\{writes\.length\} values/);
+  });
+
+  it('no longer swallows the batch writes', () => {
+    // pasteChannel / recallBlockEntry batch loops (identical old line)
+    expect(editor).not.toMatch(
+      /for \(const w of writes\) await forgefx\.setParam\(c\.effectId, w\.paramId, w\.value, w\.continuous\)\.catch\(\(\) => \{\}\)/
+    );
+    // applyCab loop
+    expect(editor).not.toMatch(
+      /for \(const w of writes\) await forgefx\.setParam\(c\.effectId, w\.paramId, w\.value, false\)\.catch\(\(\) => \{\}\)/
+    );
+    // #applyClip's four swallowed writes
+    expect(editor).not.toMatch(/if \(clip\.type\) await forgefx\.setType\(eid, clip\.type\.value\)\.catch\(\(\) => \{\}\)/);
+    expect(editor).not.toMatch(
+      /for \(const p of clip\.named\) if \(p\.id != null\) await forgefx\.setParam\(eid, p\.id, p\.norm \?\? 0, true\)\.catch\(\(\) => \{\}\)/
+    );
+    expect(editor).not.toMatch(/if \(clip\.channel\) await forgefx\.setChannel\(eid, clip\.channel\)\.catch\(\(\) => \{\}\)/);
+    // recallBlockEntry's swallowed setType
+    expect(editor).not.toMatch(/if \(entry\.type\) await forgefx\.setType\(c\.effectId, entry\.type\.value\)\.catch\(\(\) => \{\}\)/);
   });
 });
