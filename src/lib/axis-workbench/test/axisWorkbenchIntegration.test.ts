@@ -79,6 +79,7 @@ describe('Axis Workbench integration contracts', () => {
       'scenes',
       'live',
       'setup',
+      'batchSet',
       'theme',
       'account'
     ]);
