@@ -8,10 +8,10 @@ bottom.
 
 ## Where `main` is
 
-- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P6 fix rounds**
-  (2026-10-07, below). Latest merged-tree verification: **1823 unit tests / 173 files** · `svelte-check`
+- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P7 fix rounds**
+  (2026-10-07, below). Latest merged-tree verification: **1815 unit tests / 173 files** · `svelte-check`
   **0 errors / 0 warnings** · build **ok** (bare `npm run build` — the heap flag lives in `.npmrc`) ·
-  **Playwright 142/142** (34 spec files) · ForgeFX **42 suites** · forgefx-midi **84**.
+  **Playwright 142/142** (34 spec files) · ForgeFX **41 suites** · forgefx-midi **84**.
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
 
 ## Shipped recently (do not redo)
@@ -33,7 +33,7 @@ bottom.
 — an independent 3-pass review of this tree, every item re-read in the code before filing.
 **P1.1–P1.3 and P2.1 / P2.3 / P2.4 / P2.5 shipped 2026-10-07**, plus most of P3 (engines, the `.npmrc`
 heap flag, one float-vs-enum unit set, 400s on bad route params, and the audit's stale claims). **Open:
-P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (AM4
+P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (the AM4 removal is done (P7)
 alias sunset, `prepare` scripts vs gitignored `dist/`, `version.ts` consistency check, the stale
 `ROADMAP.md` citations in code). See the doc's status header for commits and the merged-tree counts. The
 doc also carries a **"do not chase" list** (claims the review checked and rejected) and the hardware

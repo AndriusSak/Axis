@@ -2,7 +2,7 @@
 
 **Status:** **P1.1–P1.3, ALL of P2, the P3 items (engines, `.npmrc` heap flag, unit sets, route 400s,
 audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites) and the P4 round
-(bpm/tuner outcome + Control Switch table + AM4-sunset guard) SHIPPED 2026-10-07** ·
+(bpm/tuner outcome + Control Switch table) SHIPPED 2026-10-07** · **P5, P6 and P7 SHIPPED 2026-10-07 ·
 **open: the follow-ups below (the wider optimistic-write census, found during the rounds) and the
 hardware probes** ·
 **Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
@@ -173,8 +173,10 @@ registers them only under `AXIS_CLOUD=1` — now gated on `deps.cloud`, matching
 cloud actions on `cloud.available` (`deviceDefs.ts:43`), so no reachable client path changes.
 Guard: `test/api/route-parity.test.ts` (11 cases) enumerates both tables authoritatively — `app.ts` through a
 new test-only `onRoute` seam, the router through a new `listRoutes()` — and fails on any `(method, path)`
-difference that is not on the documented exception list (**/am4/* deprecated aliases**, **GET /events**,
-both verified in code). It also asserts router ⊆ app and that every app-only route has an exception.
+difference that is not on the documented exception list (**GET /events** only, since the P7 removal of the
+`/am4/*` aliases — the guard now asserts the app-only set *equals* `['GET /events']`, so a revived alias or
+any newly-drifting one-table-only route fails immediately).
+It also asserts router ⊆ app and that every app-only route has an exception.
 P3 in the same commit: `presetSelectH` and `setParamH` now answer **400** on missing/non-integer/out-of-range
 params (previously an unhandled 500 out of `encode14`), shared by both surfaces.
 
@@ -275,7 +277,7 @@ Not from the original review: what the rounds themselves surfaced as the next be
   list, the client-called paths, the sunset date and the unified-route existence **from source**, so a new
   or removed alias fails the test instead of rotting. The alias→unified mapping is the only hand-maintained
   part (the join is by handler identity and one handler answers two unified paths) and it is cross-checked
-  against the server's handlers. **Nothing was removed** — whether the v1/AM4 fallback should be migrated
+  against the server's handlers. **Nothing was removed in P4** — the user then decided the v1/AM4 fallback
   away or kept past the sunset is a product decision, and this round only made the deadline visible.
 
 ---
