@@ -26,6 +26,8 @@ import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue,
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
+import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
+import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
 import { blockLibrary } from './blockLibrary.svelte';
 import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
 import { canCopySlots, duplicateSlot, swapSlots, type SlotOpsClient } from './presetSlotOps';
@@ -40,8 +42,10 @@ const slotOpsClient = (): SlotOpsClient => ({
 });
 
 export type ViewMode = 'basic' | 'advanced';
-/** Block clipboard payload for copy/paste (audit §2.9): a block's model + current-channel settings. */
-export type BlockClipboard = { blockId: number; display: string; pack: string | null; type: { value: number; name: string } | null; channel?: string; named: NamedParam[]; enums: EnumParam[] };
+/** Block clipboard payload for copy/paste (audit §2.9): a block's model + current-channel settings.
+ *  `preset` records the slot the clip was captured from (audit §2.10) so a paste after a preset switch
+ *  can be routed through the honest cross-preset path instead of the same-preset one. */
+export type BlockClipboard = { blockId: number; display: string; pack: string | null; type: { value: number; name: string } | null; channel?: string; named: NamedParam[]; enums: EnumParam[]; preset?: number | null };
 type Conn = { state: 'connecting' | 'online' | 'offline'; fw?: string; device?: string };
 type CloudScopes = { presets: boolean; scenes: boolean; fc: boolean; settings: boolean };
 const SCOPES_KEY = 'axs.cloud.scopes';
@@ -174,6 +178,9 @@ class EditorStore {
   /** Which block the channel clipboard came from — the across-blocks paste only applies to a
    *  DIFFERENT block, so this is what the footer's enablement is gated on. Null until a copy. */
   channelClipFrom = $state<{ effectId: number; block: string } | null>(null);
+  /** Parameter-VALUE clipboard (audit §2.11 remainder): one served param's value keyed by the DEVICE
+   *  paramId, for pasting onto another block's same-id parameter. Null until a copy. */
+  paramClip = $state<ParamValueClip | null>(null);
   blockSlug = $state<string | null>(null); // catalog slug of the open block (from blockParams) — gates the looper poll
   /** Looper page telemetry for the open Looper block: waveform envelope (0..1) + playhead + level. */
   looperWave = $state<{ wave: number[]; position: number | null; level: number | null } | null>(null);
@@ -1808,6 +1815,53 @@ class EditorStore {
     this.showToast(`Pasted into ${c.display}: ${bits.join(', ')}`, report.failed ? '#f5a623' : '#33c46b');
   };
 
+  // ── parameter-VALUE clipboard (parity audit §2.11 remainder) ────────────────────────────────────
+  // Copy ONE served parameter's value (a knob by its normalized 0..1, an enum by its ordinal) keyed by
+  // the DEVICE paramId, and paste it onto another block's same-id parameter. Ids the target block does
+  // NOT expose are dropped (reported), never guessed or coerced onto a lookalike label. The planner +
+  // injectable IO live in paramClipOps.ts; this store only binds them to `forgefx`.
+
+  /** Copy a single served param's value (paramId + kind) into the parameter clipboard. */
+  copyParamValue = (paramId: number, continuous: boolean) => {
+    const c = this.selected;
+    if (!c?.pack || !Number.isInteger(paramId) || paramId < 0) return;
+    const src = continuous ? this.params.find((p) => p.id === paramId) : this.enums.find((e) => e.id === paramId);
+    if (!src) {
+      this.showToast('That parameter is not served for this block', '#f5a623');
+      return;
+    }
+    const clip = captureParamValue(src, c.display, continuous);
+    if (!clip) {
+      this.showToast('That parameter has no device id to copy', '#f5a623');
+      return;
+    }
+    this.paramClip = clip;
+    this.showToast(`Copied ${clip.name}`, '#35c9d6');
+  };
+
+  /** Paste the parameter clipboard onto the OPEN block's same-id parameter. Drops (reports) ids the
+   *  block does not expose — the planner never invents a paramId and never writes a kind mismatch. */
+  pasteParamValue = async () => {
+    const c = this.selected;
+    const clip = this.paramClip;
+    if (!c?.pack || !clip) return;
+    const plan = planParamPaste(clip, this.params, this.enums);
+    if (plan.dropped) {
+      this.showToast(`${c.display} does not expose “${clip.name}” (id ${clip.paramId}) — dropped, not guessed`, '#f5a623');
+      return;
+    }
+    const report = await applyParamPaste(plan, c.effectId, {
+      setParam: (eid, paramId, value, continuous) => forgefx.setParam(eid, paramId, value, continuous)
+    });
+    if (report.ok) {
+      history.checkpoint(`Pasted ${clip.name}`, false); // per-param history is noisy — logged, not undoable
+      await this.#loadParams();
+      this.showToast(`Pasted ${clip.name}`, '#33c46b');
+    } else {
+      this.showToast(report.error ? `Paste failed — ${report.error}` : 'Nothing to paste', '#d6543f');
+    }
+  };
+
   /** Toggle the block's served "Scene Ignore" flag (bypass state is not recalled per scene).
    *  Reads the family's `<FAMILY>_SCENEIGNORE` enum out of the served params — no invented paramId. */
   setSceneIgnore = async (on: boolean) => {
@@ -2187,7 +2241,8 @@ class EditorStore {
         type: r.type ?? null,
         channel: c.channel,
         named: r.named.filter((p) => !['type', 'bypass'].includes(p.name.toLowerCase())),
-        enums: r.enums ?? []
+        enums: r.enums ?? [],
+        preset: this.preset?.number ?? null // audit §2.10: which slot the clip came from
       };
       this.showToast(`Copied ${c.display}`, '#35c9d6');
     } catch {
@@ -2204,11 +2259,16 @@ class EditorStore {
   };
 
   /** Paste the clipboard: onto an existing block (settings), replacing a shunt, or into an empty cell
-   *  (place the block, then write its settings). */
+   *  (place the block, then write its settings). A clip captured in a DIFFERENT preset is routed
+   *  through the honest cross-preset path (`#pasteBlockCrossPreset`, audit §2.10). */
   pasteBlock = async (row: number, col: number) => {
     const clip = this.blockClipboard;
     if (!clip) {
       this.showToast('Clipboard is empty', '#d6543f');
+      return;
+    }
+    if (isCrossPreset(clip.preset, this.preset?.number ?? null)) {
+      await this.#pasteBlockCrossPreset(clip, row, col);
       return;
     }
     const occ = [...this.layout.cells, ...this.layout.shunts].find((c) => c.row === row && c.col === col);
@@ -2237,6 +2297,71 @@ class EditorStore {
     } catch {
       this.load();
     }
+  };
+
+  /** Served block roster (slug → family base eid), cached for cross-preset instance picking (§2.10).
+   *  null until read; a failed read leaves it null so the planner gates rather than guesses an eid. */
+  #blockRoster: { slug: string; page: number }[] | null = null;
+
+  /** Best-effort family base eid for a block family slug, from the served roster (`GET /blocks`).
+   *  Cached; returns null when the roster is unavailable or the slug is unknown. */
+  #familyBaseFor = async (slug: string | null): Promise<number | null> => {
+    if (!slug) return null;
+    if (!this.#blockRoster) {
+      try {
+        this.#blockRoster = (await forgefx.blocks()).map((b) => ({ slug: b.slug, page: b.page }));
+      } catch {
+        return null; // offline / unsupported → the paste gates instead of inventing an instance id
+      }
+    }
+    return this.#blockRoster.find((b) => b.slug.toLowerCase() === slug.toLowerCase())?.page ?? null;
+  };
+
+  /**
+   * Cross-preset block paste (audit §2.10 remainder). The clip was captured in a DIFFERENT slot, so
+   * the same-preset assumptions do not hold: the source eid may belong to another block here and the
+   * source paramIds may not be served. So: decide the target eid against THIS preset's layout (place
+   * only when the copied instance id is free — else gate with a reason), retype, then RE-READ the
+   * target block's served params and write only the ids it exposes, reporting the dropped ones.
+   * Pure planner + injectable IO live in blockClipOps.ts.
+   */
+  #pasteBlockCrossPreset = async (clip: BlockClipboard, row: number, col: number) => {
+    // Only look up the family base when the copied instance id is taken — the planner reuses it
+    // otherwise, so the roster read is skipped in the common case.
+    const eidTaken = [...this.layout.cells, ...this.layout.shunts].some((c) => c.effectId === clip.blockId);
+    const familyBase = eidTaken ? await this.#familyBaseFor(clip.pack) : null;
+    const plan = planCrossPresetBlockPaste(
+      clip,
+      this.layout.cells.map((c) => ({ row: c.row, col: c.col, kind: 'block' as const, effectId: c.effectId, display: c.display })),
+      this.layout.shunts.map((c) => ({ row: c.row, col: c.col, kind: 'shunt' as const, effectId: c.effectId, display: c.display })),
+      row,
+      col,
+      familyBase
+    );
+    if (!plan.ok) {
+      this.showToast(plan.error ?? 'Cannot paste across presets', '#f5a623');
+      return;
+    }
+    const report = await applyCrossPresetBlockPaste(plan, clip, {
+      place: (r, c, blockId) => this.place(r, c, blockId, clip.display), // reuses the grid place/shunt-replace path
+      setType: (eid, value) => forgefx.setType(eid, value),
+      blockParams: async (eid) => {
+        const r = await forgefx.blockParams(eid);
+        return { named: r.named ?? [], enums: r.enums ?? [] };
+      },
+      setParam: (eid, paramId, value, continuous) => forgefx.setParam(eid, paramId, value, continuous)
+    });
+    if (!report.ok) {
+      this.showToast(`Cross-preset paste failed — ${report.error}`, '#d6543f');
+      await this.load();
+      return;
+    }
+    history.checkpoint(`Pasted ${clip.display} from another preset`, false); // per-param writes aren't snapshotted
+    await this.load();
+    const bits = [`${report.written} written`];
+    if (report.dropped) bits.push(`${report.dropped} not exposed`);
+    if (report.failed) bits.push(`${report.failed} failed`);
+    this.showToast(`Pasted ${clip.display} from another preset: ${bits.join(', ')}`, report.failed ? '#f5a623' : '#33c46b');
   };
 
   // ── Block Library (audit §2.6) ────────────────────────────────────────────────────────────────

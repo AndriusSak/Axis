@@ -14,6 +14,7 @@ import type { Cell, Layout } from './grid';
 import type { NamedParam, EnumParam, DetectResult, DeviceLayout, LiveMonitor, CabState } from './types';
 import type { SwipeCtrl } from './layouts';
 import type { ChannelClip } from './blockOps';
+import type { ParamValueClip } from './paramClipOps';
 import type { BlockLibraryEntry } from './blockLibrary';
 
 export const EDITOR_SURFACE_KEY = Symbol('axis.editorSurface');
@@ -91,6 +92,11 @@ export interface EditorSurface {
   channelClip: ChannelClip | null;
   copyChannel: () => void;
   pasteChannel: () => Promise<void>;
+  /** Parameter-VALUE clipboard (audit §2.11 remainder) — copy/paste ONE served param's value between
+   *  blocks, keyed by the device paramId. Surfaced from the control context menu. */
+  paramClip: ParamValueClip | null;
+  copyParamValue: (paramId: number, continuous: boolean) => void;
+  pasteParamValue: () => Promise<void>;
   /** Channel ops that span scenes / blocks (audit §2.10 remainder) — see `channelOps.ts`. */
   readonly sceneCount: number;
   readonly canPasteChannelAcrossBlocks: boolean;

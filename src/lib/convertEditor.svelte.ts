@@ -356,6 +356,15 @@ class ConvertEditor {
   pasteChannel = async (): Promise<void> => {
     /* channel ops are device-backed — not modeled on the offline convert surface */
   };
+  // The parameter-value clipboard is device-backed (it reads/writes the live block's served params),
+  // so it is inert on the offline convert surface exactly like the channel clipboard above.
+  paramClip = null;
+  copyParamValue = (_paramId: number, _continuous: boolean): void => {
+    /* parameter clipboard is device-backed — not modeled on the offline convert surface */
+  };
+  pasteParamValue = async (): Promise<void> => {
+    /* parameter clipboard is device-backed — not modeled on the offline convert surface */
+  };
   /** Channel state is device-only here (no scene model offline), so the cross-scene/block channel ops
    *  are inert exactly like copyChannel/pasteChannel above. */
   get sceneCount(): number {
