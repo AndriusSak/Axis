@@ -26,7 +26,7 @@ import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue,
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
-import { settleEnumWrite, type WriteSettlement } from './paramWriteOutcome';
+import { settleEnumWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
 import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
 import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
 import { blockLibrary } from './blockLibrary.svelte';
@@ -1692,6 +1692,20 @@ class EditorStore {
     });
   };
   /**
+   * Await a device write and capture its SETTLEMENT (server HTTP-200 `{ok:false}` → rejected; a
+   * thrown transport error → error) instead of swallowing it with `.catch(() => {})` (P2.1). Batch
+   * sites feed one of these per write into `settleWriteSet` so the toast/checkpoint report what
+   * actually landed. Only continuous STREAMING sends stay fire-and-forget (see `setParam`).
+   */
+  #writeSettlement = async (p: Promise<{ ok: boolean }>): Promise<WriteSettlement> => {
+    try {
+      const r = await p;
+      return r.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      return { status: 'error' };
+    }
+  };
+  /**
    * Nudge the currently selected/open parameter of the open block by one step (parity §2.12 ↑/↓).
    * The step + target come from `paramNudge.ts` over the SERVED metadata (min/max/norm or the enum
    * ordinal list); the write goes through the existing setParam/setEnum actions. Returns false when
@@ -1760,10 +1774,11 @@ class EditorStore {
       this.showToast('Nothing to paste into this block', '#f5a623');
       return;
     }
-    for (const w of writes) await forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous).catch(() => {});
-    history.checkpoint(`Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}`, false); // logged, not undoable (per-param history is noisy)
+    for (const w of writes) results.push(await this.#writeSettlement(forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous)));
+    const report = settleWriteSet(results, { subject: `Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}` });
+    if (report.checkpoint) history.checkpoint(`Pasted channel ${clip.channel ?? '?'} → ${c.channel ?? '?'}`, false); // logged, not undoable (per-param history is noisy)
     await this.#loadParams();
-    this.showToast(`Pasted ${writes.length} values from channel ${clip.channel ?? '?'}`, '#33c46b');
+    if (report.toast) this.showToast(report.toast.text, report.toast.accent);
   };
 
   /** True when a copied channel exists AND it came from a DIFFERENT block than the open one — the
@@ -1922,9 +1937,14 @@ class EditorStore {
   applyCab = async (writes: { paramId: number; value: number }[]) => {
     const c = this.selected;
     if (!c?.pack) return;
-    for (const w of writes) await forgefx.setParam(c.effectId, w.paramId, w.value, false).catch(() => {});
-    history.checkpoint(`${c.display} cab changed`, false); // logged, not undoable (old slot state isn't captured) — v1 limitation
+    const results: WriteSettlement[] = [];
+    for (const w of writes) results.push(await this.#writeSettlement(forgefx.setParam(c.effectId, w.paramId, w.value, false)));
+    // The picker shows its OWN success toast (`Slot N: …`), so suppress the helper's success line —
+    // but a partial/failed cab write must still surface (the old `.catch(() => {})` hid it).
+    const report = settleWriteSet(results, { subject: `${c.display} cab changed`, successToast: false });
+    if (report.checkpoint) history.checkpoint(`${c.display} cab changed`, false); // logged, not undoable (old slot state isn't captured) — v1 limitation
     await this.#loadParams();
+    if (report.toast) this.showToast(report.toast.text, report.toast.accent);
   };
 
   // ── palette openers ──
@@ -2265,12 +2285,18 @@ class EditorStore {
     }
   };
 
-  /** Apply a clipboard's settings (model type → continuous params → enums → channel) to a block. */
-  #applyClip = async (eid: number, clip: BlockClipboard) => {
-    if (clip.type) await forgefx.setType(eid, clip.type.value).catch(() => {});
-    for (const p of clip.named) if (p.id != null) await forgefx.setParam(eid, p.id, p.norm ?? 0, true).catch(() => {});
-    for (const e of clip.enums) await forgefx.setParam(eid, e.id, e.value, false).catch(() => {});
-    if (clip.channel) await forgefx.setChannel(eid, clip.channel).catch(() => {});
+  /** Apply a clipboard's settings (model type → continuous params → enums → channel) to a block.
+   *  Every write's SETTLEMENT is captured (P2.1) — the model type + each param + the channel are one
+   *  write set, so a partial apply is reported honestly instead of silently swallowed. */
+  #applyClip = async (eid: number, clip: BlockClipboard, subject: string): Promise<WriteSetReport> => {
+    const results: WriteSettlement[] = [];
+    if (clip.type) results.push(await this.#writeSettlement(forgefx.setType(eid, clip.type.value)));
+    for (const p of clip.named) if (p.id != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, p.id, p.norm ?? 0, true)));
+    for (const e of clip.enums) results.push(await this.#writeSettlement(forgefx.setParam(eid, e.id, e.value, false)));
+    if (clip.channel) results.push(await this.#writeSettlement(forgefx.setChannel(eid, clip.channel)));
+    // The type + param writes are all "settings"; the caller shows the success line, so only a
+    // partial/failed apply produces a toast here.
+    return settleWriteSet(results, { subject, noun: 'setting', successToast: false });
   };
 
   /** Paste the clipboard: onto an existing block (settings), replacing a shunt, or into an empty cell
@@ -2290,12 +2316,15 @@ class EditorStore {
     try {
       if (occ?.kind === 'shunt') {
         await this.replaceShunt(occ, { blockId: clip.blockId, display: clip.display });
-        await this.#applyClip(clip.blockId, clip);
-      } else if (occ?.kind === 'block') {
-        await this.#applyClip(occ.effectId, clip);
-        history.checkpoint(`Pasted settings onto ${occ.display}`, false); // param writes aren't snapshotted
+        // placement is the user's action and records its own undo step; report only a failed apply.
+        const r = await this.#applyClip(clip.blockId, clip, `Pasted settings onto ${clip.display}`);
         await this.load();
-        this.showToast(`Pasted onto ${occ.display}`, '#35c9d6');
+        if (r.toast) this.showToast(r.toast.text, r.toast.accent);
+      } else if (occ?.kind === 'block') {
+        const r = await this.#applyClip(occ.effectId, clip, `Pasted onto ${occ.display}`);
+        if (r.checkpoint) history.checkpoint(`Pasted settings onto ${occ.display}`, false); // param writes aren't snapshotted
+        await this.load();
+        this.showToast(r.toast ? r.toast.text : `Pasted onto ${occ.display}`, r.toast ? r.toast.accent : '#35c9d6');
       } else {
         const plan = planPasteBlock(this.layout.cells, this.layout.shunts, row, col, clip.blockId, clip.display);
         if (!plan.ok) {
@@ -2304,10 +2333,10 @@ class EditorStore {
         }
         for (const op of plan.ops) await this.#runOp(op);
         history.recordComposite(plan.label, plan.ops);
-        await this.#applyClip(clip.blockId, clip);
-        history.checkpoint(`Pasted ${clip.display} settings`, false);
+        const r = await this.#applyClip(clip.blockId, clip, `Pasted ${clip.display}`);
+        if (r.checkpoint) history.checkpoint(`Pasted ${clip.display} settings`, false);
         await this.load();
-        this.showToast(`Pasted ${clip.display}`, '#35c9d6');
+        this.showToast(r.toast ? r.toast.text : `Pasted ${clip.display}`, r.toast ? r.toast.accent : '#35c9d6');
       }
     } catch {
       this.load();
@@ -2425,14 +2454,16 @@ class EditorStore {
       return;
     }
     try {
-      if (entry.type) await forgefx.setType(c.effectId, entry.type.value).catch(() => {});
+      const results: WriteSettlement[] = [];
+      if (entry.type) results.push(await this.#writeSettlement(forgefx.setType(c.effectId, entry.type.value)));
       const r = !this.isV2 && this.isAm4 ? await forgefx.am4BlockParams(c.effectId) : await forgefx.blockParams(c.effectId);
       const writes = recallWrites(entry, r.named ?? [], r.enums ?? []);
-      for (const w of writes) await forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous).catch(() => {});
-      history.checkpoint(`Recalled “${entry.name}” → ${c.display}`, false); // logged, not undoable (per-param)
+      for (const w of writes) results.push(await this.#writeSettlement(forgefx.setParam(c.effectId, w.paramId, w.value, w.continuous)));
+      const report = settleWriteSet(results, { subject: `Recalled “${entry.name}”`, noun: 'setting' });
+      if (report.checkpoint) history.checkpoint(`Recalled “${entry.name}” → ${c.display}`, false); // logged, not undoable (per-param)
       if (this.selKey || this.selected === c) await this.#loadParams();
       await this.load();
-      this.showToast(`Recalled “${entry.name}” — ${writes.length} values`, '#33c46b');
+      if (report.toast) this.showToast(report.toast.text, report.toast.accent);
     } catch {
       this.showToast('Recall failed — device offline?', '#d6543f');
     }
