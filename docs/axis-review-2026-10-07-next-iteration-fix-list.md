@@ -476,6 +476,17 @@ Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`,
 
 ### Filed by the measurement (new)
 
+- **⚠ INCIDENT 2026-10-07 — the probe's "restore verified" destroyed a real setting.** Q1 wrote
+  `GLOBAL_FS_BRIGHTNESS` (7115, "Mini-Display + Ring Brightness", range 0–100 where **0 = off**). It read
+  the original as `0.0000`, wrote `0.1000`, then restored `0.0000` and printed **`restore verified`** —
+  because the read-back echoed the value the probe itself had just written. The user's footswitch LED
+  rings went dark. Two lessons: (a) **a read-back that echoes our own write is not verification** — it
+  proves the write landed, not that the original was captured correctly; (b) a captured original sitting
+  on a **range boundary that means "off"/"disabled"** (0 on a 0..100 level/brightness) is the destructive
+  case, so a misread there silently switches a feature off. Fixed forward in P8 (`probe-reporting`): the
+  restore record must say what it actually established, must not claim "verified" without independent
+  confirmation, and must tell the human what to look at. **Lesson for all device work: a mutating probe
+  needs a human-observable confirmation step, not just a read-back.**
 - **Silent-ignore writes are indistinguishable from accepted writes.** The device neither acks nor
   refuses an unknown eid. Determine what the client's write-outcome path does with a silent non-answer:
   if the 250 ms window elapsing is read as *success*, then a silently-ignored write reports as landed —
