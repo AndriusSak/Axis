@@ -7,9 +7,11 @@ import { fileURLToPath } from 'node:url';
 // — we scan the component + model source to prove the Setup MIDI/Remote surface actually USES the pure
 // layer in controlSwitch.ts (whose served/gated mapping is unit-tested there).
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
+/** Strip comments so a guard cannot be satisfied (or defeated) by commented-out text. */
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
 
 describe('controlSwitch model — purity', () => {
-  const src = read('./controlSwitch.ts');
+  const src = stripComments(read('./controlSwitch.ts'));
 
   it('is a pure module: no Svelte/editor-store import', () => {
     expect(src).not.toMatch(/from '\.\/editor\.svelte'/);
@@ -24,11 +26,14 @@ describe('controlSwitch model — purity', () => {
 });
 
 describe('Setup MIDI/Remote section — CS group wiring', () => {
-  const src = read('./MidiRemoteSection.svelte');
+  const src = stripComments(read('./MidiRemoteSection.svelte'));
+  // Script-level claims are scoped to the component's <script> block so a stray match in the markup
+  // cannot satisfy them (the component-source analogue of a method body).
+  const script = (src.match(/<script[\s\S]*?>([\s\S]*?)<\/script>/) ?? [, src])[1];
 
   it('imports the pure CS layer and builds its rows from the served GLOBAL params/enums', () => {
-    expect(src).toMatch(/from '\.\/controlSwitch'/);
-    expect(src).toMatch(/buildControlSwitchRows\(editor\.params, editor\.enums\)/);
+    expect(script).toMatch(/from '\.\/controlSwitch'/);
+    expect(script).toMatch(/buildControlSwitchRows\(editor\.params, editor\.enums\)/);
   });
 
   it('renders a labelled Control Switches group and its honest gaps', () => {
@@ -39,7 +44,7 @@ describe('Setup MIDI/Remote section — CS group wiring', () => {
 
   it('writes selections through the existing param-write path (editor.setEnum via setSel)', () => {
     expect(src).toMatch(/onChange=\{\(v\) => setSel\(r\.enumParam, v\)\}/);
-    expect(src).toMatch(/const setSel = \(e: EnumParam, v: number\) => editor\.setEnum\(e, v\)/);
+    expect(script).toMatch(/const setSel = \(e: EnumParam, v: number\) => editor\.setEnum\(e, v\)/);
   });
 
   it('renders an honest hint (not a fabricated label) when a selector serves no options', () => {

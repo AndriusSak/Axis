@@ -81,8 +81,8 @@ async function resolveAxisParamControl(binding: BindingRef, options: AxisWorkben
         ...base,
         block: selected?.display ?? base.block,
         label: named.name || base.label,
-        normalized: named.norm,
-        value: named.value,
+        normalized: named.norm ?? undefined,
+        value: named.value ?? undefined,
         unit: named.unit,
         min: named.min,
         max: named.max,
@@ -99,7 +99,7 @@ async function resolveAxisParamControl(binding: BindingRef, options: AxisWorkben
         ...base,
         block: selected?.display ?? base.block,
         label: discrete.name || base.label,
-        value: discrete.options.find((option) => option.value === discrete.value)?.label ?? discrete.value,
+        value: discrete.options.find((option) => option.value === discrete.value)?.label ?? discrete.value ?? undefined,
         writable: true,
         source: 'open-block'
       };

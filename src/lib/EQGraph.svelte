@@ -37,15 +37,19 @@
   const GRID_F = [50, 100, 500, 1000, 5000, 10000];
   const flbl = (f: number) => (f >= 1000 ? f / 1000 + 'k' : '' + f);
 
-  const model = $derived(
-    bands.map((b) => ({
-      band: b,
-      shape: b.shape ?? 'bell',
-      gv: paramValue(b.gain),
-      fv: b.centerHz ?? (b.freq ? paramValue(b.freq) : 1000),
-      qv: b.q ? paramValue(b.q) : 1.4
-    }))
-  );
+  const model = $derived.by(() => {
+    const out: { band: EQBand; shape: EQShape; gv: number; fv: number; qv: number }[] = [];
+    for (const b of bands) {
+      const gv = paramValue(b.gain);
+      const fv = b.centerHz ?? (b.freq ? paramValue(b.freq) : 1000);
+      const qv = b.q ? paramValue(b.q) : 1.4;
+      // A band whose value the device could not resolve (null) is NOT drawn — never placed at a
+      // fabricated 0 dB / 0 Hz (both would draw a wrong curve and could yield NaN coordinates).
+      if (gv == null || fv == null || qv == null) continue;
+      out.push({ band: b, shape: b.shape ?? 'bell', gv, fv, qv });
+    }
+    return out;
+  });
 
   function bandDb(shape: EQShape, f: number, fc: number, gain: number, q: number): number {
     const L = Math.log10(f) - Math.log10(fc);

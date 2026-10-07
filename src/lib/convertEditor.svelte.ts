@@ -19,7 +19,7 @@ import { planDisconnectAll, planInsertShunt, planResetBlock, planSwap, planPaste
 import { captureBlockClip, planClipWrites, cloneBlockForPaste, pastedBlockKey, placedEffectId } from './convertBlockClip';
 import { planGridShiftRow, planGridShiftColumn } from './gridShift';
 import { applyGridEditsToState } from './convertGridSerialize';
-import { paramValue } from './format';
+import { paramValueAtNorm } from './format';
 import { buildParams, buildEnums } from './convertParams';
 import type { Cell, Layout } from './grid';
 import type { EditorSurface } from './editorSurface';
@@ -644,7 +644,7 @@ class ConvertEditor {
     if (!key || p.id == null) return;
     const stored =
       p.min != null && p.max != null
-        ? paramValue({ norm: v, value: p.value, min: p.min, max: p.max, unit: p.unit, log: p.log })
+        ? paramValueAtNorm(v, { value: p.value, min: p.min, max: p.max, unit: p.unit, log: p.log })
         : v;
     p.value = stored;
     convertScratch.setParam(key, p.id, stored);

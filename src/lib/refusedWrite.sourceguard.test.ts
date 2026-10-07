@@ -16,8 +16,31 @@ import { fileURLToPath } from 'node:url';
 // stream), so this guard also pins that `setParam` keeps its deferred, swallowed send.
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
+/** Strip line + block comments so a guard cannot be satisfied (or defeated) by commented-out text. */
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+
+/**
+ * The body `{ … }` of the member whose signature starts with `sig` (brace-matched, comments already
+ * stripped). Scoping a positive check to the method that must contain it means a COMMENT or an
+ * unrelated (dead) method elsewhere in the file can no longer satisfy the guard — the weakness the
+ * whole-file scan had. `sig` must end before the body's opening brace (include a trailing `=>` when
+ * the member is an arrow property, so a `{` inside its return type is not mistaken for the body).
+ */
+function methodBody(src: string, sig: string): string {
+  const i = src.indexOf(sig);
+  if (i < 0) throw new Error(`source-guard: member not found: ${sig}`);
+  const start = src.indexOf('{', i + sig.length);
+  if (start < 0) throw new Error(`source-guard: no body for: ${sig}`);
+  let depth = 0;
+  for (let j = start; j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(start, j + 1); }
+  }
+  return src.slice(start);
+}
+
 describe('refused discrete writes — setEnum wiring', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('imports the pure decision module', () => {
     expect(editor).toMatch(/import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
@@ -25,15 +48,19 @@ describe('refused discrete writes — setEnum wiring', () => {
 
   it('setEnum is async and awaits the discrete write (continuous=false)', () => {
     expect(editor).toMatch(/setEnum = async \(e: EnumParam, value: number\)/);
-    // the discrete write is captured as a settlement through the shared wrapper
-    expect(editor).toMatch(/forgefx\.setParam\(c\.effectId, e\.id, value, false\)/);
-    expect(editor).toMatch(/const outcome = await this\.#writeSettlement\(/);
+    // SCOPED to setEnum's own body — a comment or a dead method elsewhere cannot satisfy it.
+    const body = methodBody(editor, 'setEnum = async (e: EnumParam, value: number)');
+    expect(body).toMatch(/forgefx\.setParam\(c\.effectId, e\.id, value, false\)/);
+    expect(body).toMatch(/const outcome = await this\.#writeSettlement\(/);
+    // …and the discrete write is NOT swallowed inside setEnum (the exact old defect, any wording).
+    expect(body).not.toMatch(/\.catch\(\(\) => \{\}\)/);
   });
 
   it('captures the write outcome (ok → rejected, thrown → error) via the shared wrapper, not by swallowing it', () => {
-    // #writeSettlement is the single place the settlement is derived; setEnum now routes through it
-    expect(editor).toMatch(/#writeSettlement = async \(p: Promise<\{ ok: boolean \}>\): Promise<WriteSettlement> => \{\s*try \{\s*const r = await p;\s*return r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/);
-    expect(editor).toMatch(/return \{ status: 'error' \}/);
+    // #writeSettlement is the single place the settlement is derived; the check is scoped to its body.
+    const body = methodBody(editor, '#writeSettlement = async (p: Promise<{ ok: boolean }>): Promise<WriteSettlement> =>');
+    expect(body).toMatch(/try \{\s*const r = await p;\s*return r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/);
+    expect(body).toMatch(/return \{ status: 'error' \}/);
   });
 
   it('applies the decision: revert value, drop the optimistic history entry, toast the refusal', () => {
@@ -50,7 +77,8 @@ describe('refused discrete writes — setEnum wiring', () => {
 
   it('keeps the CONTINUOUS knob path fire-and-forget (deferred + swallowed, NOT awaited in the send)', () => {
     // setParam's continuous send stays inside a deferred timer whose promise is swallowed
-    expect(editor).toMatch(/forgefx\.setParam\(eid, pid, v, true\)\.catch\(\(\) => \{\}\)/);
+    const body = methodBody(editor, 'setParam = (p: NamedParam, v: number)');
+    expect(body).toMatch(/forgefx\.setParam\(eid, pid, v, true\)\.catch\(\(\) => \{\}\)/);
   });
 });
 
@@ -61,11 +89,13 @@ describe('refused discrete writes — setEnum wiring', () => {
 // value, drop the optimistic history entry, toast the refusal). The pinned CONTINUOUS write
 // (`setPinnedParam`) stays fire-and-forget BY DESIGN, exactly like `setParam`, and is pinned here.
 describe('refused discrete writes — setPinnedEnum wiring (P2.1 leftover)', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('setPinnedEnum is async and awaits the discrete write (continuous=false) via the shared wrapper', () => {
     expect(editor).toMatch(/setPinnedEnum = async \(effectId: number, e: EnumParam, value: number\)/);
-    expect(editor).toMatch(/const outcome = await this\.#writeSettlement\(forgefx\.setParam\(effectId, e\.id, value, false\)\)/);
+    const body = methodBody(editor, 'setPinnedEnum = async (effectId: number, e: EnumParam, value: number)');
+    expect(body).toMatch(/const outcome = await this\.#writeSettlement\(forgefx\.setParam\(effectId, e\.id, value, false\)\)/);
+    expect(body).not.toMatch(/\.catch\(\(\) => \{\}\)/); // the pinned discrete write is not swallowed
   });
 
   it('captures the pinned write outcome (ok → rejected, thrown → error) via the shared wrapper', () => {
@@ -85,12 +115,13 @@ describe('refused discrete writes — setPinnedEnum wiring (P2.1 leftover)', () 
   });
 
   it('keeps the pinned CONTINUOUS knob path fire-and-forget BY DESIGN', () => {
-    expect(editor).toMatch(/forgefx\.setParam\(effectId, p\.id as number, v, true\)\.catch\(\(\) => \{\}\)/);
+    const body = methodBody(editor, 'setPinnedParam = (effectId: number, p: NamedParam, v: number)');
+    expect(body).toMatch(/forgefx\.setParam\(effectId, p\.id as number, v, true\)\.catch\(\(\) => \{\}\)/);
   });
 });
 
 describe('refused discrete writes — history drop support', () => {
-  const history = read('./history.svelte.ts');
+  const history = stripComments(read('./history.svelte.ts'));
 
   it('record() returns the entry id so the caller can drop it', () => {
     expect(history).toMatch(/record = \(op: HistoryOp\): string \| null =>/);
@@ -108,7 +139,7 @@ describe('refused discrete writes — history drop support', () => {
 // gone: every batch site now captures each write's settlement and routes it through
 // `paramWriteOutcome.settleWriteSet`, and only checkpoints when something actually landed.
 describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('imports the pure write-set aggregation', () => {
     expect(editor).toMatch(
@@ -183,7 +214,7 @@ describe('write-set reporting — paste/recall/cab wiring (P2.1)', () => {
 // (`getTempo`), so the displayed bpm reflects reality rather than a swallowed local guess. It must
 // keep re-reading; this guard pins that.
 describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('imports the pure scalar decision', () => {
     expect(editor).toMatch(
@@ -224,12 +255,11 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
 // (a poll error toasted 'Save failed' after 'Saved to preset N'). All now route their discrete-write
 // outcome through paramWriteOutcome's settlements.
 describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('setEnum guards BEFORE the optimistic write (an unsent value must not stay on screen)', () => {
-    const i = editor.indexOf('setEnum = async (e: EnumParam, value: number)');
-    expect(i).toBeGreaterThan(-1);
-    const body = editor.slice(i, i + 600);
+    // Scoped to setEnum's own body (was a 600-char window — a comment/dead code could satisfy it).
+    const body = methodBody(editor, 'setEnum = async (e: EnumParam, value: number)');
     const guard = body.indexOf('if (!c || (!c.pack && !this.paramsWithoutPack)) return;');
     const optimistic = body.indexOf('e.value = value;');
     expect(guard).toBeGreaterThan(-1);
@@ -294,7 +324,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 // surfaced (the placement toast wins over the settings toast because it is the more fundamental
 // failure). No second mechanism is introduced.
 describe('P6 — scalar stale guard wiring + pasteBlock routes through the grid-op decision', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('every scalar call site supplies the reader + the sent value (get + sent)', () => {
     // bypass, channel, scene, tempo, tuner — all five, in the settleScalarWrite target+args shape

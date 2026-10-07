@@ -644,6 +644,14 @@
   // ── value plumbing (live refs resolved by id each call) ──
   const knob = (id: number) => knobById.get(id);
   const enm = (id: number) => enumById.get(id);
+  // A served param whose value the device could NOT resolve (null value/norm — the non-positional
+  // GLOBAL bulk read) must render as an EXPLICIT unknown control, never a knob parked at 0 (a real
+  // zero is indistinguishable from a fabricated one). These predicates gate every widget branch.
+  const knobUnknown = (id: number): boolean => { const p = knob(id); return !!p && p.norm == null && p.value == null; };
+  const enumUnknown = (id: number): boolean => { const e = enm(id); return !!e && e.value == null; };
+  const ctlUnknown = (c: Ctl): boolean =>
+    c.kind === 'cont' ? knobUnknown(c.id) : c.kind === 'toggle' || c.kind === 'select' ? enumUnknown(c.id) : false;
+  const ctlReason = (c: Ctl): string | undefined => (c.kind === 'cont' ? knob(c.id)?.unresolved : enm(c.id)?.unresolved);
   const pct = (id: number) => Math.round((knob(id)?.norm ?? 0) * 100);
   const valText = (id: number) => {
     const p = knob(id);
@@ -1337,6 +1345,17 @@
   {/if}
 </div>
 
+<!-- An unresolved param (server null value/norm — the non-positional GLOBAL read) renders an explicit,
+     INERT unknown tile. NEVER a knob parked at 0: a fabricated zero is indistinguishable from a real
+     one, the exact defect the null contract exists to end. The `reason` is the server's own string. -->
+{#snippet unknownCtl(label: string, reason?: string)}
+  <div class="unknownctl" role="group" aria-label={`${label} — value unavailable`} title={reason ? `unknown value — ${reason}` : 'unknown value'}>
+    <span class="ukv mono">—</span>
+    <span class="ukl">{label}</span>
+    <span class="ukr">value unavailable</span>
+  </div>
+{/snippet}
+
 {#if searching}
   <!-- live search results: a COMPACT single-column list — one row per match, so a short pane shows
        many matches instead of one full control card. Each row keeps a working, inline control. -->
@@ -1353,7 +1372,9 @@
           onpointerdowncapture={(e) => onPinArm(e, c)}
           use:longPress={{ onLongPress: (d) => onPinLongPress(c, d) }}
         >
-          {#if c.kind === 'cont' && view === 'knob'}
+          {#if ctlUnknown(c)}
+            {@render unknownCtl(c.label, ctlReason(c))}
+          {:else if c.kind === 'cont' && view === 'knob'}
             <span class="reslbl" title={c.label}>{c.label}</span>
             <span class="resctl">
               <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
@@ -1508,7 +1529,9 @@
                 <!-- MODIFIER BADGE — opens the modifier editor (active modifier; per-control binding pending decode) -->
                 <button class="modbadge" onpointerdown={(e) => e.stopPropagation()} onclick={() => openMod(c)} title="Edit modifier">∿</button>
               {/if}
-              {#if c.kind === 'cont' && w.view === 'knob'}
+              {#if ctlUnknown(c)}
+                {@render unknownCtl(c.label, ctlReason(c))}
+              {:else if c.kind === 'cont' && w.view === 'knob'}
                 {@const d = dialFor(w)}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
                 <div
@@ -3074,6 +3097,58 @@
     text-align: center;
     color: var(--textmuted);
     font-size: 13px;
+  }
+  /* Explicit UNKNOWN control — a param the device could not resolve. Inert (no pointer affordance),
+     an em-dash readout, and the reason in the tooltip. Never a knob parked at 0. */
+  .unknownctl {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+    width: 100%;
+    height: 100%;
+    padding: 6px;
+    text-align: center;
+    border: 1px dashed var(--border2);
+    border-radius: 9px;
+    background: rgba(255, 255, 255, 0.015);
+    opacity: 0.75;
+    cursor: help;
+    overflow: hidden;
+  }
+  .unknownctl .ukv {
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--textdim);
+  }
+  .unknownctl .ukl {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text2);
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .unknownctl .ukr {
+    font-size: 9px;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--textfaint);
+  }
+  .resrow .unknownctl {
+    flex: 1 1 auto;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 8px;
+    border: 0;
+    background: transparent;
+    height: auto;
+  }
+  .resrow .unknownctl .ukv {
+    font-size: 15px;
   }
   .respop-bg {
     position: fixed;

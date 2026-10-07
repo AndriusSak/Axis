@@ -11,8 +11,9 @@
     options,
     accent = '#35c9d6',
     onChange
-  }: { label: string; value: number; options: Opt[]; accent?: string; onChange: (v: number) => void } = $props();
+  }: { label: string; value: number | null; options: Opt[]; accent?: string; onChange: (v: number) => void } = $props();
 
+  const unknown = $derived(value == null);
   const current = $derived(options.find((o) => o.value === value));
   // width scales with the longest label, like the design (maxLen*8 + 50, clamped)
   const width = $derived.by(() => {
@@ -25,6 +26,7 @@
   let fieldEl = $state<HTMLDivElement | null>(null);
 
   function toggle() {
+    if (unknown) return; // unresolved value — the field is inert, never opened with a '—'
     if (open) {
       open = false;
       return;
@@ -45,8 +47,8 @@
 
 <div class="dd-wrap" style="--c:{accent}; width:{width}px">
   <div class="lbl">{label}</div>
-  <div class="field" class:open bind:this={fieldEl} role="button" tabindex="0" onclick={toggle} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}>
-    <span class="cur">{current?.label ?? value}</span>
+  <div class="field" class:open class:unknown bind:this={fieldEl} role="button" tabindex="0" onclick={toggle} onkeydown={(e) => (e.key === 'Enter' || e.key === ' ') && toggle()}>
+    <span class="cur">{current?.label ?? (value == null ? '—' : value)}</span>
     <span class="caret">▾</span>
   </div>
 </div>
@@ -96,6 +98,11 @@
   .field.open,
   .field:hover {
     border-color: var(--c);
+  }
+  .field.unknown {
+    border-style: dashed;
+    opacity: 0.7;
+    cursor: default;
   }
   .cur {
     overflow: hidden;

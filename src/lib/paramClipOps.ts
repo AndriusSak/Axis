@@ -35,14 +35,17 @@ export interface ParamValueClip {
 }
 
 /** Snapshot a single served param's value. Returns null when the param carries no device paramId
- *  (it cannot be written back — never guessed). `continuous` picks which field is the value. */
+ *  (it cannot be written back — never guessed) OR its value is unresolved (null norm/value — the
+ *  non-positional GLOBAL read), so a fabricated 0 is never captured. `continuous` picks which field. */
 export function captureParamValue(
-  p: { id?: number; name: string; value: number; norm?: number },
+  p: { id?: number; name: string; value: number | null; norm?: number | null },
   block: string,
   continuous: boolean
 ): ParamValueClip | null {
   if (p.id == null) return null;
-  return { paramId: p.id, name: p.name, value: continuous ? (p.norm ?? 0) : p.value, continuous, block };
+  const v = continuous ? p.norm : p.value;
+  if (v == null) return null; // unresolved — nothing honest to capture (never 0)
+  return { paramId: p.id, name: p.name, value: v, continuous, block };
 }
 
 /** The result of matching a clip against a target block's served params. */

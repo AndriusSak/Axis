@@ -549,14 +549,25 @@ that would settle the GLOBAL question completely.
 / 174 files** · `svelte-check` 0/0 · build ok · Playwright **142/142**. Route counts unchanged (83 app /
 92 router).
 
-- **⚠ OPEN, created by the P9 fix — the Axis side of the new `null` contract.** ForgeFX now legitimately
-  sends `value: null` for an unresolved GLOBAL param, but Axis still types `NamedParam.value: number` and
-  `EnumParam.value: number` (`src/lib/types.ts:20-40`) and has no handling for it: the server is honest and
-  the client can meet a value it was never told about. **The merged-tree gate cannot catch this** —
-  `svelte-check` does not inspect a JSON boundary and no GLOBAL knob is covered by the e2e suite. Fix:
-  widen the client types to `number | null`, render unknown explicitly (disabled control / em-dash) and
-  ensure no knob position or slider arithmetic turns null into `NaN` — **never coerce back to 0**, which
-  would recreate the fabricated-value defect on the other side of the wire.
+- **✅ DONE (P10) — the Axis side of the new `null` contract.** ForgeFX now legitimately sends
+  `value: null` for an unresolved GLOBAL param; Axis was widened to match. `NamedParam.value` /
+  `NamedParam.norm` / `EnumParam.value` are `number | null` (`src/lib/types.ts`) with an optional
+  `unresolved` reason, and every consumer renders/handles unknown EXPLICITLY — never a fabricated 0:
+  - **Formatting** (`format.ts`): `paramValue()` returns `null` for an unknown reading (never a number)
+    and `fmtCompact`/`fmtNumber`/`fmtValue` render the em-dash `—`. `paramValueAtNorm(norm, p)` is the
+    explicit non-null path for the always-known positions (device push, local write, meter seed), so a
+    null can no longer reach that arithmetic.
+  - **Rendering**: ControlSurface routes an unresolved control to an inert `unknownCtl` tile (em-dash +
+    the server reason) BEFORE any knob/fader/slider branch; `MidiRemoteSection` renders an inert tile
+    for an unresolved GLOBAL knob; `Dropdown`/`Toggle` render `—` and are inert for a null value;
+    `FaderBank`/`EQGraph` drop an unresolved band rather than draw it at 0.
+  - **No fabrication on the write/capture side**: `setParam`/`setPinnedParam`/`setEnum`/`setPinnedEnum`
+    return early on an unknown value (no fabricated undo baseline), and `captureChannel`,
+    `captureParamValue`, `captureEntry` and `#applyClip` SKIP an unresolved value instead of storing/writing 0.
+  - **Pinned**: unit tests in `src/lib/nullContract.test.ts` (pure modules + source-scans of the
+    components) and `e2e/34-null-param-unknown.spec.ts` (a null-valued knob renders inert, never a knob
+    at 0). NOTE: Playwright was not run in this round — the e2e spec is unexecuted and is the one claim
+    that still needs the orchestrator's run to confirm.
 
 ## Do NOT chase (checked and rejected by the review)
 

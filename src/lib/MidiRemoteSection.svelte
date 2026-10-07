@@ -16,6 +16,10 @@
   const csRows = $derived(buildControlSwitchRows(editor.params, editor.enums));
   const setKnob = (p: NamedParam, n: number) => editor.setParam(p, n);
   const setSel = (e: EnumParam, v: number) => editor.setEnum(e, v);
+  // A served GLOBAL param the device could not resolve (null value/norm — the non-positional bulk read)
+  // renders an inert unknown tile, NEVER a knob parked at 0 or a dropdown on a fabricated ordinal.
+  const pUnknown = (p: NamedParam) => p.norm == null && p.value == null;
+  const eUnknown = (e: EnumParam) => e.value == null;
 </script>
 
 <section class="midi">
@@ -27,13 +31,20 @@
   <div class="grid">
     {#each rows as r (r.spec.id)}
       {#if r.status === 'knob'}
-        <Knob
-          value={r.param.norm ?? 0}
-          label={r.param.name}
-          valueText={fmtValue(r.param)}
-          onInput={(v) => setKnob(r.param, v)}
-          onReset={() => setKnob(r.param, 0)}
-        />
+        {#if pUnknown(r.param)}
+          <div class="gated" title={`${r.param.name} — value unavailable: ${r.param.unresolved ?? 'the device did not resolve it'}`}>
+            <span class="gl">{r.param.name}</span>
+            <span class="gw">value unavailable — {r.param.unresolved ?? 'the device did not resolve it'}</span>
+          </div>
+        {:else}
+          <Knob
+            value={r.param.norm!}
+            label={r.param.name}
+            valueText={fmtValue(r.param)}
+            onInput={(v) => setKnob(r.param, v)}
+            onReset={() => setKnob(r.param, 0)}
+          />
+        {/if}
       {:else if r.status === 'select'}
         <Dropdown
           label={r.enumParam.name}
@@ -54,13 +65,20 @@
   <div class="grid">
     {#each csRows as r (r.spec.id)}
       {#if r.status === 'knob'}
-        <Knob
-          value={r.param.norm ?? 0}
-          label={r.param.name}
-          valueText={fmtValue(r.param)}
-          onInput={(v) => setKnob(r.param, v)}
-          onReset={() => setKnob(r.param, 0)}
-        />
+        {#if pUnknown(r.param)}
+          <div class="gated" title={`${r.spec.label} — value unavailable: ${r.param.unresolved ?? 'the device did not resolve it'}`}>
+            <span class="gl">{r.spec.label}</span>
+            <span class="gw">value unavailable — {r.param.unresolved ?? 'the device did not resolve it'}</span>
+          </div>
+        {:else}
+          <Knob
+            value={r.param.norm!}
+            label={r.param.name}
+            valueText={fmtValue(r.param)}
+            onInput={(v) => setKnob(r.param, v)}
+            onReset={() => setKnob(r.param, 0)}
+          />
+        {/if}
       {:else if r.status === 'select'}
         <div class="ctl">
           <Dropdown
@@ -71,7 +89,7 @@
           />
           {#if r.ordinalOnly}
             <span class="hint" title={`${r.spec.name} (pid ${r.spec.id})`}>
-              no option labels served — ordinal {r.enumParam.value}
+              no option labels served — ordinal {eUnknown(r.enumParam) ? '—' : r.enumParam.value}
             </span>
           {/if}
         </div>

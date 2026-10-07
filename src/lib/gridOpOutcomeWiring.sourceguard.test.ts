@@ -17,23 +17,39 @@ import { fileURLToPath } from 'node:url';
 // says every write landed; a refusal is surfaced instead of a false success toast.
 const read = (rel: string) => readFileSync(fileURLToPath(new URL(rel, import.meta.url)), 'utf8');
 
+/** Strip comments so a guard cannot be satisfied by commented-out text. */
+const stripComments = (s: string) => s.replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+/** The brace-matched body of the member whose signature starts with `sig` (comments stripped). */
+function methodBody(src: string, sig: string): string {
+  const i = src.indexOf(sig);
+  if (i < 0) throw new Error(`source-guard: member not found: ${sig}`);
+  const start = src.indexOf('{', i + sig.length);
+  if (start < 0) throw new Error(`source-guard: no body for: ${sig}`);
+  let depth = 0;
+  for (let j = start; j < src.length; j++) {
+    if (src[j] === '{') depth++;
+    else if (src[j] === '}') { depth--; if (depth === 0) return src.slice(start, j + 1); }
+  }
+  return src.slice(start);
+}
+
 describe('grid/routing ops — undo fidelity wiring', () => {
-  const editor = read('./editor.svelte.ts');
+  const editor = stripComments(read('./editor.svelte.ts'));
 
   it('imports the pure grid-op decision module', () => {
     expect(editor).toMatch(/import \{ decideGridOpOutcome \} from '\.\/gridOpOutcome'/);
   });
 
   it('#runOp returns each write SETTLEMENT (place/remove/cable) instead of discarding it', () => {
-    expect(editor).toMatch(/#runOp = async \(op: import\('\.\/history\.svelte'\)\.HistoryOp\): Promise<WriteSettlement>/);
-    expect(editor).toMatch(/case 'place': return this\.#writeSettlement\(forgefx\.placeCell/);
-    expect(editor).toMatch(/case 'remove': return this\.#writeSettlement\(forgefx\.clearCell/);
-    expect(editor).toMatch(/case 'cable': return this\.#writeSettlement\(forgefx\.cable/);
+    const body = methodBody(editor, "#runOp = async (op: import('./history.svelte').HistoryOp): Promise<WriteSettlement>");
+    expect(body).toMatch(/case 'place': return this\.#writeSettlement\(forgefx\.placeCell/);
+    expect(body).toMatch(/case 'remove': return this\.#writeSettlement\(forgefx\.clearCell/);
+    expect(body).toMatch(/case 'cable': return this\.#writeSettlement\(forgefx\.cable/);
   });
 
   it('#runOps collects settlements and aborts on a transport error (never finishes a partial step)', () => {
-    expect(editor).toMatch(/#runOps = async \(ops: import\('\.\/history\.svelte'\)\.HistoryOp\[\]\): Promise<WriteSettlement\[\]>/);
-    expect(editor).toMatch(/if \(s\.status === 'error'\) break;/);
+    const body = methodBody(editor, "#runOps = async (ops: import('./history.svelte').HistoryOp[]): Promise<WriteSettlement[]>");
+    expect(body).toMatch(/if \(s\.status === 'error'\) break;/);
   });
 
   it('every grid/routing op settles through decideGridOpOutcome before recording', () => {
