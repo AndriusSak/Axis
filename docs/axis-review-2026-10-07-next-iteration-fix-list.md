@@ -309,12 +309,12 @@ Not from the original review: what the rounds themselves surfaced as the next be
 
 ---
 
-## Found by the Opus effort A/B (2026-10-07) — VERIFIED by reading, unfixed
+## Found by the Opus effort A/B (2026-10-07) — ALL SHIPPED in P5 (two flags remain)
 
 That run's original purpose was to calibrate `--effort` (it did — see the skill note), but it doubled as
-an unbriefed 122-line bug hunt on the code these rounds had just shipped. Everything below was re-read in
-the source before filing. The two marked **HIGH/MEDIUM** are in the same false-accepted /
-wrong-value-on-screen class this whole list has been closing.
+an unbriefed 122-line bug hunt on the code these rounds had just shipped. Everything listed here was
+re-read in the source before filing and then fixed in round P5 — see the P5 section below for what
+landed, plus the two things the fix round deliberately left open.
 
 - **[HIGH] `match` closes the write window on ANY 0x64, so a late rejection is missed.**
   `ForgeFX/server/src/drivers/gen3.ts:290` — `match: (fs) => fs.some((f) => f[5] === 0x64)` resolves on
@@ -351,6 +351,51 @@ wrong-value-on-screen class this whole list has been closing.
 **Answered by the run (don't re-ask):** does `dev.request` throw on timeout, or return what it collected?
 The P2.2 suite pins the silent case as `{ok:true}` (the `WindowTransport` replays the real resolution
 semantics), so a completed wait with no 0x64 is an accept — not an error.
+
+## P5 — shipped 2026-10-07 (the A/B findings + the wider write-outcome census)
+
+- **The write-outcome sweep is finished** (`e58482d`, Axis). `settleEnumWrite` gained a required `sent`
+  argument and now reverts **only when the on-screen value is still the one this write set**
+  (`stale = target.value !== sent`) — so a late rejection can no longer wipe a newer value, which the
+  250 ms discrete window made easy (A→B then B→C). Design note: the guard lives in the pure module
+  because that is the only place the node-env harness can prove it; the history-drop and the refusal
+  toast still apply to a stale settlement. Also fixed: `setEnum` guards **before** its optimistic write;
+  `toggleBypass`, `setChannel` and `selectScene` settle their outcome (no more throw-only catch, and
+  `toggleBypass` no longer toasts an unverified success); `retype` gates its "Type changed" toast;
+  `save()`'s `poll()`/`refreshSlot` moved out of the save `try` so a poll error can't be reported as a
+  failed save; `setEnum`/`setPinnedEnum` call `#writeSettlement` instead of duplicating it; and the stale
+  `gen3.ts:1391-1393` citation now names the symbol.
+  **Export signature changed (reported, all call sites updated):**
+  `settleEnumWrite(target, from, sent, historyId, outcome, io)`.
+- **Grid/routing undo is honest** (`4e4bc56`, Axis). The premise held for every op: `forgefx.placeCell/
+  clearCell/cable` all resolve `{ok}` and `req()` only throws on non-2xx, so a refusal was awaited and
+  discarded while `history.record` fired regardless; `load()` reconciled the display and left the undo
+  entry. Now a new pure `gridOpOutcome.ts` decides over the collected settlements (reusing
+  `settleWriteSet`): the op is recorded **only when every write landed**, a transport error aborts the
+  remaining steps instead of hammering a dead link, a device refusal continues past the refused step, and
+  the success toasts are conditional (all seven ops toasted unconditionally before).
+  **Seam change (the known #1 hazard, verified by the merged-tree `svelte-check`):**
+  `EditorSurface.removeAt` widened to `Promise<boolean | void>` — the store returns whether the clear
+  landed, the offline `convertEditor` returns void, both satisfy the seam.
+- **The write window closes only on OUR rejection** (`af18f50`, ForgeFX) — the A/B's HIGH. One
+  `isOurReject(f)` predicate is now used in **both** `match` and `rejected`, so a foreign-function 0x64
+  (a refused read, say) can no longer end the wait early and hide a real rejection; the conservative bias
+  is preserved (a too-short 0x64 still counts as ours; the same-function residual cannot be
+  disambiguated) and the comment now agrees with the code. Test: a foreign 0x1f at 60 ms then our 0x01
+  rejection at 150 ms → `{ok:false}` (red before the fix). Also: `#lastLocalEditAt` is stamped **before**
+  the send in `setParam` (and in its identical sibling `setType`), and the shared write route now
+  validates `value` (finite; an integer ordinal in the codec's `0..16383` when `!continuous`) → 400.
+- **Premise correction worth keeping:** the A/B filed the unvalidated `value` as "relies on the codec
+  throwing → 500 instead of 400". Probing the codec disproved that: `buildSetParameter` encodes `NaN`,
+  `1.5`, `20000` and `Infinity` as a float32 **without throwing**, and a live route probe returned
+  **200 `{ok:true}`** with the garbage reaching the driver — a silent garbage write reported as success,
+  which is worse than the 500 it was filed as. The 400 validation was implemented anyway.
+
+**Left open by P5 (both flagged by the workstreams, not silently dropped):**
+- `settleScalarWrite` has **no equivalent staleness guard** — a rapid double-write on one control
+  (bypass/scene) can still clobber. The A→B→C protection currently covers enum writes only.
+- **`pasteBlock`'s inline op-loop (~:2350) still has the grid-op class**: its writes are awaited and
+  discarded, so a refusal is not reflected in its toasts. Outside the round's declared region.
 
 ---
 

@@ -8,8 +8,8 @@ bottom.
 
 ## Where `main` is
 
-- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P4 fix rounds**
-  (2026-10-07, below). Latest merged-tree verification: **1796 unit tests / 171 files** · `svelte-check`
+- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P5 fix rounds**
+  (2026-10-07, below). Latest merged-tree verification: **1817 unit tests / 173 files** · `svelte-check`
   **0 errors / 0 warnings** · build **ok** (bare `npm run build` — the heap flag lives in `.npmrc`) ·
   **Playwright 142/142** (34 spec files) · ForgeFX **41 suites** · forgefx-midi **84**.
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
