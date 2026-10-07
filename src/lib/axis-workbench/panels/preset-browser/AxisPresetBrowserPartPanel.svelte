@@ -79,6 +79,23 @@
   import ContextMenu from '../../../workbench/svelte/ContextMenu.svelte';
   import { menuPositionFromPointer, type WorkbenchMenuItem, type WorkbenchMenuPosition } from '../../../workbench/svelte/contextMenu';
   import { longPress } from '../../longPress';
+  import { forgefx } from '../../../forgefx';
+  import {
+    planSlotReorder,
+    runSlotReorder,
+    type SlotMove,
+    type SlotReorderIo,
+    type SlotReorderPreview
+  } from '../../../slotReorderOps';
+  import {
+    planResetAmp,
+    runResetAmp,
+    type ResetAmpBlock,
+    type ResetAmpIo,
+    type ResetAmpPreview,
+    type ResetAmpResult
+  } from '../../../resetAmpOps';
+  import type { PresetLocations } from '../../../types';
 
   let { panel }: { panel: PanelInstance } = $props();
   let snapshot = $state<AxisPresetBrowserControllerSnapshot>(axisPresetBrowserWorkbenchController.snapshot);
@@ -540,6 +557,159 @@
     else if (ev.key === 'Escape') slotOp = null;
   }
 
+  // ── Manage Presets: multi-select REORDER + Reset AMP blocks per preset (audit §2.4 remainder) ────
+  // Both compose EXISTING endpoints (the copy-by-store sequence / the per-slot batch write) through the
+  // unit-tested planners in slotReorderOps.ts + resetAmpOps.ts. This component only wires the injected
+  // IO to `forgefx`, previews (dry run), gates on an explicit confirm, and reflects the result.
+  const mpReorderIo: SlotReorderIo = {
+    dump: (n) => forgefx.presetBackup(n),
+    load: (bytes) => forgefx.loadBytes(bytes),
+    store: (n) => forgefx.store(n),
+    select: (n) => forgefx.selectPreset(n)
+  };
+  const mpResetIo: ResetAmpIo = {
+    locations: () => forgefx.presetLocations(),
+    select: (n) => forgefx.selectPreset(n),
+    // The AMP block(s) in the currently-selected preset, each with its CURRENT model ordinal (never
+    // invented — a block whose model the server does not serve is left alone).
+    ampBlocks: async () => {
+      const blocks = await forgefx.presetBlocks();
+      const out: ResetAmpBlock[] = [];
+      for (const b of blocks) {
+        if ((b.slug ?? '').toLowerCase() !== 'amp') continue;
+        const p = await forgefx.blockParams(b.effectId);
+        const tv = p.type?.value;
+        if (tv == null) continue;
+        out.push({ eid: b.effectId, typeValue: tv, typeName: p.type?.name ?? null });
+      }
+      return out;
+    },
+    resetAmpBlock: (eid, typeValue) => forgefx.setType(eid, typeValue),
+    store: (n) => forgefx.store(n)
+  };
+  /** The origin preset — re-selected at the end of either op (the batchSetOps restore rule). */
+  const mpRestoreTo = $derived(typeof editor.preset?.number === 'number' ? editor.preset.number : null);
+  /** Reset AMP needs a save-capable v2 device (select + block type write + store all served). */
+  const mpCanResetAmp = $derived(editor.isV2 && !!editor.caps?.supportsSave);
+
+  /** The marked rows that are real device slots, ascending by slot number (the reorder/reset set). */
+  function mpMarkedDeviceSlots(): number[] {
+    const nums: number[] = [];
+    for (const e of data.entries) {
+      if (!snapshot.marked[e.id]) continue;
+      if (e.sourceId !== 'device' || e.cloudOnly || e.converted) continue;
+      if (e.number == null || e.number < 0) continue;
+      nums.push(e.number);
+    }
+    return [...new Set(nums)].sort((a, b) => a - b);
+  }
+  function mpSlotName(slot: number): string {
+    const e = data.entries.find((x) => x.sourceId === 'device' && x.number === slot);
+    return e?.name ?? '';
+  }
+
+  // ── reorder ──
+  let mpReorderOpen = $state(false);
+  /** The marked slots in the DESIRED content order (a permutation of mpMarkedDeviceSlots()). */
+  let mpReorderOrder = $state<number[]>([]);
+  let mpReorderPreview = $state<SlotReorderPreview | null>(null);
+  let mpReorderConfirmed = $state(false);
+  let mpReorderBusy = $state(false);
+  let mpReorderStatus = $state('');
+  function mpOpenReorder() {
+    const slots = mpMarkedDeviceSlots();
+    if (slots.length < 2) { editor.showToast('Mark at least two device slots to reorder', '#f5a623'); return; }
+    if (!editor.canCopySlots) { editor.showToast('Reorder unavailable on this device', '#f5a623'); return; }
+    mpReorderOrder = [...slots];
+    mpReorderPreview = null; mpReorderConfirmed = false; mpReorderStatus = '';
+    mpReorderOpen = true;
+  }
+  function mpReorderMove(i: number, dir: -1 | 1) {
+    const j = i + dir;
+    if (j < 0 || j >= mpReorderOrder.length) return;
+    const next = [...mpReorderOrder];
+    [next[i], next[j]] = [next[j], next[i]];
+    mpReorderOrder = next;
+    mpReorderPreview = null; mpReorderConfirmed = false;
+  }
+  /** The moves: content of mpReorderOrder[i] now lives at the i-th fixed destination slot. */
+  function mpReorderMoves(): SlotMove[] {
+    const slots = mpMarkedDeviceSlots();
+    return mpReorderOrder.map((src, i) => ({ from: src, to: slots[i] }));
+  }
+  function mpReorderDryRun() {
+    mpReorderPreview = planSlotReorder(mpReorderMoves(), mpRestoreTo);
+    mpReorderConfirmed = false;
+    mpReorderStatus = mpReorderPreview.blocked
+      ? `Blocked: ${mpReorderPreview.blocked}`
+      : `Dry run: ${mpReorderPreview.targets.length} slot(s) would be rewritten`;
+  }
+  async function mpReorderApply() {
+    if (!mpReorderPreview || mpReorderPreview.blocked != null || !mpReorderConfirmed || mpReorderBusy) return;
+    mpReorderBusy = true;
+    try {
+      const res = await runSlotReorder(mpReorderPreview, mpReorderIo);
+      if (res.written.length) editor.noteBufferReplaced('Reordered device slots'); // history barrier — undo can't cross a buffer swap
+      for (const m of res.written) void library.refreshSlot(m.to);
+      mpReorderStatus = res.abortedAt
+        ? `Aborted writing slot ${res.abortedAt.to} (${res.error}). ${res.written.length} move(s) already written.`
+        : `Reordered ${res.written.length} slot(s)${res.restored ? ' — original preset restored' : ''}.`;
+      mpReorderPreview = null; mpReorderConfirmed = false; mpReorderOpen = false;
+    } catch (e) {
+      mpReorderStatus = `Reorder failed: ${(e as Error).message}`;
+    } finally {
+      mpReorderBusy = false;
+    }
+  }
+
+  // ── reset AMP blocks per preset ──
+  let mpResetOpen = $state(false);
+  let mpResetLocations = $state<PresetLocations | null>(null);
+  let mpResetPreview = $state<ResetAmpPreview | null>(null);
+  let mpResetResult = $state<ResetAmpResult | null>(null);
+  let mpResetConfirmed = $state(false);
+  let mpResetBusy = $state(false);
+  let mpResetStatus = $state('');
+  async function mpOpenReset() {
+    const slots = mpMarkedDeviceSlots();
+    if (!slots.length) { editor.showToast('Mark at least one device slot to reset', '#f5a623'); return; }
+    if (!mpCanResetAmp) { editor.showToast('Reset AMP unavailable on this device', '#f5a623'); return; }
+    mpResetOpen = true; mpResetPreview = null; mpResetResult = null; mpResetConfirmed = false;
+    mpResetStatus = 'Scanning device slots…';
+    try {
+      mpResetLocations = await mpResetIo.locations();
+      mpResetStatus = `Found ${mpResetLocations.count} stored slots`;
+    } catch (e) {
+      mpResetLocations = null;
+      mpResetStatus = `Scan failed: ${(e as Error).message}`;
+    }
+  }
+  function mpResetDryRun() {
+    if (!mpResetLocations) return;
+    mpResetPreview = planResetAmp(mpResetLocations, mpMarkedDeviceSlots(), mpRestoreTo);
+    mpResetResult = null; mpResetConfirmed = false;
+    mpResetStatus = mpResetPreview.blocked
+      ? `Blocked: ${mpResetPreview.blocked}`
+      : `Dry run: ${mpResetPreview.targets.length} preset(s) would be reset`;
+  }
+  async function mpResetApply() {
+    if (!mpResetPreview || mpResetPreview.blocked != null || !mpResetConfirmed || mpResetBusy) return;
+    mpResetBusy = true;
+    try {
+      mpResetResult = await runResetAmp(mpResetPreview, mpResetIo);
+      if (mpResetResult.written.length) editor.noteBufferReplaced('Reset AMP blocks per preset'); // history barrier
+      for (const loc of mpResetResult.written) void library.refreshSlot(loc);
+      mpResetStatus = mpResetResult.abortedAt != null
+        ? `Aborted at slot ${mpResetResult.abortedAt} (${mpResetResult.error}). ${mpResetResult.written.length} slot(s) already written.`
+        : `Done: ${mpResetResult.written.length} slot(s) reset (${mpResetResult.resetBlocks} AMP block(s))${mpResetResult.noAmp.length ? `, ${mpResetResult.noAmp.length} had no AMP` : ''}${mpResetResult.restored ? ' — original preset restored' : ''}.`;
+      mpResetConfirmed = false; mpResetPreview = null;
+    } catch (e) {
+      mpResetStatus = `Reset failed: ${(e as Error).message}`;
+    } finally {
+      mpResetBusy = false;
+    }
+  }
+
   // Cloud actions mirror the monolith cloudAction() verbatim: upload = snapshot the slot to the version
   // store then push to cloud; download = load the latest cloud version into the edit buffer.
   async function cloudUpload(entry: AxisPresetBrowserEntrySummary) {
@@ -830,6 +1000,20 @@
     {#if markedCount}
       <div class="select-head">
         <span>{markedCount} selected</span>
+        <button
+          type="button"
+          class="mp-act"
+          onclick={mpOpenReorder}
+          disabled={!editor.canCopySlots}
+          title={editor.canCopySlots ? 'Reorder the marked device slots' : 'Reorder needs the dump + edit-buffer-load + store primitives'}
+        >Reorder…</button>
+        <button
+          type="button"
+          class="mp-act"
+          onclick={mpOpenReset}
+          disabled={!mpCanResetAmp}
+          title={mpCanResetAmp ? 'Reset the AMP block(s) in the marked presets' : 'Reset AMP needs a save-capable device'}
+        >Reset AMP…</button>
         <button type="button" onclick={() => axisPresetBrowserWorkbenchController.clearMarks()}>Clear</button>
       </div>
     {:else}
@@ -1207,6 +1391,109 @@
       Writes over the target slot and replaces the edit buffer (unsaved edits are lost). The device
       protocol has no slot copy, so Axis dumps → loads → stores.
     </p>
+  </div>
+{/if}
+
+<!-- Manage Presets — multi-select REORDER of device slots (audit §2.4 remainder). No slot-erase /
+     slot-copy op exists on the wire, so a reorder is a CONTENT PERMUTATION over the copy-by-store
+     sequence: every source is dumped first, then each destination is written. -->
+{#if mpReorderOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="mp-bg" role="presentation" onpointerdown={() => (mpReorderOpen = false)}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="mp-pop" role="dialog" tabindex="-1" aria-label="Reorder selected presets" onpointerdown={(e) => e.stopPropagation()}>
+    <div class="mp-title">Reorder {mpReorderOrder.length} slots</div>
+    <p class="mp-note">
+      Move rows with ↑/↓. Every slot's content is captured first, then written to its new slot — the
+      device protocol has no slot copy/erase, so Axis dumps → loads → stores (a reorder is a permutation
+      of the SAME slots; anything else is refused).
+    </p>
+    <ul class="mp-list">
+      {#each mpReorderOrder as src, i (src)}
+        <li class="mp-row">
+          <span class="mp-pos">{String(i + 1).padStart(2, '0')}</span>
+          <span class="mp-slot mono">{String(src).padStart(3, '0')}</span>
+          <span class="mp-name">{mpSlotName(src)}</span>
+          <button type="button" class="mp-mv" onclick={() => mpReorderMove(i, -1)} disabled={i === 0} aria-label="Move up">↑</button>
+          <button type="button" class="mp-mv" onclick={() => mpReorderMove(i, 1)} disabled={i === mpReorderOrder.length - 1} aria-label="Move down">↓</button>
+        </li>
+      {/each}
+    </ul>
+    {#if mpReorderStatus}<div class="mp-status">{mpReorderStatus}</div>{/if}
+    {#if mpReorderPreview}
+      {#if mpReorderPreview.blocked}
+        <p class="mp-blocked">{mpReorderPreview.blocked}</p>
+      {:else}
+        <ul class="mp-moves">
+          {#each mpReorderPreview.targets as t (t.to)}
+            <li>{String(t.from).padStart(3, '0')} → {String(t.to).padStart(3, '0')}{mpSlotName(t.from) ? ` · ${mpSlotName(t.from)}` : ''}</li>
+          {/each}
+        </ul>
+        <label class="mp-confirm">
+          <input type="checkbox" bind:checked={mpReorderConfirmed} />
+          I understand this overwrites the {mpReorderPreview.targets.length} listed slot(s) on the device.
+        </label>
+      {/if}
+    {/if}
+    <div class="mp-actions">
+      <button type="button" class="mp-btn" onclick={() => (mpReorderOpen = false)}>Cancel</button>
+      <button type="button" class="mp-btn" onclick={mpReorderDryRun} disabled={mpReorderBusy}>Preview (dry run)</button>
+      <button
+        type="button"
+        class="mp-btn danger"
+        onclick={mpReorderApply}
+        disabled={!mpReorderPreview || mpReorderPreview.blocked != null || !mpReorderConfirmed || mpReorderBusy}
+      >{mpReorderBusy ? 'Writing…' : 'Reorder'}</button>
+    </div>
+  </div>
+{/if}
+
+<!-- Manage Presets — Reset AMP blocks per preset (audit §2.4 remainder). The served params carry no
+     per-param default, so the reset is the device's own model re-select (blockOps resetChannel). -->
+{#if mpResetOpen}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="mp-bg" role="presentation" onpointerdown={() => (mpResetOpen = false)}></div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="mp-pop" role="dialog" tabindex="-1" aria-label="Reset AMP blocks per preset" onpointerdown={(e) => e.stopPropagation()}>
+    <div class="mp-title">Reset AMP blocks per preset</div>
+    <p class="mp-note">
+      Per preset: select → re-select the AMP block's model (the device soft-resets it to that model's
+      defaults — the served params carry no per-param default) → store. A preset with no AMP block is
+      left untouched.
+    </p>
+    {#if mpResetStatus}<div class="mp-status">{mpResetStatus}</div>{/if}
+    {#if mpResetPreview}
+      {#if mpResetPreview.blocked}
+        <p class="mp-blocked">{mpResetPreview.blocked}</p>
+      {:else}
+        <p class="mp-lead"><strong>{mpResetPreview.targets.length}</strong> preset(s) would be overwritten.</p>
+        <ul class="mp-moves">
+          {#each mpResetPreview.targets as t (t.location)}
+            <li>{t.code ?? String(t.location).padStart(3, '0')} · {t.name}</li>
+          {/each}
+        </ul>
+        {#if mpResetPreview.skipped.length}
+          <p class="mp-skip-head">Skipped:</p>
+          <ul class="mp-skip">
+            {#each mpResetPreview.skipped as s}<li>slot {s.location} — {s.reason}</li>{/each}
+          </ul>
+        {/if}
+        <label class="mp-confirm">
+          <input type="checkbox" bind:checked={mpResetConfirmed} />
+          I understand this permanently overwrites the {mpResetPreview.targets.length} listed preset(s) on the device.
+        </label>
+      {/if}
+    {/if}
+    <div class="mp-actions">
+      <button type="button" class="mp-btn" onclick={() => (mpResetOpen = false)}>Cancel</button>
+      <button type="button" class="mp-btn" onclick={mpResetDryRun} disabled={mpResetBusy || !mpResetLocations}>Preview (dry run)</button>
+      <button
+        type="button"
+        class="mp-btn danger"
+        onclick={mpResetApply}
+        disabled={!mpResetPreview || mpResetPreview.blocked != null || !mpResetConfirmed || mpResetBusy}
+      >{mpResetBusy ? 'Resetting…' : 'Reset AMP'}</button>
+    </div>
   </div>
 {/if}
 
@@ -1955,6 +2242,159 @@
     margin: 0;
     color: var(--textdim);
     font: 500 10px/1.45 var(--font-ui);
+  }
+  /* Manage Presets — reorder + reset-AMP popovers (audit §2.4 remainder) */
+  .mp-act {
+    height: 22px;
+    padding: 0 8px;
+    border: 1px solid var(--border2, var(--border));
+    border-radius: 6px;
+    background: var(--surface, var(--bg2));
+    color: var(--text2);
+    font: 700 10px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .mp-act:disabled {
+    opacity: 0.4;
+    cursor: default;
+  }
+  .mp-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 129;
+  }
+  .mp-pop {
+    position: fixed;
+    z-index: 130;
+    left: 50%;
+    top: 12%;
+    transform: translateX(-50%);
+    width: 340px;
+    max-width: calc(100vw - 24px);
+    max-height: 76vh;
+    overflow: auto;
+    display: grid;
+    gap: 9px;
+    padding: 12px;
+    border: 1px solid var(--border2, var(--border));
+    border-radius: 12px;
+    background: var(--surface, var(--bg2));
+    box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+  .mp-title {
+    color: var(--textdim);
+    font: 800 9px/1 var(--font-mono);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+  .mp-note {
+    margin: 0;
+    color: var(--textdim);
+    font: 500 10px/1.45 var(--font-ui);
+  }
+  .mp-list {
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    max-height: 220px;
+    overflow: auto;
+  }
+  .mp-row {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 3px 4px;
+    font: 500 11px/1.4 var(--font-ui);
+  }
+  .mp-pos {
+    color: var(--textdim);
+    font: 700 10px/1 var(--font-mono);
+  }
+  .mp-slot {
+    color: var(--text2);
+  }
+  .mp-name {
+    flex: 1;
+    min-width: 0;
+    color: var(--text);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .mp-mv {
+    width: 22px;
+    height: 22px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--bg2);
+    color: var(--text);
+    font: 700 12px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .mp-mv:disabled {
+    opacity: 0.3;
+    cursor: default;
+  }
+  .mp-status {
+    color: var(--textdim);
+    font: 500 10.5px/1.4 var(--font-mono);
+  }
+  .mp-blocked {
+    margin: 0;
+    color: var(--danger, #d6543f);
+    font: 600 11px/1.4 var(--font-ui);
+  }
+  .mp-lead {
+    margin: 0;
+    color: var(--text2);
+    font: 500 11px/1.4 var(--font-ui);
+  }
+  .mp-moves,
+  .mp-skip {
+    margin: 0;
+    padding-left: 18px;
+    font: 500 11px/1.5 var(--font-mono);
+    color: var(--text2);
+    max-height: 160px;
+    overflow: auto;
+  }
+  .mp-skip-head {
+    margin: 0;
+    color: var(--textdim);
+    font: 600 10px/1.4 var(--font-ui);
+  }
+  .mp-confirm {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    color: var(--text);
+    font: 500 10.5px/1.4 var(--font-ui);
+  }
+  .mp-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 7px;
+  }
+  .mp-btn {
+    height: 28px;
+    padding: 0 11px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg2);
+    color: var(--text);
+    font: 700 11px/1 var(--font-ui);
+    cursor: pointer;
+  }
+  .mp-btn.danger {
+    border-color: var(--danger, #d6543f);
+    background: color-mix(in srgb, var(--danger, #d6543f) 16%, transparent);
+    color: var(--danger, #d6543f);
+  }
+  .mp-btn:disabled {
+    opacity: 0.4;
+    cursor: default;
   }
   .pk-list {
     max-height: 280px;
