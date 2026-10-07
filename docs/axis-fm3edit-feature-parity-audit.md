@@ -14,6 +14,11 @@ whole point of writing it down is so the next session starts from evidence inste
 had **already shipped** by the time this draft was read back, and are corrected below. Rule: trust the
 code over any tag in this file — a tag that disagrees with HEAD is a bug in the tag.
 
+**Re-verified against HEAD `45484f3` (2026-10-07, round R16–R20):** §2.4 (reorder + Reset AMP per
+preset), §2.10 (honest cross-preset block paste), §2.11 (param-value clipboard), §2.12 (the last four
+reserved chords) and §3.5 (Setup/Controllers gated honestly) **shipped**; §3.8's Master-Layout-Menu
+warning item is **STOPPED as unverifiable**. Round table + verification in §7.
+
 **How to read the status tags**
 
 | Tag | Meaning |
@@ -148,7 +153,7 @@ rail's `sets` falls through to the toast path, `ToolRail.svelte:12`), no endpoin
   region, **not** a preset ⇒ needs an RE spike for read/write). Until then it is a **research item**,
   not a wiring task.
 
-### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap DONE 2026-10-06; move/delete impossible)
+### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap + reorder + Reset AMP per preset DONE; move/delete impossible)
 FM3-Edit's **Manage Presets** does multi-select **reorder / move / swap / duplicate / delete**
 across device slots, drag-and-drop, plus **Reset AMP blocks** per preset. Axis's preset browser is a
 *viewer/loader*, and (verified at HEAD 2026-10-06) the DEVICE-row context menu in BOTH browsers — the
@@ -159,8 +164,15 @@ toast fallback for NON-device rows.
 - **No new endpoint was needed:** `POST /preset/store` + `POST /preset/name` + the location scan cover
   the shipped ops. The FM3 wire protocol exposes **no slot copy/erase** primitive, so Move/Delete stay
   honest negatives rather than fakes.
-- **Remaining:** multi-select **reorder-by-drag** across slots, and **Reset AMP blocks per preset**
-  (a batch param write — its natural home is §2.11's machinery).
+- **DONE 2026-10-07 (§2.4 remainder):** multi-select **reorder** across slots and **Reset AMP blocks
+  per preset** — `slotReorderOps.ts` (a CONTENT PERMUTATION over the copy-by-store transport: dump →
+  load edit buffer → store; refuses anything that is not a permutation of the same slot set) and
+  `resetAmpOps.ts` (the device's own AMP model re-select per slot over the `batchSetOps` sequence).
+  Both surface as select-head "Reorder…" / "Reset AMP…" actions in the workbench preset browser, each
+  with a dry-run preview, explicit confirm and abort reporting (captures every source dump before any
+  write; aborts on the first error naming the moves already written; re-selects the origin preset).
+  No new endpoint. **Remaining:** drag-and-drop reorder is a UI nicety (the op ships as a multi-select
+  action), and **Move / Delete everywhere** stay honest negatives (no slot-erase op on the wire).
 
 ### 2.5 User Cab / IR management — **Absent**
 FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav`/`.ir` with MPT /
@@ -267,7 +279,7 @@ never faked.
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
-### 2.10 Channel operations — **Partial**
+### 2.10 Channel operations — **DONE** (select + copy/paste/reset, across blocks, scenes and presets)
 Channels A–D select is present (`editor` channel writes + reflection). **Copy channel → paste
 channel**, **reset channel**, and **reset block** are implemented client-side in the Block Editor
 footer (`src/lib/blockOps.ts` + `editor.svelte.ts` `copyChannel/pasteChannel/resetChannel/
@@ -279,10 +291,16 @@ resetBlock`) over the existing per-block param/type writes — no new endpoint.
   structurally undoable.
 - **DONE 2026-10-06:** **copy channel across blocks** and **set channel across all scenes**
   (`src/lib/channelOps.ts` + the Block Editor footer). The cross-scene sequence always restores the
-  origin scene and reports per-scene failures rather than pretending success. Still open: **copy/cut a
-  block across presets** (the block clipboard is in-memory, same session).
+  origin scene and reports per-scene failures rather than pretending success.
+- **DONE 2026-10-07:** **copy/cut a block across presets** is now honest rather than blind — the
+  in-memory `blockClipboard` used to address the SOURCE preset's eid and write the SOURCE paramIds
+  blindly. `r19BlockClipOps.ts` (pure decision + injectable IO) decides the target eid against the
+  TARGET layout (onto-block, or place reusing the source eid when free, else a free instance of the
+  SAME family from the served roster), retypes, RE-READS the target preset's served params and writes
+  only the ids it exposes (dropped counted); it gates with a precise reason when no family instance is
+  free or the roster is unavailable. `BlockClipboard` gained an additive `preset` field.
 
-### 2.11 Cross-preset / batch editing — **Partial** (batch set DONE 2026-10-06; param copy/paste between blocks still absent)
+### 2.11 Cross-preset / batch editing — **DONE** (batch set + param-value clipboard)
 FM3-Edit's hidden **Parameter Batch Set** ("Set In Multiple Presets" on a parameter context menu) is
 **implemented**: `src/lib/batchSetOps.ts` (pure planner + injectable IO, the `sceneOps.ts` pattern) plus
 the registered workbench panel `axis.batchSet` (action `axis.openBatchSet`) — a dry-run preview of
@@ -290,14 +308,28 @@ exactly which slots change, an explicit confirm, then per slot `GET /preset/loca
 `POST /preset/select` → `PUT /preset/blocks/:eid/params/:paramId` (the `continuous` flag sent
 explicitly) → `POST /preset/store`, restoring the origin preset at the end and aborting on the first
 error with the precise list of slots already written. **Destructive by design** — it overwrites slots,
-and the UI says so. Not yet reachable from a rail button (openable through its action). Still absent:
-**copy/paste a parameter value between blocks**.
+and the UI says so. Not yet reachable from a rail button (openable through its action).
+- **DONE 2026-10-07:** **copy/paste a single parameter VALUE between blocks** — `paramClipOps.ts`
+  (pure planner + injectable IO) snapshots one served param by its DEVICE paramId (knob norm / enum
+  ordinal) and writes it back through the existing per-block PUT. An id the target block does not
+  expose, or a kind mismatch (norm vs ordinal), is DROPPED with a reason — never guessed. Surfaced from
+  the EXISTING `ControlSurface` control context menu (`paramClipMenu.ts`); no new footer button.
 
-### 2.12 Keyboard shortcut parity — **Partial**
+### 2.12 Keyboard shortcut parity — **DONE** (FM3-Edit parity set)
 FM3-Edit is shortcut-rich (Cmd+S save, Cmd+M manage, P preset picker, A/B/C/D channels, Space
 bypass, Backspace delete, Cmd+D disconnect, Cmd+U shunt, Shift+Space engage-all-scenes, Cmd+I reset,
-arrow-key value nudges…). Axis registers only **Cmd+K** (palette) and **Cmd+Z / Cmd+Y**
-(`routes/+page.svelte:86-94`). No global shortcut map.
+arrow-key value nudges…). Axis now has a single-source registry, `src/lib/shortcuts.ts`
+(`SHORTCUTS`, data-driven, unit-tested; the `.svelte` hookup is pinned by a source guard in
+`shortcuts.test.ts`): **21 chords, all `wired`** — palette, undo/redo, save, preset picker, channels
+A–D, bypass, delete block, dismiss, disconnect-all, insert shunt, reset, block copy/paste, plus the
+**former four reserved gaps**: ⌘M manage-presets (opens the workbench Preset Browser page, else the
+legacy library screen), ⇧Space engage-all-scenes (`sceneOps.bulkBypass` — the Scene Manager's own bulk
+sequence, no wire op), ↑/↓ parameter nudges (`paramNudge.ts` over the SERVED min/max/norm or enum
+ordinal list, applied via setParam/setEnum; the target is the last-touched param in the open block
+editor, falling back to the block's primary control; gated — the key is not swallowed — when nothing
+is open / no served step exists). Modifiers must match exactly, and bare chords are skipped while a
+text field is focused. Any future FM3-Edit chord with no backing action is registered
+`not-yet-wired` with a reason rather than faked.
 
 ### 2.13 Preset / cab colour tagging — **DONE** · 2026-10-06
 FM3-Edit lets you colour/flag picker entries and filter by colour. **Shipped**
@@ -354,10 +386,16 @@ a reason** (the FM3 wire protocol has no slot-erase op — see §2.4). The remai
 (`PresetBrowser.svelte` `['removeDevice','move','delete']`) is only the legacy toast fallback for
 NON-device rows (converted/cloud/local entries). See §2.4.
 
-### 3.5 Setup / Controllers depend on the virtual-effect mechanism — **Partial**
-Setup = GLOBAL only; Controllers = CONTROLLERS block only. Both are gated on
-`caps.virtualEffects` (`ToolRail.svelte:30-42`), so on a legacy v1 server or AM4 **the whole Setup
-screen disappears**. FM3-Edit's Setup is broader (MIDI/Remote, FC config, utility, calibration).
+### 3.5 Setup / Controllers depend on the virtual-effect mechanism — **Done (honest gate)** · 2026-10-07
+Setup = GLOBAL only; Controllers = CONTROLLERS block only. Both were **FILTERED out of the rail**
+whenever the served caps lacked the backing virtual effect (`caps.virtualEffects = []` on AM4/VP4 or a
+legacy v1 server), so **the whole Setup screen disappeared with no explanation**. Now they stay
+**visible and render DISABLED with the exact capability reason** in their tooltip (no-dead-nav rule,
+01-shell §9). Visibility/availability is derived from the SERVED capabilities (never a device id) by
+the pure module `src/lib/gateRailItems.ts` — unit-tested against the real device cap shapes (grid trio
+vs AM4) and source-guarded against the old silent-filter branch; `ToolRail.svelte` renders the state in
+both the desktop rail and the mobile drawer. No user-visible label changed. Still true: FM3-Edit's
+Setup is broader (MIDI/Remote, FC config, utility, calibration) — the served-param limits are §2.8/§3.7.
 
 ### 3.6 Known UX defects already logged (5 of 6 addressed; only item 6 open)
 From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"):
@@ -428,7 +466,11 @@ custom label, live read-back. Status after the FC-parity round (`fcParity.ts` +
 - **Import / export layouts** (backup) — **DONE** (client-side, `fcLayoutPackage.ts`): Axis JSON
   `.fclayout.json`, FM3 exports by live read-back (`/fc/state`), blind devices export the session’s
   values; import validates then writes back field-by-field with configs remapped to the target layout.
-- **Master Layout Menu warning / edit** precondition — still open.
+- **Master Layout Menu warning / edit** precondition — **STOPPED as UNVERIFIABLE (2026-10-07):** the
+  served `/fc/model` (`FcModel` contract) carries no MLM / edit-precondition field
+  (`GLOBAL_FC_MLM_DISABLED` is a GLOBAL-family param, not FC eid 199), so no warning is added and no
+  field is invented; a guard test (`fcMasterLayoutEvidence.test.ts`) records the evidence boundary.
+
 - **Songs/Setlists** integration (§2.3) — still open (needs §2.3).
 
 ---
@@ -534,7 +576,7 @@ not surfaced — see §3.6 item 3.
    **DONE** (`planDisconnectAll/planInsertShunt/planResetBlock/planSwap/planPasteBlock` in `gridRouting.ts`;
    ⌘D/⌘U/⌘I/⌘C/⌘V). Caveat: reset restores placement+wires, not the pre-reset param VALUES (v1 limit).
 3. ~~**Channel copy/paste/reset** (§2.10)~~ — **DONE** (`blockOps.ts` + Block Editor footer).
-4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; 17 wired, 4 reserved).
+4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; **21 wired, 0 reserved** as of 2026-10-07).
 5. **Mute + Scene Ignore** (§3.1) — **Scene Ignore DONE** (served `*_SCENEIGNORE` enum); **Mute
    left disabled** (no served generic per-block mute param — see §3.1).
 6. **Block-pane height / search-card** UX fixes (§3.6 items 1-2) — **DONE** (compact search rows).
@@ -561,11 +603,14 @@ remain absent.
 9. **FC Edit completion** (§3.8) — **PARTIALLY DONE**: Layout Links + Per-Preset switch assignment
    (served Layout/Per-Preset categories) and layout import/export shipped; CS MIDI and FC
    devices/config **gated** (no served param); per-preset definitions blocked on the preset-binary
-   parser (§5).
+   parser (§5). The **Master Layout Menu warning** item is **STOPPED as unverifiable** (2026-10-07) —
+   no served MLM field exists to gate on.
 10. ~~**Preset Librarian / Manage Presets** (§2.4)~~ — **DUPLICATE + SWAP DONE 2026-10-06** (both the
     monolith `PresetBrowser.svelte` and the workbench menu, over the copy-by-store sequence in
-    `presetSlotOps.ts`). **Move / Delete remain impossible**: the FM3 wire protocol has no slot-erase
-    op, so they are honest disabled entries. No new endpoint was needed.
+    `presetSlotOps.ts`). **REORDER + RESET AMP DONE 2026-10-07** (`slotReorderOps.ts` content
+    permutation + `resetAmpOps.ts` per-slot AMP model re-select; select-head actions with dry-run +
+    confirm). **Move / Delete remain impossible**: the FM3 wire protocol has no slot-erase op, so they
+    are honest disabled entries. No new endpoint was needed.
 11. ~~**Block library (.blk-style)**~~ — **DONE 2026-10-06** as an Axis-local `.axblk` library (§2.6);
     byte-compatible Fractal `.blk` interop remains out of scope.
 12. ~~**Surface `GET /diag/ranges` in the UI** (§3.6 item 3)~~ — **DONE 2026-10-06** (round 2:
@@ -607,6 +652,22 @@ Measured in-browser: 12 buttons need 1171 + 8×11 gap + 32 padding = **1291px in
 pane. Fix: footer button inset 16 → 12px (~85px slack) + shorter labels with the full wording kept in
 `title`/`aria-label`. Lesson: **chrome must not steal content area** — measure `scrollWidth` against
 sum(button widths) + gaps + padding before adding an action to a full toolbar.
+
+**Round R16–R20 — merged 2026-10-07** (orchestrator: Lykos; five parallel subagents, one git worktree
+each, Axis-only / offline-provable — no hardware, no new endpoint). All five merged into `main`
+(`45484f3`) with **one conflict**, resolved by unioning the import block in `src/lib/editor.svelte.ts`
+(r17's `sceneOps`/`paramNudge` vs r19's `paramClipOps`/`r19BlockClipOps`); the rest auto-merged.
+Verification on the merged tree: Axis **1629 unit tests / 154 files** · `svelte-check` **0 errors,
+0 warnings** · build **ok** (`--max-old-space-size=2560`; default heap OOMs in this VM) · e2e `25`+`26`
+**41/41**.
+
+| # | Item | Result | Commit |
+|---|---|---|---|
+| R16 | UI-C sweep F1/F2/F3 (phone bottom-bar reachability) — *not an audit §* | Done — nav shrinks + swipes, `⋯` menu opens upward, phone edit rail suppressed | `1b7c98f` |
+| R17 | §2.12 keyboard shortcut parity | Done — the four reserved chords wired (⌘M / ⇧Space / ↑ / ↓) | `8fd1b42` |
+| R18 | §2.4 Manage Presets remainder | Done — multi-select reorder + Reset AMP per preset (no new endpoint) | `cb227ce` |
+| R19 | §2.10 + §2.11 clipboard | Done — param-value clipboard + honest cross-preset block paste | `c12d7ca` |
+| R20 | §3.5 + §3.8 rail gating | Done — Setup/Controllers gated honestly; MLM warning stopped (unverifiable) | `c429b1f` |
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
