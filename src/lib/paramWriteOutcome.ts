@@ -62,10 +62,22 @@ export interface EnumWriteIo {
  * still the one THIS write set (`sent`). A discrete write holds its confirmation window ~250 ms, so a
  * newer write can land on the same param before this one settles — A→B then B→C is an easy user
  * sequence, and if B is refused, reverting to B's `from` (= A) would wipe the newer C. Comparing
- * `target.value` against the value this write sent is exactly the staleness condition, and it belongs
+ * `target.value` against the value this write sent is the staleness condition, and it belongs
  * in this pure module (the one place provable without the runes compiler) rather than in the store
  * wiring. The history drop and the refusal toast still apply to a stale settlement: the entry is this
  * write's own and the refusal is real even when a newer write superseded the displayed value.
+ *
+ * KNOWN LIMITATION (P9 2026-10-07) — the guard is VALUE-based, so an ABA burst defeats it. A→B then
+ * B→C then C→B (an odd-length toggle/enum burst) leaves the display equal to this write's `sent`
+ * again, so a late refusal of the FIRST write reads "not stale" and reverts to its `from`, wiping the
+ * THIRD write's newer value. This is reachable in normal use (the 250 ms window makes a 3-write burst
+ * easy), not theoretical. Closing it needs per-control WRITE-INITIATION ordering — a sequence token
+ * minted at write time — which the pure settle signature cannot carry (its inputs are a stateless
+ * snapshot: target + from + sent + outcome). Supplying it means either the store minting a token
+ * (store state, declined in P6) or hoisting a stable per-control target so this module can key a
+ * WeakMap on it; both widen the contract seven store call sites and their sourceguard regexes depend
+ * on. Documented, not fixed, in `paramWriteOutcome.aba.test.ts` (which pins the ABA and the
+ * double-refusal case): if it ever matters, that token is the upgrade the module already names.
  */
 export function settleEnumWrite(
   target: EnumWriteTarget,
@@ -176,10 +188,14 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
 //
 // The same optimistic-write defect class as P1.1/P2.1, on a plain scalar held on a runes FIELD
 // rather than a param object: `setBpm` sets `this.bpm = n` (tempo) and `toggleTuner` sets
-// `this.tuner = { active: next }` BEFORE the round-trip. Both are discrete control writes the device
-// reject-watches, so ForgeFX answers HTTP 200 `{ok:false}` on a refusal (or the transport throws).
-// `setBpm` had NO revert at all (a refused tempo stayed displayed), and `toggleTuner` reverted only
-// in its `.catch` — a throw — so a `{ok:false}` refusal stayed displayed. Neither surfaced anything.
+// `this.tuner = { active: next }` BEFORE the round-trip. On gen3 these two are NOT reject-watched —
+// `setTempo` (gen3.ts `sendQueued`) and `setTuner` (registryCore.ts) return `{ok:true}`
+// unconditionally — so on this device the settle helpers below only ever see `ok` or a thrown
+// transport error, never a device `{ok:false}` (see the corrected notes on `setBpm`/`selectScene` in
+// editor.svelte.ts). They still route through the settlement for a uniform contract, and to handle a
+// throw. `setBpm` had NO revert at all (a failed tempo stayed displayed), and `toggleTuner` reverted
+// only in its `.catch` — a throw — so a throw on the tempo/tuner path stayed displayed. Neither
+// surfaced anything.
 //
 // `settleScalarWrite` is the smallest scalar counterpart to `settleEnumWrite`: there is no history
 // entry to drop (a tempo/tuner change is not an undoable param edit) and the scalar lives on a FIELD,
@@ -191,18 +207,30 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
 // STALE-SETTLEMENT GUARD (P6): `settleEnumWrite` reverts only when the on-screen value is still the
 // one that write set (`stale = target.value !== sent`), so a late refusal cannot wipe a newer value
 // (an A→B then B→C sequence inside the ~250 ms discrete window). The scalar path needed the same
-// protection — a rapid double-write on ONE control (bypass/scene/channel/tempo/tuner) can clobber the
-// same way. The scalar target is NOT a readable param object though; it is a closure over a runes
-// field, so there is no `target.value` to compare. The fix is to give the target a reader (`get()`)
-// and pass the value this write SENT — then the guard is the SAME comparison as the enum one
-// (`target.get() !== sent`), one mechanism and one vocabulary, and it is provable in the node-env
-// harness with a plain local variable (a `{ get, set }` pair backed by a `let`). We chose the
-// value-sent comparison over a captured sequence token deliberately: a token would need the store to
-// mint and track a per-control counter (a second piece of state the runes module cannot expose to
-// the node-env harness) for no benefit on these small discrete controls, and it would introduce a
-// second staleness vocabulary where the enum guard already established one. The residual ABA caveat
-// (a write that re-sends the SAME value a later write set is indistinguishable) is exactly the one
-// the enum guard accepts; if that ever matters, a token is the upgrade, not a rewrite.
+// protection — a rapid double-write on ONE control can clobber the same way (of the five scalar call
+// sites only bypass and channel are actually reject-watched on gen3: `setBypass`/`setChannel` go
+// through `#write`; scene, tempo and tuner return `{ok:true}` unconditionally, so the guard there can
+// only ever fire on a thrown transport error). The scalar target is NOT a readable param object
+// though; it is a closure over a runes field, so there is no `target.value` to compare. The fix is to
+// give the target a reader (`get()`) and pass the value this write SENT — then the guard is the SAME
+// comparison as the enum one (`target.get() !== sent`), one mechanism and one vocabulary, and it is
+// provable in the node-env harness with a plain local variable (a `{ get, set }` pair backed by a
+// `let`). We chose the value-sent comparison over a captured sequence token deliberately: a token
+// would need the store to mint and track a per-control counter (a second piece of state the runes
+// module cannot expose to the node-env harness) for no benefit on these small discrete controls, and
+// it would introduce a second staleness vocabulary where the enum guard already established one.
+//
+// KNOWN LIMITATION (P9 2026-10-07) — the ABA caveat is REACHABLE, not theoretical. A value that a
+// later write re-sends becomes indistinguishable from this write's own value, and an odd-length
+// toggle/enum burst (A→B→C→B, e.g. bypass/tuner toggled false→true→false→true) is exactly that case:
+// a late refusal of the FIRST write reads "not stale" and reverts to its `from`, wiping the THIRD
+// write's value. The double-refusal case is likewise reachable — `from` is captured from OPTIMISTIC
+// state, so a second refusal can revert to a value the device never confirmed, leaving it on screen
+// while the device holds the original. Both are pinned in `paramWriteOutcome.aba.test.ts`. Closing
+// either needs per-control WRITE-INITIATION ordering (a token minted at write time, or a tracked
+// last-CONFIRMED value) — per-control state the pure inputs do not carry and the store would have to
+// supply; P6 declined that, and supplying it now would widen the seven call sites and their
+// sourceguards. If it ever matters, a token is the upgrade, not a rewrite.
 
 /** Minimal view of an optimistic SCALAR (non-enum) write target: the store supplies a READER and a
  *  setter for the value it wrote optimistically (tempo `bpm`, tuner `active`, bypass, channel, scene),

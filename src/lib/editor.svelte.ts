@@ -2597,8 +2597,11 @@ class EditorStore {
     const prev = this.scene;
     if (prev === ui) return;
     this.scene = ui; // optimistic
-    // A scene switch is a discrete write the device reject-watches ({ok:false} on refusal), so route
-    // it through the scalar settlement: a refusal reverts the optimistic scene and toasts.
+    // A scene switch is routed through the scalar settlement so a THROWN transport error reverts the
+    // optimistic scene and toasts. NOTE (P9): on gen3 a scene switch is NOT reject-watched — `setScene`
+    // (gen3.ts:1570) goes through fire-and-forget `#send`, which returns `{ok:true}` UNCONDITIONALLY,
+    // so the server never answers `{ok:false}` here and the guard cannot fire on a device refusal; only
+    // a transport throw reaches it. The settlement is kept for the uniform contract (+ future drivers).
     const outcome = await this.#writeSettlement(forgefx.setScene(ui - 1));
     const d = settleScalarWrite({ get: () => this.scene, set: (v) => (this.scene = v) }, prev, ui, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
@@ -2741,9 +2744,11 @@ class EditorStore {
       return false;
     }
   };
-  // tempo/tuner are DISCRETE control writes the device reject-watches ({ok:false} on refusal) and the
-  // UI writes them optimistically, so — like setEnum — AWAIT and route the outcome through the pure
-  // `settleScalarWrite`: a refused tempo/tuner reverts to the captured `from` and toasts (P4 follow-ups).
+  // tempo/tuner writes are optimistic and routed through the pure `settleScalarWrite` so a THROWN
+  // transport error reverts to the captured `from` and toasts (P4 follow-ups). NOTE (P9): on gen3
+  // NEITHER is reject-watched — `setTempo` (gen3.ts:1551) and `setTuner` (registryCore.ts:829) return
+  // `{ok:true}` UNCONDITIONALLY, so the server never answers `{ok:false}` on these paths and the
+  // settlement's refusal branch cannot fire on a device refusal for this device; only a throw does.
   setBpm = async (bpm: number) => {
     const n = Math.round(bpm);
     if (!Number.isFinite(n) || n < 20 || n > 250) return;
