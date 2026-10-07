@@ -16,7 +16,7 @@ bottom.
 ## Shipped recently (do not redo)
 
 - **R16–R20** — phone bottom-bar reachability (UI-C sweep F1/F2/F3), keyboard-shortcut parity
-  (21 chords, 0 reserved), Manage Presets reorder + Reset AMP per preset, param-value clipboard +
+  (23 chords, 0 reserved), Manage Presets reorder + Reset AMP per preset, param-value clipboard +
   honest cross-preset block paste, Setup/Controllers honest rail gate, the preset-binary write-back
   documented as shipped.
 - **R21–R24** — modifier live curve read-back + Controllers usage panel, `batchSet` rail entry,
@@ -26,6 +26,15 @@ bottom.
   gated disabled with reasons; `PresetBrowser` non-device-row stubs honest).
 
 ## What is genuinely left
+
+**The next iteration's input is
+[`axis-review-2026-10-07-next-iteration-fix-list.md`](axis-review-2026-10-07-next-iteration-fix-list.md)**
+— an independent 3-pass review of this tree, every item re-read in the code before filing. P1:
+device-refused discrete writes staying on screen; blank Setup/Config controls (the silent-drop class);
+a torn block read served as a complete one. P2: paste reporting requested-as-pasted, the two
+write-confirmation windows, scaled-enum value decode, `/diag/ranges` missing from the browser-direct
+runtime. It also carries a **"do not chase" list** (claims the review checked and rejected) and the
+hardware probes that remain — read that before re-opening anything.
 
 ### Blocked on hardware (needs the FM3 / the Deck)
 - **Cab 2 Mute/Solo write** (audit §3.7) — toggle cab 2's M/S on the unit and confirm it reads back;
@@ -114,6 +123,8 @@ is on, so it will otherwise serve a feature-branch worktree instead of `main`.
 
 ## Pointers
 
+- Next iteration (review-sourced P1/P2/P3, with the checked-and-rejected list):
+  `docs/axis-review-2026-10-07-next-iteration-fix-list.md`.
 - Live backlog / evidence: `docs/axis-fm3edit-feature-parity-audit.md` (§7 has the round logs,
   §6 the probe list, §8 the file index).
 - Design-parity specs (binding, but see the staleness banner): `docs/workbench-dc-parity/`.
