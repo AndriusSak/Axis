@@ -75,9 +75,19 @@ import it directly — no context or props threading.
   `settleWriteSet` — which are the **single decision point** (keep / revert /
   drop the optimistic history entry / toast). Continuous streaming knobs are
   fire-and-forget **by design**; anything discrete or one-shot is not.
-  *Known same-class sites still fixing (do not copy them as a pattern):*
-  `toggleBypass`, `setChannel`, `selectScene`, and the grid/routing ops — see
-  `docs/axis-review-2026-10-07-next-iteration-fix-list.md`.
+  *Reject-watch rule:* a refusal is only possible on a reject-watched path (gen3):
+  `setParam` (discrete), `setType`, `setBypass`, `setChannel`, `setSceneName`,
+  `setPresetName`, and the grid/store ops. `setScene`, `setTempo`, `setTuner` and
+  **all continuous streams** return `{ok:true}` unconditionally (the device sends
+  no reply at all) — their settlement branches can only fire on a thrown transport
+  error, so never comment that a refusal is honoured there.
+  *Known limitation (pinned, not fixed):* the stale guard is value-based
+  (`stale = value !== sent`), so an odd-length same-value burst (A→B→C→B with the
+  earlier write refused late) and a double refusal are reachable and can wipe a
+  newer value or leave an unconfirmed one on screen — see
+  `paramWriteOutcome.aba.test.ts`. The documented upgrade is a per-control write
+  token minted at write time; the pure settle signature cannot carry that ordering.
+  If the guard is replaced by a token, that test fails — which is the signal the fix landed.
 
 Other stores: `cloud.svelte.ts` (true `$derived`, pure derivation + refresh),
 `library.svelte.ts` (device scan, `.syx` import, Zod-validated persisted

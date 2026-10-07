@@ -515,6 +515,49 @@ that would settle the GLOBAL question completely.
 
 ---
 
+### P9 round — SHIPPED 2026-10-07 (three fixes from the review above)
+
+- **GLOBAL bulk reads no longer fabricate a value** (`7d1f800`, ForgeFX). The review's premise held:
+  `GLOBAL = { stride: 186, recordCount: 187 }` against **173 served GLOBAL pids, 91 of them >= 186** (max
+  65522), read as `bulk.values[base + p.paramId] ?? 0` — so those pids indexed past the block, `undefined`
+  became **0**, and sub-stride pids resolved to the record at their ORDINAL, which need not be their
+  record. **A pid→ordinal map does not exist** in the catalog (the GLOBAL table is keyed by paramId and
+  emits no ordinal metadata; the codec's own contract is positional, which GLOBAL violates), so the round
+  took the **refuse-to-guess** route: GLOBAL values are no longer read from the bulk path and are reported
+  as **`null` with a reason**, never 0. Dense families are proven unaffected (only GLOBAL and PRESET trip
+  the check; every audio family has max pid == stride−1). `layout-param-coverage` now uses a **non-zero**
+  fixture and asserts VALUES, so this class cannot pass vacuously again — and the round *verified* the
+  strengthened test fails on the old code by stashing only the src change. It also found a latent
+  double-lookup in `knob-coverage`'s fixture that had only ever "passed" because `?? 0` fabricated a value.
+  Decision + the precise live question: `docs/decisions/0004-global-bulk-read-unknown.md`.
+- **`GET /fc/state` cannot read pid 0 from malformed input** (`953ea5c`, ForgeFX). Shared `fcStateH` guard
+  (absent/'' → 0 as before; non-integer/negative always rejected; each axis bounded by the device's
+  **declared** FC geometry — layouts 9 / views 4 / switches 3, which *is* available at the seam, contrary to
+  the earlier note) plus a driver backstop that throws rather than encode `[0,0]`. 400 before `driver()`.
+  `route-parity` 68 → 77 cases, including a section against the real driver proving `fcReadState(NaN,NaN,NaN)`
+  throws and sends nothing.
+- **The ABA caveat is REACHABLE, and is now pinned as a known limitation** (`89a0d49`, Axis). Confirmed:
+  `stale = value !== sent` means an odd-length same-value burst (A→B→C→B, earlier write refused late) wipes
+  the newer write, and a double refusal can leave a value on screen the device never confirmed. **Not
+  fixed, deliberately:** closing it needs per-control write-initiation ordering, which the pure settle
+  signature provably cannot carry; the documented upgrade is a token minted at write time, and it would
+  widen a contract seven store call sites depend on. `paramWriteOutcome.aba.test.ts` pins both cases, so a
+  real fix will break the test loudly. The false reject-watch comments are corrected, and
+  `src/lib/CLAUDE.md` now carries the reject-watch rule.
+
+**Merged-tree verification — GREEN:** forgefx-midi **84** · ForgeFX **43 suites** · Axis **1820 unit tests
+/ 174 files** · `svelte-check` 0/0 · build ok · Playwright **142/142**. Route counts unchanged (83 app /
+92 router).
+
+- **⚠ OPEN, created by the P9 fix — the Axis side of the new `null` contract.** ForgeFX now legitimately
+  sends `value: null` for an unresolved GLOBAL param, but Axis still types `NamedParam.value: number` and
+  `EnumParam.value: number` (`src/lib/types.ts:20-40`) and has no handling for it: the server is honest and
+  the client can meet a value it was never told about. **The merged-tree gate cannot catch this** —
+  `svelte-check` does not inspect a JSON boundary and no GLOBAL knob is covered by the e2e suite. Fix:
+  widen the client types to `number | null`, render unknown explicitly (disabled control / em-dash) and
+  ensure no knob position or slider arithmetic turns null into `NaN` — **never coerce back to 0**, which
+  would recreate the fabricated-value defect on the other side of the wire.
+
 ## Do NOT chase (checked and rejected by the review)
 
 - **Edit-watch sweep vs channel-A baseline** (`gen3.ts:1371`): the sweep slice and its baseline are
