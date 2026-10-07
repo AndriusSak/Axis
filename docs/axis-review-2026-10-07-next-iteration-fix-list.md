@@ -1,8 +1,10 @@
 # Axis — next iteration: prioritized fix list (from the 2026-10-07 third-party review)
 
-**Status:** **P1.1–P1.3, ALL of P2, and the P3 items (engines, `.npmrc` heap flag, unit sets, route 400s,
-audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites) SHIPPED 2026-10-07** ·
-**open: the follow-ups below (found during the rounds) and the hardware probes** ·
+**Status:** **P1.1–P1.3, ALL of P2, the P3 items (engines, `.npmrc` heap flag, unit sets, route 400s,
+audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites) and the P4 round
+(bpm/tuner outcome + Control Switch table + AM4-sunset guard) SHIPPED 2026-10-07** ·
+**open: the follow-ups below (the wider optimistic-write census, found during the rounds) and the
+hardware probes** ·
 **Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
 (full report + provenance: `~/repos/stack/review-2026-10-07/REPORT.md`; the review's rejected claims
 are in its §5 — read that before re-litigating any item here).
@@ -243,19 +245,67 @@ with a bare `npm run build`), `KNOB_UNITS` single source (`88ce0d0`), route 400s
 *(The stale "21 chords" count this list used to carry was corrected in `NEXT-STEPS.md` when the review
 was filed — `shortcuts.ts` has 23 wired. Still worth a count assertion in the test.)*
 
+## P4 — shipped 2026-10-07 (scope chosen after the review list closed)
+
+Not from the original review: what the rounds themselves surfaced as the next best use of a round.
+
+- **The optimistic-write class, closed for the BPM/tuner sites** (`9d71729`, Axis): `setBpm` and
+  `toggleTuner` now honour a `200 {ok:false}` through the new pure `settleScalarWrite` (the scalar
+  counterpart of `settleEnumWrite`), and `tapTempo` is pinned as deliberately fire-and-forget because it
+  re-reads truth. The doc that taught the anti-pattern (`src/lib/CLAUDE.md`) is corrected.
+  **The wider census is in the follow-ups section below — three more sites of the same class are known
+  and unfixed.**
+- **Control Switch group in Setup → MIDI/Remote** (`aba4063`, Axis) — the largest remaining
+  offline-startable feature, and the one the review reclassified from "impossible" to "layout gap":
+  `GLOBAL_CS1_ENABLE` (6979), `GLOBAL_CS_EDIT_NUMBER` (6985), `GLOBAL_CS_COMMAND_BEGIN` (6986) and the six
+  `GLOBAL_CS1-6_EXCLUSIVE` (7107-7112) are all served but had **0 layout refs** on the Setup screen (the
+  exclusives' only refs are on the FC "CONTROL SWITCH LINK" row, i.e. the Foot Controller screen). Now
+  rendered as a group in the existing `MidiRemoteSection.svelte`, built purely from served data via a new
+  pure `controlSwitch.ts` ledger: device-true option labels come from the FM3 override table
+  (`6979→YES,NO` · `6985→CS1..CS6` · `6986→--,CC,PC` · `7107-7112→Not Exclusive,Exclusive`). Honest
+  unavailability is explicit — an unserved param renders disabled with the reason, and a served selector
+  with no labels shows `no option labels served — ordinal N` rather than a fabricated label. Recorded
+  gap: the per-switch message *values* (`GLOBAL_CS_CHAN_BEGIN` 7010 + 7034/7058/7082) are not served —
+  7010 is a float on an `unverified` unit with no layout `knob` ref, the rest have no range row at all.
+- **AM4 alias sunset (2026-12-01) made non-silent** (`5c98cac`, Axis, + `docs/am4-alias-sunset-2026-10-07.md`):
+  12 of ForgeFX's 16 deprecated `/am4/*` aliases are still called from live client paths. All 12 **have** a
+  unified equivalent that exists in *both* server route tables — 6 are a straight swap, 6 need a
+  capability check first (the client's v2 branch gates on `caps.*`, which `legacyAm4 ||` currently
+  short-circuits). `am4Deprecation.ts` holds the inventory and `am4Deprecation.test.ts` derives the alias
+  list, the client-called paths, the sunset date and the unified-route existence **from source**, so a new
+  or removed alias fails the test instead of rotting. The alias→unified mapping is the only hand-maintained
+  part (the join is by handler identity and one handler answers two unified paths) and it is cross-checked
+  against the server's handlers. **Nothing was removed** — whether the v1/AM4 fallback should be migrated
+  away or kept past the sunset is a product decision, and this round only made the deadline visible.
+
+---
+
 ## Follow-ups found DURING the rounds (not in the original review)
 
-- **`setBpm` (`Axis/src/lib/editor.svelte.ts:2714`) has the same shape as the defects P1.1/P2.1 fixed**:
-  it sets `this.bpm = n` optimistically and then `await forgefx.setTempo(n).catch(() => {})`, so an
-  `{ok:false}` or a thrown error leaves the new tempo displayed. Flagged by the P2.1 workstream as
-  deliberately out of scope (the P2.1 record lists it fire-and-forget) — but it is user-visible state, so
-  it deserves the `settleWriteSet`/`settleEnumWrite` treatment. **Undecided.**
-- **`toggleTuner` (`:2727`) reverts on a thrown error but not on `{ok:false}`** — adjacent, same family,
-  lower impact (a tuner toggle self-corrects on the next read). **Undecided.**
-- **`setPinnedEnum` — FIXED (`33a1e8d`)**, the item that motivated the sweep above.
-- The sweep found no other bare `.catch(() => {})` on a param write: `:527` (swipe), `:627`
-  (`setPinnedParam`), `:1678` (`setParam`) are continuous/fire-and-forget by design (`gen3.ts:1391-1393`),
-  and `:966`/`:1056`/`:997`/`:1017`/`:1555` are not writes (faro imports, telemetry, cell select).
+**Closed in the P4 round (`9d71729`):**
+- **`setBpm` (`Axis/src/lib/editor.svelte.ts:2710`)** — was: optimistic `this.bpm = n` then
+  `await forgefx.setTempo(n).catch(() => {})`. **FIXED** via the new pure `settleScalarWrite`.
+- **`toggleTuner` (`:2737`)** — was: reverted on a *throw* only, so `{ok:false}` left the toggle
+  displayed. **FIXED** via the same helper.
+- **`setPinnedEnum`** — **FIXED earlier** (`33a1e8d`).
+- `tapTempo` stays fire-and-forget **by design** (it re-reads the tempo via `getTempo`, so its display
+  cannot lie) and is now pinned as deliberate by the guard.
+- **The docs were also teaching the defect:** `src/lib/CLAUDE.md` called a catch-only revert "THE
+  canonical action shape". Corrected, with the example matching the shipped `toggleTuner`.
+
+**Still open — the same class, found by the P4 sweep and NOT fixed (deliberately):**
+- **`toggleBypass` (~:1740), `setChannel` (~:1753), `selectScene` (~:2564)** — optimistic value,
+  throw-only catch, ignores a `200 {ok:false}`, and they return `{ok:boolean}` like the fixed sites.
+  `toggleBypass` additionally toasts a success that may not have happened. **The next obvious round.**
+- **The grid/routing ops (`place` ~:1980, `removeAt` ~:2008, `move` ~:2037, `connect` ~:2149,
+  `replaceShunt` ~:2168, `disconnect` ~:2190, `#runPlan` ~:2205)** — optimistic and then reconciled by
+  `load()`, so the *display* self-corrects, but a mid-op `{ok:false}` is not detected, which means
+  **history/undo can record an operation that never landed**. A different symptom (undo fidelity) from
+  the same root cause.
+- **`retype` (~:1924)** — no optimistic value, but a false-success toast on a refusal. Note only.
+- The sweep's full classification (deliberate / already correct / same class) is in the P4 workstream's
+  transcript; the two lists above are the actionable residue. Re-derive it with a grep for
+  `.catch(() => {})` before starting any follow-up round — the line numbers shift.
 
 ---
 
