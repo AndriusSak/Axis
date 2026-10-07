@@ -33,7 +33,7 @@ bottom.
 — an independent 3-pass review of this tree, every item re-read in the code before filing.
 **P1.1–P1.3 and P2.1 / P2.3 / P2.4 / P2.5 shipped 2026-10-07**, plus most of P3 (engines, the `.npmrc`
 heap flag, one float-vs-enum unit set, 400s on bad route params, and the audit's stale claims). **Open:
-P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (the AM4 removal is done (P7)
+P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (the AM4 removal is done (P7); and AM4 itself is out of scope — Andy has an FM3 only and will not test an AM4)
 alias sunset, `prepare` scripts vs gitignored `dist/`, `version.ts` consistency check, the stale
 `ROADMAP.md` citations in code). See the doc's status header for commits and the merged-tree counts. The
 doc also carries a **"do not chase" list** (claims the review checked and rejected) and the hardware

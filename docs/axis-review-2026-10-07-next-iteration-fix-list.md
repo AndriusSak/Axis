@@ -211,8 +211,8 @@ records it as served (OFF/ON) — the two lists cannot both be right.
 ---
 
 ## P3 — cleanup: **SHIPPED** engines, `.npmrc` heap flag, one float-vs-enum unit set, route 400s, the
-## `version.ts` guard, the build-order script, the audit/`ROADMAP.md` citation fixes · **OPEN: the AM4
-## alias sunset decision** (the only substantive P3 item left — see below)
+## `version.ts` guard, the build-order script, the audit/`ROADMAP.md` citation fixes · **the AM4 alias
+## sunset decision — RESOLVED 2026-10-07 (P7 deleted the aliases outright; Andy: no AM4 owned, not tested)**
 
 The individual entries below are the original filings, kept as the record; the SHIPPED list above is
 authoritative. Evidence per item: engines (`afbef9d`, `6ca47d2`), `.npmrc` heap flag (`afbef9d`, proven
@@ -551,5 +551,8 @@ Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`,
 - **Probe diagnosability** (found on the way in): when port access fails, the probe reports
   `no device: could not open a connection` and falls through to the serial default, so a **permission
   error is indistinguishable from an absent device**. Name the errno and the port in the message.
-- **AM4 `#syncTelemetry` guard removal** (P7) — watch for 5 s load timeouts on an AM4; the removed
-  early-return assumed a v1 device ignoring gen-3 frames.
+- ~~**AM4 `#syncTelemetry` guard removal** (P7) — watch for 5 s load timeouts on an AM4~~ **CLOSED BY USER
+  DECISION, not verified.** Andy owns an FM3 only and will not test an AM4, so the removed early-return
+  (which assumed a v1 AM4 ignoring gen-3 frames) stays unverified on AM4 hardware **by choice**. Do not
+  raise it again as an open item, and do not propose AM4 testing or an AM4 probe run. The code change is
+  still sound for every supported device: the `sceneCount`/`hasTempo` caps gates cover a v2 device.
