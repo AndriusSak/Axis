@@ -18,15 +18,22 @@ const unresolvedKnob = (over: Partial<NamedParam> = {}): NamedParam => ({ id: 5,
 const unresolvedEnum = (over: Partial<EnumParam> = {}): EnumParam => ({ id: 6, name: 'CS Command', value: null, options: [{ value: 0, label: '--' }, { value: 1, label: 'CC' }], unresolved: 'non-positional family', ...over });
 
 describe('format — an unresolved value is UNKNOWN, never 0', () => {
-  it('paramKnown is false exactly when both value and norm are null', () => {
+  it('paramKnown keys on the server unresolved marker / a missing norm — never "both happen to be null"', () => {
     expect(paramKnown({ value: null, norm: null })).toBe(false);
     expect(paramKnown({ value: 0, norm: 0 })).toBe(true); // a REAL zero is known
-    expect(paramKnown({ value: null, norm: 0.5 })).toBe(true);
+    expect(paramKnown({ value: null, norm: 0.5 })).toBe(true); // a position alone is known
+    // P11 REGRESSION — the server marked it unresolved; a stray norm must NOT make it known.
+    expect(paramKnown({ value: null, norm: 0.5, unresolved: 'non-positional family' })).toBe(false);
+    expect(paramKnown(unresolvedKnob({ norm: 0.5 }))).toBe(false);
+    // a missing position (norm) is unknown even when a value is present — you cannot place a control.
+    expect(paramKnown({ value: 5, norm: null })).toBe(false);
   });
 
   it('paramValue returns null (not a number) for an unknown value', () => {
     expect(paramValue({ value: null, norm: null, min: 0, max: 10 })).toBeNull();
     expect(paramValue({ value: null, norm: null })).toBeNull();
+    // unresolved dominates a stray norm — never a number from a fabricated position.
+    expect(paramValue({ value: null, norm: 0.5, unresolved: 'non-positional family' })).toBeNull();
   });
 
   it('the formatters render the em-dash, never "0.0" / "0"', () => {
@@ -37,6 +44,15 @@ describe('format — an unresolved value is UNKNOWN, never 0', () => {
     // the old, defective readings (a fabricated zero at the knob's min) are explicitly NOT produced
     expect(fmtCompact(p)).not.toBe('0.0');
     expect(fmtNumber(p)).not.toBe('0');
+  });
+
+  it('a param marked unresolved stays — even with a real, stray norm (the P11 regression)', () => {
+    const p = unresolvedKnob({ norm: 0.5, min: -12, max: 12, unit: 'dB' });
+    expect(paramKnown(p)).toBe(false);
+    expect(paramValue(p)).toBeNull();
+    expect(fmtCompact(p)).toBe('—');
+    expect(fmtNumber(p)).toBe('—');
+    expect(fmtValue(p)).toBe('—');
   });
 
   it('a REAL zero still formats as zero (unknown is not confused with zero)', () => {
@@ -100,9 +116,9 @@ describe('ControlSurface — an unresolved control renders inert, not a knob at 
     expect((src.match(/\{@render unknownCtl\(c\.label, ctlReason\(c\)\)\}/g) ?? []).length).toBe(2);
   });
 
-  it('defines ctlUnknown from a null value/norm (knob) or null ordinal (enum)', () => {
-    expect(src).toMatch(/const knobUnknown = \(id: number\): boolean => \{ const p = knob\(id\); return !!p && p\.norm == null && p\.value == null; \}/);
-    expect(src).toMatch(/const enumUnknown = \(id: number\): boolean => \{ const e = enm\(id\); return !!e && e\.value == null; \}/);
+  it('defines ctlUnknown from the server `unresolved` marker or a missing position (never "both null")', () => {
+    expect(src).toMatch(/const knobUnknown = \(id: number\): boolean => \{ const p = knob\(id\); return !!p && \(p\.unresolved != null \|\| p\.norm == null\); \}/);
+    expect(src).toMatch(/const enumUnknown = \(id: number\): boolean => \{ const e = enm\(id\); return !!e && \(e\.unresolved != null \|\| e\.value == null\); \}/);
   });
 
   it('the unknown tile shows the em-dash and the server reason (never a number)', () => {
@@ -115,10 +131,60 @@ describe('ControlSurface — an unresolved control renders inert, not a knob at 
 
 describe('Setup MIDI/Remote — an unresolved GLOBAL knob is inert, not a knob at 0', () => {
   const src = read('./MidiRemoteSection.svelte');
-  it('guards both knob branches with pUnknown (null value/norm) and never passes `norm ?? 0`', () => {
-    expect(src).toMatch(/const pUnknown = \(p: NamedParam\) => p\.norm == null && p\.value == null/);
-    expect(src).toMatch(/const eUnknown = \(e: EnumParam\) => e\.value == null/);
+  it('guards both knob branches with pUnknown (server marker / missing norm) and never passes `norm ?? 0`', () => {
+    expect(src).toMatch(/const pUnknown = \(p: NamedParam\) => p\.unresolved != null \|\| p\.norm == null/);
+    expect(src).toMatch(/const eUnknown = \(e: EnumParam\) => e\.unresolved != null \|\| e\.value == null/);
     expect((src.match(/pUnknown\(r\.param\)/g) ?? []).length).toBe(2);
     expect(src).not.toMatch(/value=\{r\.param\.norm \?\? 0\}/);
+  });
+});
+
+// P11 — the guard must hold on the EVENT path and at every `?? 0` site the review flagged that is
+// actually reachable. editor.svelte.ts / the components are runic (unimportable in node-env vitest),
+// so these are source scans, like the ones above.
+describe('P11 — a stray device-edit norm cannot upgrade an unresolved param', () => {
+  const ed = read('./editor.svelte.ts');
+
+  it('applyDeviceEvent ignores a param event whose param carries the server `unresolved` marker', () => {
+    expect(ed).toMatch(/this\.params\.find\(\(x\) => x\.id === e\.paramId\)\?\.unresolved != null\) break;/);
+  });
+
+  it('meterFor returns null (no fabricated 0 fill/HUD) when the active control has no reading', () => {
+    expect(ed).toMatch(/const v = this\.meters\[cell\.effectId\]\?\.vals\[ctl\.id\];[\s\S]{0,400}?if \(!v\) return null;/);
+    expect(ed).not.toMatch(/norm: v\?\.norm \?\? 0/);
+    expect(ed).not.toMatch(/value: v\?\.value \?\? 0/);
+  });
+});
+
+describe('P11 — the reachable `?? 0` sites on components are closed', () => {
+  it('ControlSurface.onWidgetDown never arms a knob drag on an unresolved/missing param', () => {
+    const src = read('./ControlSurface.svelte');
+    expect(src).toMatch(/if \(!p \|\| p\.unresolved != null \|\| p\.norm == null\) return;/);
+    // the old fabricated baseline is gone
+    expect(src).not.toMatch(/sn: knob\(pid\)\?\.norm \?\? 0/);
+  });
+
+  it('the DynaCab mic tile gates on its SIBLING Distance param being unresolved (never a cone-face 0)', () => {
+    const src = read('./ControlSurface.svelte');
+    expect(src).toMatch(/did != null && \(!dist \|\| dist\.unresolved != null \|\| dist\.norm == null\)/);
+    expect(src).not.toMatch(/knob\(did\)\?\.norm \?\? 0/);
+  });
+
+  it('an unknown control is not offered the ⚡ swipe-control pin (a fabricated-baseline write path)', () => {
+    const src = read('./ControlSurface.svelte');
+    expect(src).toMatch(/\{#if c\.kind === 'cont' && !ctlUnknown\(c\)\}/);
+  });
+
+  it('EQGraph wheel/Q-bump refuse a null q-norm (no 0-based step)', () => {
+    const src = read('./EQGraph.svelte');
+    expect(src).toMatch(/if \(b\.q\.norm == null\) return;/);
+    expect(src).toMatch(/if \(!b\.q \|\| b\.q\.norm == null\) return;/);
+    expect(src).not.toMatch(/b\.q\.norm \?\? 0/);
+  });
+
+  it('ToolRail shows Tools only for a device with a tool capability — never a bare AM4/v1', () => {
+    const src = read('./ToolRail.svelte');
+    expect(src).toMatch(/editor\.caps\.backupDump \|\| editor\.caps\.restoreDump \|\| editor\.caps\.firmwareValidate \|\| editor\.caps\.modifiers\?\.model/);
+    expect(src).not.toMatch(/\?[\s\S]*?: editor\.isAm4\s*\);/);
   });
 });

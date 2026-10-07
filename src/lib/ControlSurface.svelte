@@ -644,11 +644,13 @@
   // ── value plumbing (live refs resolved by id each call) ──
   const knob = (id: number) => knobById.get(id);
   const enm = (id: number) => enumById.get(id);
-  // A served param whose value the device could NOT resolve (null value/norm — the non-positional
-  // GLOBAL bulk read) must render as an EXPLICIT unknown control, never a knob parked at 0 (a real
-  // zero is indistinguishable from a fabricated one). These predicates gate every widget branch.
-  const knobUnknown = (id: number): boolean => { const p = knob(id); return !!p && p.norm == null && p.value == null; };
-  const enumUnknown = (id: number): boolean => { const e = enm(id); return !!e && e.value == null; };
+  // A served param whose value the device could NOT resolve (the server's `unresolved` marker — the
+  // non-positional GLOBAL bulk read) must render as an EXPLICIT unknown control, never a knob parked
+  // at 0 (a real zero is indistinguishable from a fabricated one). The test keys on the server marker
+  // and on a missing position/norm — NEVER on "value and norm both null", which a stray device-edit
+  // norm can defeat. These predicates gate every widget branch.
+  const knobUnknown = (id: number): boolean => { const p = knob(id); return !!p && (p.unresolved != null || p.norm == null); };
+  const enumUnknown = (id: number): boolean => { const e = enm(id); return !!e && (e.unresolved != null || e.value == null); };
   const ctlUnknown = (c: Ctl): boolean =>
     c.kind === 'cont' ? knobUnknown(c.id) : c.kind === 'toggle' || c.kind === 'select' ? enumUnknown(c.id) : false;
   const ctlReason = (c: Ctl): string | undefined => (c.kind === 'cont' ? knob(c.id)?.unresolved : enm(c.id)?.unresolved);
@@ -759,7 +761,12 @@
     }
     if (pid >= 0) editor.selectParam(pid); // remember the last-touched control as the ↑/↓ nudge target
     if (kind === 'cont') {
-      vd = { id: pid, sy: e.clientY, sn: knob(pid)?.norm ?? 0 };
+      const p = knob(pid);
+      // An UNKNOWN continuous control (the inert unknown tile — server `unresolved` marker or no
+      // position) must never arm a knob drag: its `sn` baseline would be a fabricated 0, and the tile
+      // is meant to be inert. A missing param is equally unplaceable, so it bails too.
+      if (!p || p.unresolved != null || p.norm == null) return;
+      vd = { id: pid, sy: e.clientY, sn: p.norm };
       dragging = true; // keep the value bubble alive for the whole adjust, even if the cursor leaves
       showTip(e.currentTarget as HTMLElement, pid, false);
       e.stopPropagation();
@@ -1591,9 +1598,15 @@
                 </div>
                 <div class="lbl">{c.label}</div>
               {:else if c.kind === 'cont' && w.view === 'dynacab'}
-                {@const nrm = knob(c.id)?.norm ?? 0}
                 {@const did = w.key2 ? Number(w.key2.replace(/^[ke]/, '')) : null}
-                {@const dnrm = did != null ? knob(did)?.norm ?? 0 : 0}
+                {@const dist = did != null ? knob(did) : undefined}
+                <!-- A two-param mic tile is UNKNOWN when its sibling Distance param is unresolved (server
+                     marker or no position): never draw the mic at a fabricated cone-face 0. -->
+                {#if did != null && (!dist || dist.unresolved != null || dist.norm == null)}
+                  {@render unknownCtl(c.label, dist?.unresolved ?? ctlReason(c))}
+                {:else}
+                {@const nrm = knob(c.id)?.norm ?? 0}
+                {@const dnrm = dist ? dist.norm ?? 0 : 0}
                 <!-- DynaCab mic graph — FM3-Edit parity, ONE tile for both mic params. Seen from the
                      side: the cone face runs down the left with CAP at the top and EDGE at the bottom,
                      so the mic's VERTICAL place is the device's Position param. Its HORIZONTAL standoff
@@ -1634,6 +1647,7 @@
                     {/if}
                   </div>
                 </div>
+                {/if}
               {:else if c.kind === 'toggle' && w.view === 'button'}
                 <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
                 <div class="onoff" class:on={togOn(c.id)} onpointerdown={(e) => e.stopPropagation()} onclick={() => !editMode && toggleEnum(c.id)} title={togLabel(c.id)}>
@@ -1700,7 +1714,7 @@
                 {#if c.views.length > 1}
                   <button class="vcyc" onpointerdown={(e) => e.stopPropagation()} onclick={() => cycleView(w.id)} title="Change control type"><span>{VIEW_ICON[w.view]}</span>{w.view}</button>
                 {/if}
-                {#if c.kind === 'cont'}
+                {#if c.kind === 'cont' && !ctlUnknown(c)}
                   {@const sp = knob(c.id)}
                   <button class="qbadge" class:on={editor.isSwipeControl(c.id)} onpointerdown={(e) => e.stopPropagation()} onclick={() => sp && editor.toggleSwipeControl(sp)} title="Map to grid swipe control (adjust from the Signal Grid tile)">⚡</button>
                 {/if}

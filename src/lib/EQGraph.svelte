@@ -120,12 +120,15 @@
   }
   function wheel(e: WheelEvent, b: EQBand) {
     if (!b.q) return;
+    // An unresolved Q (no position — server `unresolved`/null norm) has no honest baseline to step
+    // FROM; bailing beats `norm ?? 0`, which would fabricate a 0-based jump.
+    if (b.q.norm == null) return;
     e.preventDefault();
-    onSet(b.q, Math.max(0, Math.min(1, (b.q.norm ?? 0) - e.deltaY / 1200)));
+    onSet(b.q, Math.max(0, Math.min(1, b.q.norm - e.deltaY / 1200)));
   }
   function bumpQ(b: EQBand, dir: number) {
-    if (!b.q) return;
-    onSet(b.q, Math.max(0, Math.min(1, (b.q.norm ?? 0) + dir * 0.06)));
+    if (!b.q || b.q.norm == null) return; // no baseline → no step (never a fabricated 0)
+    onSet(b.q, Math.max(0, Math.min(1, b.q.norm + dir * 0.06)));
   }
   // tapping empty graph area clears the mobile selection
   function bgTap() {

@@ -2,11 +2,16 @@
 // Computes the device-true value from the knob position (norm) + range, so it tracks live drags.
 //
 // ── Unknown (null) values ──────────────────────────────────────────────────────────────────────────
-// ForgeFX can report a param it could not resolve as `value: null` + `norm: null` (the non-positional
-// GLOBAL bulk read — see server/src/drivers/gen3.ts #bulkUnresolvedReason). That is UNKNOWN, not 0:
-// a real device zero is indistinguishable from a fabricated one, so a null must NEVER be read as 0.
-// Every formatter here renders unknown as the em-dash `—` and `paramValue` returns `null` (not a
-// number), so no arithmetic on an unknown value can silently become 0 or NaN.
+// ForgeFX can report a param it could not resolve as `value: null` + `norm: null` + an `unresolved`
+// reason (the non-positional GLOBAL bulk read — see server/src/drivers/gen3.ts #bulkUnresolvedReason).
+// That is UNKNOWN, not 0: a real device zero is indistinguishable from a fabricated one, so a null
+// must NEVER be read as 0. Every formatter here renders unknown as the em-dash `—` and `paramValue`
+// returns `null` (not a number), so no arithmetic on an unknown value can silently become 0 or NaN.
+//
+// The unknown test keys on the SERVER's `unresolved` marker, with a missing position (`norm`) also
+// meaning unknown — NEVER on "value and norm both happen to be null". A stray device-edit event can
+// set `norm` on an unresolved param (P11: the event path used to upgrade it), and a keyed-on-both-null
+// predicate would then read that fabricated position as a live, writable value.
 export interface DispRange {
   norm?: number | null;
   value?: number | null;
@@ -14,12 +19,15 @@ export interface DispRange {
   min?: number;
   max?: number;
   log?: boolean;
+  /** Why the value is unknown — set by the server (with a null value) for an unresolvable param. Its
+   *  presence means UNKNOWN regardless of a stray `norm`, and it dominates every read below. */
+  unresolved?: string;
 }
 
-/** Whether a param carries a device-RESOLVED value. The server sends `value`/`norm` null together
- *  when the reading failed, so `null` on both means genuinely unknown (never a fabricated 0). */
+/** Whether a param carries a device-RESOLVED value. Unknown when the server marked it `unresolved`,
+ *  or when there is no position (`norm`) to place a control — never inferred from "both null". */
 export function paramKnown(p: DispRange): boolean {
-  return p.value != null || p.norm != null;
+  return p.unresolved == null && p.norm != null;
 }
 
 /**
@@ -42,6 +50,7 @@ export function paramValueAtNorm(norm: number, p: Omit<DispRange, 'norm'>): numb
  * to the shared 0..10 knob scale; a resolved device value with no position returns that value.
  */
 export function paramValue(p: DispRange): number | null {
+  if (p.unresolved != null) return null; // server marked it unresolved → never a number, even with a stray norm
   if (p.norm == null) return p.value ?? null; // position unknown → the device value if we have it, else unknown
   return paramValueAtNorm(p.norm, p);
 }
