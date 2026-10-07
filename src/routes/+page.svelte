@@ -45,6 +45,7 @@
   import { AXIS_PAGE_PRESET_BROWSER } from '$lib/axis-workbench/axisWorkbenchPages';
   import { pollIntervalsFor } from '$lib/pollIntervals';
   import { resolveShortcut, isEditingTarget } from '$lib/shortcuts';
+  import { gridNavMode } from '$lib/gridNavMode.svelte';
 
   // In the remote web build, gate the app behind sign-in + relay-connect; start the editor only once the
   // remote transport is live. In the desktop build (remoteBoot.active=false) it starts immediately.
@@ -199,6 +200,13 @@
           }
           return;
         }
+        // Grid Navigation Mode (audit §2.9) — flip the fast-grid toggle through the tiny standalone
+        // store the Signal Grid's header pill uses (never a new editor-store member). While ON, taps
+        // move the grid cursor without the per-block parameter fetch; double tap opens the editor.
+        case 'gridNavMode':
+          e.preventDefault();
+          gridNavMode.toggle();
+          return;
         // §2.12 remainder — FM3-Edit manage-presets / engage-all-scenes / arrow value-nudges.
         case 'managePresets': {
           e.preventDefault();

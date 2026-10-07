@@ -39,6 +39,8 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     expect(idOf(ev('u', { metaKey: true }))).toBe('insertShunt');
     // Quick Build panel (audit §2.9 remainder) — a bare Q.
     expect(idOf(ev('q'))).toBe('quickBuild');
+    // Grid Navigation Mode (audit §2.9) — a bare G.
+    expect(idOf(ev('g'))).toBe('gridNavMode');
     expect(idOf(ev('i', { metaKey: true }))).toBe('resetChannel');
     expect(idOf(ev('c', { metaKey: true }))).toBe('copyBlock');
     expect(idOf(ev('v', { metaKey: true }))).toBe('pasteBlock');
