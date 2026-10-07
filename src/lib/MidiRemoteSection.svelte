@@ -16,10 +16,10 @@
   const csRows = $derived(buildControlSwitchRows(editor.params, editor.enums));
   const setKnob = (p: NamedParam, n: number) => editor.setParam(p, n);
   const setSel = (e: EnumParam, v: number) => editor.setEnum(e, v);
-  // A served GLOBAL param the device could not resolve (null value/norm — the non-positional bulk read)
+  // A served GLOBAL param the device could not resolve (server `unresolved` marker, or no position)
   // renders an inert unknown tile, NEVER a knob parked at 0 or a dropdown on a fabricated ordinal.
-  const pUnknown = (p: NamedParam) => p.norm == null && p.value == null;
-  const eUnknown = (e: EnumParam) => e.value == null;
+  const pUnknown = (p: NamedParam) => p.unresolved != null || p.norm == null;
+  const eUnknown = (e: EnumParam) => e.unresolved != null || e.value == null;
 </script>
 
 <section class="midi">

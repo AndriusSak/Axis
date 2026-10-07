@@ -36,11 +36,13 @@
     const input = { isV2: editor.isV2, isAm4: editor.isAm4, caps: editor.caps };
     return RAIL.map((r) => ({ ...r, ...gateRailItem(input, r.id) })).filter((r) => r.visible);
   });
-  // Device Tools shows whenever the device has ANY tool capability (legacy v1: AM4 only).
+  // Device Tools shows whenever the device has ANY tool capability. A v1 server (or an AM4, which
+  // serves no capabilities) advertises none, so the button must NOT appear — every DeviceTools gate
+  // is `!!caps?.X`, so an AM4/v1 with no caps would otherwise open an empty modal (P9 review).
   const showTools = $derived(
     editor.isV2 && editor.caps
       ? !!(editor.caps.backupDump || editor.caps.restoreDump || editor.caps.firmwareValidate || editor.caps.modifiers?.model)
-      : editor.isAm4
+      : false
   );
 
   const closeDrawer = () => (editor.drawerOpen = false);

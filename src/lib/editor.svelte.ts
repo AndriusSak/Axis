@@ -499,8 +499,12 @@ class EditorStore {
     const ctrls = this.controlsFor(cell);
     if (!ctrls.length) return null;
     const active = Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1);
-    const v = this.meters[cell.effectId]?.vals[ctrls[active].id];
-    return { norm: v?.norm ?? 0, value: v?.value ?? 0, unit: v?.unit, min: v?.min, max: v?.max, log: v?.log, count: ctrls.length, active, name: ctrls[active].name };
+    const ctl = ctrls[active];
+    const v = this.meters[cell.effectId]?.vals[ctl.id];
+    // No honest reading for the active control — never polled, or an UNRESOLVED param whose meter value
+    // was deliberately not seeded (a fabricated 0 is indistinguishable from a real zero) → no fill/HUD.
+    if (!v) return null;
+    return { norm: v.norm, value: v.value, unit: v.unit, min: v.min, max: v.max, log: v.log, count: ctrls.length, active, name: ctl.name };
   };
   cycleControl = (cell: Cell, dir: number) => {
     const n = this.controlsFor(cell).length;
@@ -1269,6 +1273,11 @@ class EditorStore {
         break;
       }
       case 'param': {
+        // An UNRESOLVED param (server `unresolved` marker — the non-positional GLOBAL read) must never
+        // be upgraded to a live knob by a stray device-edit norm: the fabricated position would render a
+        // live knob and pass the write guard, letting the user write from a fake baseline (P11). Ignore
+        // the event entirely for it (the meter sync below would likewise fabricate a reading).
+        if (this.params.find((x) => x.id === e.paramId)?.unresolved != null) break;
         // another UI moved a knob — reflect it live if that block is open (cheap: update the arc)
         if (this.selected?.effectId === e.effectId) {
           const p = this.params.find((x) => x.id === e.paramId);
