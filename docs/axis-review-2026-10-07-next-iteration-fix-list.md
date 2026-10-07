@@ -391,11 +391,43 @@ semantics), so a completed wait with no 0x64 is an accept — not an error.
   **200 `{ok:true}`** with the garbage reaching the driver — a silent garbage write reported as success,
   which is worse than the 500 it was filed as. The 400 validation was implemented anyway.
 
-**Left open by P5 (both flagged by the workstreams, not silently dropped):**
-- `settleScalarWrite` has **no equivalent staleness guard** — a rapid double-write on one control
-  (bypass/scene) can still clobber. The A→B→C protection currently covers enum writes only.
-- **`pasteBlock`'s inline op-loop (~:2350) still has the grid-op class**: its writes are awaited and
-  discarded, so a refusal is not reflected in its toasts. Outside the round's declared region.
+## P6 — shipped 2026-10-07 (the residue: last write-outcome items, route validation, probe runbook)
+
+- **The write-outcome class is now closed end to end** (`77c9f60`, Axis). `settleScalarWrite` got the same
+  staleness guard as its enum sibling — the scalar target gained a `get()` reader and the write takes the
+  value it sent, so `stale = target.get() !== sent` and a late refusal can no longer wipe a newer value on
+  `setBpm` / `toggleTuner` / `toggleBypass` / `setChannel` / `selectScene`. Design note recorded in the
+  module: value-comparison over a per-control sequence token, because a token would need store state the
+  node-env harness cannot reach and would mint a second staleness vocabulary. `pasteBlock`'s inline
+  op-loop — the last site that discarded its write results — now goes through `#runOps` +
+  `decideGridOpOutcome` like the routing ops. The final `.catch(() => {})` sweep found only deliberate
+  cases (deferred continuous knob streams, the device-screen cursor mirror, `tapTempo` which re-reads
+  tempo, and two telemetry imports).
+- **Route-input validation finished across both tables** (`b36e51d`, ForgeFX): 19 write routes
+  inventoried, ~15 hardened, with the validation living in the **shared handlers** so the Node host and
+  the browser-direct runtime inherit it (both route files shed their duplicated inline parsing — route
+  counts verified unchanged: 99 app registrations / 92 router rows before and after). **The P5 lesson paid
+  off immediately**: the probe proved `driver.setTempo(NaN)` returns `{ok:true}` and pushes a garbage
+  tempo frame to the wire — the codec does not throw, so pre-fix `POST /tempo {bpm:'abc'}` was a *silent
+  accept with a 200*, not a crash. That case is now a 400 with a valid boundary twin asserted on both
+  surfaces. `route-parity` grew to 44 cases. Deliberately unchanged: an in-range scene index the device
+  rejects stays `200 {ok:false}` (the driver's documented explicit reject, asserted by write-safety).
+- **The hardware questions are now one command** (`adeb1dd`, ForgeFX): `npx tsx scripts/probe-device.ts`
+  answers all five open ones with a verdict table — GLOBAL write read-back, Cab-2 Mute/Solo write, whether
+  a 16-bit-scaled enum ever arrives, whether a complete bulk read is ever padded, and the real `0x64`
+  rejection latency. **Read-only by default**; the three mutating probes sit behind `--writes` and each
+  captures, verifies, then **restores and re-verifies** the original value, printing a `FAILED-RESTORE`
+  block naming the parameter if it cannot. Exit codes: 0 = every eligible probe gave a verdict, 3 = no
+  device, 2 = an eligible probe was inconclusive — a silent pass is impossible. A `--mock` mode plus an
+  11-case suite (now the 42nd) proves offline that the default writes nothing, that `--writes` restores,
+  and that a missing device exits non-zero. Documented in `docs/TESTING.md`.
+
+**Both P5 flags are now closed** (`settleScalarWrite` staleness guard; `pasteBlock`'s op-loop).
+**One open item resolved as unanswerable-by-design:** the CS table's four remaining params
+(`GLOBAL_CS_CHAN_BEGIN` 7010, `_CC_NUM_BEGIN` 7034, `_ON_VAL_BEGIN` 7058, `_OFF_VAL_BEGIN` 7082) are
+`_BEGIN` **table markers**, not controls — 7010 has a float row but its unit is `unverified` and the FM3's
+own layout references it **zero times** (no evidence to serve it under the P1.2 rule), and the other three
+have no range row at all. "Disabled with the exact reason" is the correct final rendering, not a stopgap.
 
 ---
 
