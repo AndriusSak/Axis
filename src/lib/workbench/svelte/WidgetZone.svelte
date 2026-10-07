@@ -545,6 +545,22 @@
     left: 0;
     right: auto;
   }
+  /* F2 — the bottom-bar zone hugs the viewport bottom, so there is no room below
+     the chip: `top: calc(100% + 8px)` opened the `⋯` menu DOWNWARD, off the
+     bottom of the screen (phone 390×844 and desktop 1440×900 both measured a
+     visible height of 0, with the "✥ Rearrange in Customize" action unreachable).
+     Open it UPWARD from the zone's top instead, anchor it to the zone's right
+     edge (the chip is at the bar's right, so this keeps the 270px panel inside
+     the viewport), and cap its height so a long list scrolls internally rather
+     than running off the top of the screen. */
+  .aw-widget-zone[data-zone='bottom'] .aw-overflow-menu {
+    top: auto;
+    bottom: calc(100% + 8px);
+    left: auto;
+    right: 0;
+    max-height: calc(100vh - 140px);
+    overflow-y: auto;
+  }
   .aw-overflow-menu h2 {
     margin: 0;
     color: var(--aw-text-faint);
@@ -595,5 +611,21 @@
   }
   .aw-overflow-customize:hover {
     border-color: var(--aw-accent);
+  }
+  /* F3 — phone edit mode: the bar zone keeps its surplus widgets visible (edit
+     mode deliberately disables the `⋯` shed so every widget stays on screen with
+     its drag outline), but the 390px bar cannot fit them and would clip them to
+     zero visible area. Let the zone swipe horizontally (scrollbar hidden, to match
+     the bar's no-scrollbar chrome) so the off-edge widgets stay reachable. */
+  @media (max-width: 760px) {
+    :global(.aw-root.aw-editing .aw-bottombar > .aw-widget-zone[data-zone='bottom']:not(.panel):not(.grid)) {
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: none;
+      -webkit-overflow-scrolling: touch;
+    }
+    :global(.aw-root.aw-editing .aw-bottombar > .aw-widget-zone[data-zone='bottom']:not(.panel):not(.grid)::-webkit-scrollbar) {
+      display: none;
+    }
   }
 </style>

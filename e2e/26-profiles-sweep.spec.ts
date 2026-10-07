@@ -1,5 +1,5 @@
 import { test, expect, devices, type Page } from '@playwright/test';
-import { bootCleanWorkbench, collapseRail } from './support/workbench';
+import { bootCleanWorkbench, collapseRail, enterEditMode } from './support/workbench';
 import { installGridMock } from './support/gridMock';
 import { probeInvariants } from './support/geometry';
 
@@ -71,17 +71,13 @@ test.describe('phone emulation (390x844)', () => {
   }
 
   /**
-   * FINDING (expected-to-fail): on phone the persistent bottom nav is
-   * `.aw-nav[data-nav-mode='bottom'] { overflow: hidden }` while its 9 entries need
-   * 408px in a 275px box (measured: entry rects 52..462, container clientWidth 275).
-   * The trailing entries (Setup, Theme, Axis Cloud) clip to zero visible area and
-   * cannot be reached — there is no scrollable ancestor (overflow is hidden, not
-   * auto), so a real touch user cannot reach them. Root cause lives in
-   * src/lib/workbench/svelte/NavigationHost.svelte — OWNED BY ANOTHER WORKSTREAM,
-   * so this is reported, not fixed.
+   * On phone the persistent bottom nav carries nine entries; on a 390px bar the
+   * row is wider than the bar. `NavigationHost.svelte` now shrinks the icon-only
+   * entries so they fit at rest and makes the row touch-swipeable (scrollbar
+   * hidden — the bar never paints one) for the edit-mode surplus, so every entry
+   * stays inside the viewport and reachable.
    */
   test('phone: every bottom-nav entry is reachable', async ({ page }) => {
-    test.fail(true, 'NavigationHost.svelte owns .aw-nav[data-nav-mode=bottom]: overflow:hidden clips trailing nav entries with no scroll');
     await installGridMock(page);
     await bootCleanWorkbench(page);
     await page.waitForTimeout(500);
@@ -108,19 +104,13 @@ test.describe('phone emulation (390x844)', () => {
   });
 
   /**
-   * FINDING (expected-to-fail): in phone EDIT mode the widgets-only rail is
-   * forced visible (`shouldRenderRail` returns true while editing) as a 64px
-   * static left strip, shrinking `.aw-frame` to 326px. The bottom bar then cannot
-   * fit its own content (measured: bar scrollWidth 349 vs clientWidth 326) and,
-   * because edit mode disables the zone overflow chip (`overflow: visible`), the
-   * surplus is clipped rather than shelved: the nav entries Scenes/Live/Setup/
-   * Theme/Axis Cloud, the "+" add-page control and scene buttons 4–8 all measure
-   * a ZERO visible area (rects x=300..484 against a 390px viewport) with no
-   * scrollable ancestor. Root causes are shared with F1/F2 and live in
-   * NavigationHost.svelte / WidgetZone.svelte (owned by other workstreams).
+   * Phone edit mode: the widgets-only rail is no longer forced on phone (it is
+   * suppressed when it carries no rail widgets, so `.aw-frame` keeps the full
+   * 390px), the bottom-nav row swipes for its edit-mode surplus, and the bar's
+   * widget zone swipes for its edit-mode surplus widgets — so no bottom-bar
+   * control (nav entries, `+` add-page, scene chips) clips to zero visible area.
    */
   test('phone edit mode: no bottom-bar control is unreachable', async ({ page }) => {
-    test.fail(true, 'edit mode forces the 64px rail strip + disables the overflow chip on phone; bottom-bar controls clip to zero visible area (NavigationHost/WidgetZone, owned)');
     await installGridMock(page);
     await bootCleanWorkbench(page);
     await page.waitForTimeout(600);
@@ -131,17 +121,12 @@ test.describe('phone emulation (390x844)', () => {
   });
 
   /**
-   * FINDING (expected-to-fail): the `⋯` overflow chip menu on phone opens
-   * DOWNWARD from the bottom bar and lands entirely below the viewport (measured:
-   * chip at 352,806 43x30; menu rect 352,852 270x159 with visibleH=0 against a
-   * 390x844 viewport; its "✥ Rearrange in Customize" button at y≈966). Since the
-   * bottom zone overflows on phone, the add-block palette / hidden widgets are
-   * only reachable through this menu — which is itself unreachable. Root cause
-   * lives in src/lib/workbench/svelte/WidgetZone.svelte (`.aw-overflow-menu`
-   * placement) — OWNED BY ANOTHER WORKSTREAM, so reported, not fixed.
+   * On phone the bottom zone overflows, so its hidden widgets are reached through
+   * the `⋯` chip menu. `WidgetZone.svelte` now opens that menu UPWARD from the
+   * zone top (there is no room below the bottom bar) and right-anchored, so the
+   * menu — and its "✥ Rearrange in Customize" action — stays inside the viewport.
    */
   test('phone: the overflow chip menu is reachable', async ({ page }) => {
-    test.fail(true, 'WidgetZone.svelte owns .aw-overflow-menu placement: it opens downward off the bottom of the phone viewport');
     await installGridMock(page);
     await bootCleanWorkbench(page);
     await page.waitForTimeout(500);
