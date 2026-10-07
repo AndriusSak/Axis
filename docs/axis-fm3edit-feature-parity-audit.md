@@ -179,8 +179,10 @@ toast fallback for NON-device rows.
   Both surface as select-head "Reorder…" / "Reset AMP…" actions in the workbench preset browser, each
   with a dry-run preview, explicit confirm and abort reporting (captures every source dump before any
   write; aborts on the first error naming the moves already written; re-selects the origin preset).
-  No new endpoint. **Remaining:** drag-and-drop reorder is a UI nicety (the op ships as a multi-select
-  action), and **Move / Delete everywhere** stay honest negatives (no slot-erase op on the wire).
+  No new endpoint. **DONE 2026-10-07 (R23):** **drag-and-drop reorder** in the Manage Presets area —
+  HTML5 DnD that permutes the same order array and calls the SAME `planSlotReorder`/`runSlotReorder`
+  path (single order source; dry-run → confirm → abort unchanged; the same-slot-set guard untouched).
+  **Move / Delete everywhere** stay honest negatives (no slot-erase op on the wire).
 
 ### 2.5 User Cab / IR management — **Absent**
 FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav`/`.ir` with MPT /
@@ -287,7 +289,7 @@ never faked.
 | **Disconnect all cables** from a block (Cmd+D) | **Implemented** | `planDisconnectAll` + `editor.disconnectAll` (Cmd+D) |
 | **Move an entire row / column** (grid border sliders) | **Implemented** | `planGridShiftRow`/`planGridShiftColumn` (`gridShift.ts`) + `editor.shiftRow/shiftColumn` + Signal Grid row/column border controls; an off-edge move is refused with a named reason (never a silent drop); modeled offline in `convertEditor` too. `grep moveRow` → 0 only because the planners are named `planGridShift*`. |
 | Explicit **Insert shunt** command/shortcut | **Implemented** | `planInsertShunt` + `editor.insertShunt` (Cmd+U) |
-| **Quick Build** panel (Q) | **Partial** — the Cmd+K command palette covers placement differently | `CommandPalette.svelte` |
+| **Quick Build panel** (Q) | **Implemented (R24)** — a dedicated `axis.quickBuild` panel places blocks through the existing `editor.place`; the `Q` chord opens it (palette unchanged) | `AxisQuickBuildPanel.svelte`, `quickBuild.ts`, `shortcuts.ts` |
 | **Grid Navigation Mode** (fast grid ops, skip param fetch) | **Absent** | grep `gridNav` → 0 |
 | **Block Info** overlay (which blocks are Global) | **N/A on FM3** (Global blocks are Axe-Fx only) | — |
 
@@ -320,7 +322,9 @@ exactly which slots change, an explicit confirm, then per slot `GET /preset/loca
 `POST /preset/select` → `PUT /preset/blocks/:eid/params/:paramId` (the `continuous` flag sent
 explicitly) → `POST /preset/store`, restoring the origin preset at the end and aborting on the first
 error with the precise list of slots already written. **Destructive by design** — it overwrites slots,
-and the UI says so. Not yet reachable from a rail button (openable through its action).
+and the UI says so. **DONE 2026-10-07 (R22):** reachable from a `batchSet` **action nav entry** in the
+workbench rail (plus an idempotent self-heal onto persisted docs) that fires the existing
+`axis.openBatchSet` — the panel, its action and its destructive-by-design flow are unchanged.
 - **DONE 2026-10-07:** **copy/paste a single parameter VALUE between blocks** — `paramClipOps.ts`
   (pure planner + injectable IO) snapshots one served param by its DEVICE paramId (knob norm / enum
   ordinal) and writes it back through the existing per-block PUT. An id the target block does not
@@ -383,9 +387,13 @@ no extra wire. The editor now shows the assignment that already owns the opened 
 - Still true from the original note: Channel / PC Reset / Update Rate / Attack / Release / Damping /
   Auto Engage / Off Value are rendered but only written when the model exposes their pid
   ("pending decode" otherwise).
-- **Remaining:** read an existing assignment's live *curve values* back from the device (the decoded
-  body carries the assignment, not the per-slot curve), and surface modifier usage on the Controllers
-  screen itself.
+- **DONE 2026-10-07 (R21):** **live curve read-back** — `modifierCurve.ts` decodes the assignment's slot
+  curve (min/max/start/mid/end/slope/scale/offset) from the served raw block via the served model
+  (`/mod/model` pids + kinds), rendered as a CURVE READ-BACK section; **honest gate** — no model, no
+  field def, or no served value ⇒ `pending`, never an invented pid/value; chain-embedded assignments
+  (`slot == null`) have no addressable slot and stay pending. **Modifier usage on the Controllers
+  screen** — `ModifierUsagePanel.svelte` (reuses `modifiersInUse`/`describeModifier` over the existing
+  `GET /preset/modifiers`), mounted by `VirtualScreen.svelte` when the controllers screen is active.
 
 ### 3.3 Scenes page & Live page — **Scenes done, Live done**
 The Scenes page is now the real Scene Manager (§2.1). The Live page is now the real Performance / Live
@@ -707,16 +715,18 @@ Verification on the merged tree: Axis **1629 unit tests / 154 files** · `svelte
 | R19 | §2.10 + §2.11 clipboard | Done — param-value clipboard + honest cross-preset block paste | `c12d7ca` |
 | R20 | §3.5 + §3.8 rail gating | Done — Setup/Controllers gated honestly; MLM warning stopped (unverifiable) | `c429b1f` |
 
-**Remaining worklist — dispatched 2026-10-07 (round R21–R24)** (four parallel subagents, one git
-worktree each, **Axis-only / offline-provable** — no hardware, no new endpoint). After this round the
-audit is: shipped, parked (§2.3, no FC), N/A on FM3, or honestly impossible (no wire op).
+**Round R21–R24 — merged 2026-10-07** (orchestrator: Lykos; four parallel subagents, one git worktree
+each, **Axis-only / offline-provable** — no hardware, no new endpoint). All four merged into `main`
+with **zero conflicts**, and no `EditorSurface` seam change was needed (no new editor-store members).
+Verification on the merged tree: Axis **1679 unit tests / 160 files** · `svelte-check` **0 errors,
+0 warnings** · build **ok** · Playwright **136/136**.
 
-| # | Item | Scope |
-|---|---|---|
-| R21 | §3.2 Modifier editor remainder | read an existing assignment's live curve values back; surface modifier usage on the Controllers screen |
-| R22 | §2.11 batch-set entry | make `axis.batchSet` reachable from a rail/registry entry (today it is action-only) |
-| R23 | §2.4 Manage Presets drag-and-drop | drag-reorder over the existing `slotReorderOps` permutation (the op ships as a multi-select action) |
-| R24 | §2.9 Quick Build panel (Q) | the remaining §2.9 Partial — one-click block placement in a dedicated panel |
+| # | Item | Result | Commit |
+|---|---|---|---|
+| R21 | §3.2 modifier editor remainder | Done — `modifierCurve.ts` (honest pending-decode when the model/DTO exposes no curve) + a CURVE READ-BACK section; `ModifierUsagePanel.svelte` on the Controllers screen | `1994913` |
+| R22 | §2.11 batch-set entry | Done — a `batchSet` action nav entry (+ idempotent self-heal on persisted docs) firing the existing `axis.openBatchSet` | `4a64c2c` |
+| R23 | §2.4 Manage Presets drag-and-drop | Done — HTML5 DnD over the SAME `slotReorderOps` permutation + dry-run/confirm/abort path (no second reorder path) | `a5e767d` |
+| R24 | §2.9 Quick Build panel (Q) | Done — `axis.quickBuild` panel + `axis.openQuickBuild`, one-click placement via the existing `editor.place`, wired to the `Q` chord | `10bb746` |
 
 **Deferred after R21–R24 (needs the device, a decision, or a bigger build):**
 - **§2.2 per-preset Performance Pages** — storage now known (§6.5): the per-preset page is in the preset
