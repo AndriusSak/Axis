@@ -8,9 +8,10 @@ bottom.
 
 ## Where `main` is
 
-- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged. Latest merged-tree verification:
-  **1720 unit tests / 164 files** · `svelte-check` **0 errors / 0 warnings** · build **ok** ·
-  **Playwright 142/142** (34 spec files).
+- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1 fix round** (2026-10-07,
+  below). Latest merged-tree verification: **1737 unit tests / 166 files** · `svelte-check` **0 errors
+  / 0 warnings** · build **ok** · **Playwright 142/142** (34 spec files) · ForgeFX **38 suites** ·
+  forgefx-midi **83**.
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
 
 ## Shipped recently (do not redo)
@@ -29,12 +30,10 @@ bottom.
 
 **The next iteration's input is
 [`axis-review-2026-10-07-next-iteration-fix-list.md`](axis-review-2026-10-07-next-iteration-fix-list.md)**
-— an independent 3-pass review of this tree, every item re-read in the code before filing. P1:
-device-refused discrete writes staying on screen; blank Setup/Config controls (the silent-drop class);
-a torn block read served as a complete one. P2: paste reporting requested-as-pasted, the two
-write-confirmation windows, scaled-enum value decode, `/diag/ranges` missing from the browser-direct
-runtime. It also carries a **"do not chase" list** (claims the review checked and rejected) and the
-hardware probes that remain — read that before re-opening anything.
+— an independent 3-pass review of this tree, every item re-read in the code before filing.
+**P1.1, P1.2 and P1.3 shipped 2026-10-07** (see the doc's status header for the commits); **P2 and P3
+are open**. The doc also carries a **"do not chase" list** (claims the review checked and rejected) and
+the hardware probes that remain — read that before re-opening anything.
 
 ### Blocked on hardware (needs the FM3 / the Deck)
 - **Cab 2 Mute/Solo write** (audit §3.7) — toggle cab 2's M/S on the unit and confirm it reads back;
