@@ -143,20 +143,24 @@ persisted placeholder docs.
   endpoint was invented.
 - The legacy rail's **Perform** entry (§ToolRail) is still a toast — it is a separate legacy surface
   from the workbench Live page and was left untouched.
-- **Next step:** device-side storage needs RE (§6.5) — **info requested 2026-10-07** (does the FM3
-  front panel / FM3-Edit expose performance pages? a capture while FM3-Edit saves one? see §6.5). If it
-  turns out the FM3 stores Global/Per-Preset performance pages, this local model is what would be
-  serialised into that region.
+- **Next step — storage now known (§6.5, official sources):** the FM3 has two Performance pages —
+  **Perform-PP (per-preset)** is part of the **preset** (save the preset to commit), **Perform-Gbl
+  (global)** is in **Global Settings**; each hosts ten controls, set up only in FM3-Edit (a "power-user
+  routine not possible on the unit itself"). So the per-preset page should be decoded from the preset
+  body — our `presetBody.ts` does **not** surface it today (`grep -i perform` → 0) — and the global page
+  read/written through the system/global path. The local Axis model is what would be serialised into
+  whichever region. Exact frames still need a capture.
 
 ### 2.3 Sets & Songs (Setlists) — **Absent** (whole surface)
 FM3 firmware ≥ 9 exposes **Setlists/Songs** (custom preset/scene order for live use) and FM3-Edit has
 a corresponding area with **import/export**. Axis: no page, no nav entry in the workbench (the legacy
 rail's `sets` falls through to the toast path, `ToolRail.svelte:12`), no endpoints.
-- **Setlists/Songs ARE supported on the FM3 — confirmed 2026-10-07 (Andy)**, so this is no longer
-  firmware-gated and the surface is buildable. **Next step:** locate the storage region (front-panel
-  Setup menu area ⇒ almost certainly a *system/global* region, **not** a preset) — needs an RE spike for
-  read/write, or a capture taken while FM3-Edit saves a setlist (see §6.5). Until the region is known it
-  stays a **research item**, not a wiring task.
+- **Setlists/Songs ARE supported on the FM3 — confirmed 2026-10-07 (Andy + FM3 Owner's Manual
+  pp.126+).** Storage is now known (§6.5, official sources): a **global SETUP area, "FC Setlists/Songs"**
+  (system region, **not** a preset). **Caveat: the feature REQUIRES an FC-6 or FC-12 foot controller**
+  ("The Setlist Songs feature requires an FC-6 or FC-12") — confirm Andy has one before treating this as
+  a target. **Next step:** the system/global read-write path for that region (needs a capture taken while
+  FM3-Edit saves a setlist); no preset-binary work involved.
 
 ### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap + reorder + Reset AMP per preset DONE; move/delete impossible)
 FM3-Edit's **Manage Presets** does multi-select **reorder / move / swap / duplicate / delete**
@@ -184,11 +188,12 @@ FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav
 Auto-Trim / output format options), Scratchpad naming, UltraRes marking. Axis has only the *picker*
 (`GET /cab/irs`, `CabPicker.svelte`) + favourites. No `POST /cab/*` write endpoints at all; no
 upload; no IR-capture UI (IR capture on the FM3 is front-panel/III-editor).
-- **Custom-IR upload to the device IS available — confirmed 2026-10-07 (Andy)**, so this is buildable
-  rather than blocked: implement the multi-frame SyEx user-cab upload (`POST /cab/*` write endpoints +
-  an import UI) per the FM3 spec, then load-test on hardware. `presetAuthorIr.ts` already authors IR
-  data into a preset dump **offline**. **Next step:** the cab write endpoints + import UI; hardware-
-  verify the upload (the multi-frame transfer is the part that needs the device).
+- **Custom-IR upload to the device IS available — confirmed 2026-10-07 (Andy; the FM3 Owner's Manual
+  has a "Loading User Cabs" section, p.118)**, so this is buildable rather than blocked: implement the
+  multi-frame SyEx user-cab upload (`POST /cab/*` write endpoints + an import UI) per the FM3 spec, then
+  load-test on hardware. `presetAuthorIr.ts` already authors IR data into a preset dump **offline**.
+  **Next step:** the cab write endpoints + import UI; hardware-verify the upload (the multi-frame
+  transfer is the part that needs the device).
 
 ### 2.6 Library (block/channel library on disk) — **DONE (Axis-local format)** · 2026-10-06
 FM3-Edit's **Library** stores named **blocks (all 4 channels) and single channels** as `.blk` files,
@@ -570,11 +575,19 @@ not surfaced — see §3.6 item 3.
    (`Gen3Driver.loadPresetBytes` + `retargetPresetDumpToEditBuffer` → `POST /preset/load`; live-validated
    on FM3 for edit-buffer audition; store via `store(n)`; authored output offline-gated by
    `presetValidate.ts`). Remaining: a hardware load test of an authored dump — see §5.
-5. **Does FM3 store performance pages / setlists in the preset or in system memory?** Determines
-   whether either can be built without new RE. **Info requested 2026-10-07 (Andy):** (a) does the FM3's
-   own front-panel Setup menu expose a Performance Pages / Setlists area, and does FM3-Edit write it?
-   (b) either a `.syx`/USBPcap taken while FM3-Edit SAVES a performance page or a setlist, or the
-   matching firmware release-note section — either one pins the storage region and the read/write frames.
+5. ~~**Does FM3 store performance pages / setlists in the preset or in system memory?**~~ — **ANSWERED
+   2026-10-07 from the OFFICIAL sources** (FM3 Owner's Manual pp.124–126; FM3 firmware **3.02** release
+   notes "Added Per-Preset and Global Performance Pages"; FM3-Edit **1.03.00** release notes):
+   - **Perform-PP (per-preset page)** is **stored in the PRESET** — "when you edit the Per-Preset
+     Performance page you must save the preset to commit changes"; adding/removing a control changes the
+     preset's EDIT state (so it is in the preset binary).
+   - **Perform-Gbl (global page)** is **stored in the Global Settings** (system) — edited controls are
+     auto-saved, "no need to store anything".
+   - **Setlists/Songs** live in a **global SETUP menu area, "FC Setlists/Songs"** (system region, NOT the
+     preset) and **require an FC-6 or FC-12 foot controller**.
+   → The per-preset page is in the preset binary (our `presetBody` decoder does not surface it yet —
+   `grep -i perform src/devices/gen3/` → 0); the global page + Setlists need the system/global
+   read-write path. Exact frames still need a capture (or the editor's write path).
 6. **Cab 2 Mute/Solo write path** (see §3.7) — the outstanding hardware check from the last handoff.
 7. ~~**Setlists/Songs availability** on Andy's firmware~~ — **RESOLVED 2026-10-07: the FM3 supports
    Setlists/Songs** (confirmed by Andy). The only open question is the storage region (item 5).
