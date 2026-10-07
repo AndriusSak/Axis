@@ -433,6 +433,58 @@ have no range row at all. "Disabled with the exact reason" is the correct final 
 
 ---
 
+## P8 — shipped 2026-10-07 (probe honesty, the silent-write verdict, read-route validation)
+
+Three ForgeFX workstreams, all offline, all merged with `--no-ff` and zero conflicts.
+
+- **The probe's reporting and diagnosability were rewritten** (`280d978`). Q5 no longer fabricates a
+  latency: it has three mutually-exclusive, single-sourced outcomes — **refused** (a `0x64` arrived, with
+  its resultCode and the measured ms to that frame), **silent** (no frame at all; **no latency reported**),
+  **accepted** (a reply arrived that isn't a `0x64`). On a real FM3 the bogus-eid write reports `silent`.
+  Connection failures now name the port, the errno and which of three classes: nothing enumerated /
+  present-but-not-openable (`EACCES: … /dev/ttyACM0`) / openable-but-unresponsive. Suite 11 → 26 cases.
+- **Fix-forward from the LED incident.** `restored` is now true only when a *different* read path
+  corroborates it; a same-path read-back prints **`UNPROVEN-RESTORE`** and says exactly what it did and did
+  not establish — it can never again print a bare "verified" on the strength of an echo of our own write. A
+  captured original sitting on an **off/disabled boundary** (0 on `GLOBAL_FS_BRIGHTNESS`, a 0..100 param)
+  makes Q1 **refuse to write** with a loud `⚠ HAZARD` — the deliberate trade-off being to lose the Q1
+  answer on an all-off unit rather than risk writing a misread 0 over a real value. Every mutating probe now
+  prints a `human check:` line naming the thing a person can actually look at.
+- **`--writes --dry-run`** performs only the read half and prints the full plan — param, eid/pid, captured
+  original, would-write, would-restore, boundary flag — writing **nothing**, and exits **4**, distinct from
+  0/2/3 so it can never be mistaken for a completed run. This is the guard that would have prevented the
+  incident: the plan would have shown `original 0.0000 → would write 0.1 → would restore 0.0`.
+- **Silent-write semantics: verdict (b) — no distinct signal exists, and NO behaviour was changed**
+  (`64902c9`, zero `src/` files touched). The trace: discrete write → `gen3.ts:1453` → `#write`
+  (`:291-305`) → `request({timeoutMs: 250, quietMs: 250, match: isOurReject})` → `{ok: !rejected}`.
+  **Silence — whether the device accepted or silently ignored — is `{ok:true}` → HTTP 200 → Axis reads
+  `status:'ok'`.** Continuous and GLOBAL writes go through `#send` and collect no reply at all, so they are
+  `{ok:true}` unconditionally. Therefore mapping silence to `ok:false` would break **every** accepted write.
+  The recommendation is instead **scoped read-back verification** (`docs/write-protocol.md`): verify
+  persisted-global params and low-frequency structural writes (`store`, `placeCell`/`cable`, names) with one
+  extra independent GET; leave the hot path (`continuous` knob streams, `tapTempo`, `selectCell`,
+  `setTempo`) fire-and-forget. Pinned by a new 16-case suite (ForgeFX is now **42 suites**) which locks the
+  indistinguishability itself: accept and ignore produce the same verdict **and a byte-identical outgoing
+  frame**, and all ten `#write`-routed ops return `{ok:true}` under silence.
+- **Read-route validation finished** (`3fb8f20`): ten read routes whose params are parsed now answer **400**
+  on malformed input (non-integer, negative, `> 0x3fff`), in the **shared** handlers so both surfaces
+  inherit it. This was a *silent-misread* class rather than a cosmetic one: the driver's own `enc14` masks a
+  bad address to a **different** one, so a malformed eid produced a 200 with the wrong block's data. A
+  well-formed-but-absent in-range integer still goes to the driver (tested as the boundary twin).
+  `route-parity` 44 → 68 cases. **The workstream corrected the orchestrator's own example**: `:eid=99999` is
+  *not* "well-formed but absent" — `enc14` cannot carry it and silently wraps it, so it belongs in the
+  malformed → 400 bucket; the genuine absent case is an in-range integer naming nothing.
+- **Left as-is, flagged not guessed:** `GET /fc/state` (garbage yields a driver 503, not a silent mis-read;
+  a correct integer bound needs the FC address model, unavailable at the seam) and `pids[]` array validation,
+  which the workstream extended on the same `enc14` reasoning.
+
+**Merged-tree verification — GREEN:** forgefx-midi **84** ✓ · ForgeFX **42 suites** ✓ · Axis **1815
+unit tests / 173 files** ✓ · `svelte-check` 0 errors / 0 warnings ✓ · build ok ✓ · Playwright **142/142** ✓.
+Route counts verified unchanged across the read-validation refactor (83 app registrations / 92 router rows
+before and after) — the deleted lines were inline handlers replaced by the shared ones, not lost routes.
+
+---
+
 ## Do NOT chase (checked and rejected by the review)
 
 - **Edit-watch sweep vs channel-A baseline** (`gen3.ts:1371`): the sweep slice and its baseline are
@@ -474,7 +526,7 @@ Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`,
    The P1.3 torn-read guard (`values.length >= itemCount` ⇒ complete) is **safe as written**; no tolerance
    needed. (This also confirms the P1.3 harness bug fix was against a real invariant.)
 
-### Filed by the measurement (new)
+### Filed by the measurement — **all actioned in P8 (below); kept as the filed record**
 
 - **⚠ INCIDENT 2026-10-07 — the probe's "restore verified" destroyed a real setting.** Q1 wrote
   `GLOBAL_FS_BRIGHTNESS` (7115, "Mini-Display + Ring Brightness", range 0–100 where **0 = off**). It read
