@@ -474,14 +474,44 @@ Three ForgeFX workstreams, all offline, all merged with `--no-ff` and zero confl
   `route-parity` 44 → 68 cases. **The workstream corrected the orchestrator's own example**: `:eid=99999` is
   *not* "well-formed but absent" — `enc14` cannot carry it and silently wraps it, so it belongs in the
   malformed → 400 bucket; the genuine absent case is an in-range integer naming nothing.
-- **Left as-is, flagged not guessed:** `GET /fc/state` (garbage yields a driver 503, not a silent mis-read;
-  a correct integer bound needs the FC address model, unavailable at the seam) and `pids[]` array validation,
-  which the workstream extended on the same `enc14` reasoning.
+- **Left as-is, and the note was WRONG** (corrected in P9): `GET /fc/state` with garbage does **not** yield a
+  driver 503 — `config` becomes NaN, `enc14(NaN)` encodes `[0,0]`, every field is read from **pid 0** and the
+  route answers **200**. Same silent-mis-read class the round fixed elsewhere. Also left: `pids[]` array
+  validation, which the workstream extended on the same `enc14` reasoning.
 
 **Merged-tree verification — GREEN:** forgefx-midi **84** ✓ · ForgeFX **42 suites** ✓ · Axis **1815
 unit tests / 173 files** ✓ · `svelte-check` 0 errors / 0 warnings ✓ · build ok ✓ · Playwright **142/142** ✓.
 Route counts verified unchanged across the read-validation refactor (83 app registrations / 92 router rows
 before and after) — the deleted lines were inline handlers replaced by the shared ones, not lost routes.
+
+---
+
+## P9 — independent review of P1–P8 (Sonnet 5.5, 2026-10-07) and what it found
+
+One read-only Claude session reviewed the whole P1–P8 diff (8,236 lines / 59 files, 42 non-merge commits)
+against six ordered questions. Its report: `~/repos/stack/review-2026-10-07/p9-review/p9-report.md`
+(raw JSON alongside). **Every claim below was re-verified by the orchestrator before being acted on; the
+verdict column is the orchestrator's, not the reviewer's.**
+
+| Finding | Verdict | Action |
+|---|---|---|
+| **GLOBAL block-bulk reads are broken** — `bulk.values[base + p.paramId] ?? 0` (gen3.ts:726/733/752) with `GLOBAL stride 186 / recordCount 187` vs **91 served GLOBAL pids >= 186** (max 65522) | **CONFIRMED by reading the code and catalog** | P9 round, priority 1 |
+| The P1.2 coverage test cannot catch it (zero fixture, membership only, no value asserted) | **CONFIRMED** | Strengthened in P9 |
+| **`GET /fc/state` reads pid 0 and answers 200** on garbage (`enc14(NaN)` = `[0,0]`) | **CONFIRMED** | P9 round |
+| **The staleness guard fails on ABA** — `stale = value !== sent` is reachable on an odd-length boolean toggle burst (true/false/true with the first refused wipes the third) | **CONFIRMED by reading `paramWriteOutcome.ts:79`** | P9 round |
+| A double refusal can leave an unconfirmed value on screen | **CONFIRMED as described** | P9 round |
+| `editor.svelte.ts:2600` claims a scene switch is reject-watched — false on gen3 (`setScene` → `#send` → `{ok:true}` unconditionally) | **CONFIRMED** | P9 round |
+| `ToolRail.svelte:40-44` `showTools` still ends `: editor.isAm4` (should be `: false`) → an AM4 with no caps gets a Tools button opening an empty modal | **CONFIRMED** (minor; only reachable on a v1 server or before caps load) | P9 round |
+| The above retraction (GLOBAL writes "YES" rests on a same-path echo) | **CONFIRMED as a documentation defect** | Retracted in this commit |
+| `/fc/state` "driver 503" note was wrong | **CONFIRMED** | Corrected in this commit |
+| P7 AM4 collapse: "no behavioural defect in the collapsed route sites" | **Accepted** — every removed guard was `!isV2 && isAm4`, false whenever `isV2` | No action |
+| P8 read-route refactor: "only 400s for malformed" | **Accepted with two caveats** — a malformed `:n` on an AM4 `/summary` was 501, now 400; repeated query keys (`?eid=1&eid=2`) 400 on Fastify but are accepted on the browser router, and `route-parity` does not cover it | Noted |
+| Test-quality list (vacuous/partly vacuous suites: `silent-write` case 5, `block-read-failure`, `route-parity` twins, the Axis regex sourceguards matching whole-file, `noAm4Routes` parsing gaps) | **Plausible, not individually verified** | Queued |
+
+**What the review could NOT establish** (its own honest limits, worth keeping): the real GLOBAL `0x75`
+body length and indexing; the true wire encoding of pid 7115; what the `01 01 00` GET actually returns for
+eid 1; and how real `0x64` refusals behave. **All four need the FM3 attached** — and the first is the one
+that would settle the GLOBAL question completely.
 
 ---
 
@@ -515,10 +545,14 @@ Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`,
    ⚠ The probe's own reporting is incoherent here — it printed `no 0x64 arrived within 2000 ms` and
    `latency 251 ms` in the same breath (251 ms matches the writer's own 250 ms window, so it is almost
    certainly the probe's timer, not a device latency). **Probe reporting defect — fix before trusting Q5.**
-3. **Do GLOBAL writes actually succeed? — YES (Q1, `matches the expectation`).** `GLOBAL_FS_BRIGHTNESS`
-   (eid 1, pid 7115): read 0.0000 → wrote 0.1000 → **read back 0.1000** → restored 0.0000, restore
-   verified. The P1.2 served/rendered params are genuinely writable; the audit's "write side unverified"
-   caveat can be dropped.
+3. **Do GLOBAL writes actually succeed? — RETRACTED, still UNPROVEN (was marked "YES" in error).**
+   The only evidence was `GLOBAL_FS_BRIGHTNESS` reading 0.0000 → writing 0.1000 → **reading back
+   0.1000**. Two independent findings now invalidate that reading: (a) P8 established that a read-back
+   which merely *echoes our own write* is not verification, and the codec documents a SET returning a
+   value echo; (b) the review below found the GLOBAL **read** path itself is broken (out-of-range index →
+   `?? 0`), which is also what produced the 0.0000 in the first place. So the write may well work — but
+   nothing on record proves it. **The audit's "write side unverified" caveat STANDS.** Re-establishing
+   this needs an independent read (a different sub-action, or the front panel) — see the P9 section.
 4. ~~Is there a 4th FC port (`PFC4`)?~~ **ANSWERED — no.** `PFC4` is evidenced only in the **Axe-Fx III**
    layouts (`axe-fx-iii/layouts.generated.ts:13698-13699`); the FM3 has FC ports 1-3. Nothing to fix.
 5. **Does the FM3 ever pad a complete bulk read? — NO (Q4, `matches the expectation`).** Cab (eid 62):
@@ -529,7 +563,10 @@ Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`,
 ### Filed by the measurement — **all actioned in P8 (below); kept as the filed record**
 
 - **⚠ INCIDENT 2026-10-07 — the probe's "restore verified" destroyed a real setting.** Q1 wrote
-  `GLOBAL_FS_BRIGHTNESS` (7115, "Mini-Display + Ring Brightness", range 0–100 where **0 = off**). It read
+  `GLOBAL_FS_BRIGHTNESS` (7115; the FM3 layout places it in a **MINI DISPLAY** section beside
+  `GLOBAL_FS_LCD_CONTRAST` 7116, while the RING controls are separate params — `GLOBAL_FC_RING_BRIGHT_LEVEL`
+  110 / `GLOBAL_FC_RING_DIM_LEVEL` 111 — so the earlier "Mini-Display + Ring Brightness" label was an
+  assumption, not the layout; 0–100 with **0 = off**). It read
   the original as `0.0000`, wrote `0.1000`, then restored `0.0000` and printed **`restore verified`** —
   because the read-back echoed the value the probe itself had just written. The user's footswitch LED
   rings went dark. Two lessons: (a) **a read-back that echoes our own write is not verification** — it

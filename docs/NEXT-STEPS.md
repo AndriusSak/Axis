@@ -11,7 +11,7 @@ bottom.
 - Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1–P7 fix rounds**
   (2026-10-07, below). Latest merged-tree verification: **1815 unit tests / 173 files** · `svelte-check`
   **0 errors / 0 warnings** · build **ok** (bare `npm run build` — the heap flag lives in `.npmrc`) ·
-  **Playwright 142/142** (34 spec files) · ForgeFX **41 suites** · forgefx-midi **84**.
+  **Playwright 142/142** (34 spec files) · ForgeFX **42 suites** · forgefx-midi **84**.
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
 
 ## Shipped recently (do not redo)
