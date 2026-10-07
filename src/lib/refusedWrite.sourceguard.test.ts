@@ -23,10 +23,10 @@ describe('refused discrete writes — setEnum wiring', () => {
     expect(editor).toMatch(/import \{ settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport \} from '\.\/paramWriteOutcome'/);
   });
 
-  it('setEnum is async and awaits the discrete write (continuous=false / AM4 value route)', () => {
+  it('setEnum is async and awaits the discrete write (continuous=false)', () => {
     expect(editor).toMatch(/setEnum = async \(e: EnumParam, value: number\)/);
-    // the discrete write (both routes) is captured as a settlement through the shared wrapper
-    expect(editor).toMatch(/!this\.isV2 && this\.isAm4 \? forgefx\.am4SetParamValue\(c\.effectId, e\.id, value\) : forgefx\.setParam\(c\.effectId, e\.id, value, false\)/);
+    // the discrete write is captured as a settlement through the shared wrapper
+    expect(editor).toMatch(/forgefx\.setParam\(c\.effectId, e\.id, value, false\)/);
     expect(editor).toMatch(/const outcome = await this\.#writeSettlement\(/);
   });
 
@@ -50,7 +50,7 @@ describe('refused discrete writes — setEnum wiring', () => {
 
   it('keeps the CONTINUOUS knob path fire-and-forget (deferred + swallowed, NOT awaited in the send)', () => {
     // setParam's continuous send stays inside a deferred timer whose promise is swallowed
-    expect(editor).toMatch(/forgefx\.setParam\(eid, pid, v, true\)\)\.catch\(\(\) => \{\}\)/);
+    expect(editor).toMatch(/forgefx\.setParam\(eid, pid, v, true\)\.catch\(\(\) => \{\}\)/);
   });
 });
 
@@ -252,7 +252,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 
   it('selectScene honours {ok:false}, not just a throw', () => {
     expect(editor).toMatch(
-      /#writeSettlement\(!this\.isV2 && this\.isAm4 \? forgefx\.am4SetScene\(ui - 1\) : forgefx\.setScene\(ui - 1\)\)/
+      /#writeSettlement\(forgefx\.setScene\(ui - 1\)\)/
     );
     expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, prev, ui, outcome/);
     expect(editor).not.toMatch(/this\.scene = prev;/); // the old throw-only revert is gone

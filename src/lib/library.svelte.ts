@@ -305,14 +305,11 @@ class LibraryStore {
       // browser lists + loads them; the deep param filtering stays a full-dump (canDeepScan) feature.
       const dev = await forgefx.device().catch(() => null);
       const caps = dev?.capabilities;
-      const v2 = (dev?.apiVersion ?? 1) >= 2;
       if (caps?.cabIrs) await refreshCabIrsCache().catch(() => {});
-      const nameScan = v2 ? !!caps?.presets?.canScanNames && !caps?.presets?.canDeepScan : dev?.modelByte === '0x15';
+      const nameScan = !!caps?.presets?.canScanNames && !caps?.presets?.canDeepScan;
       if (nameScan) {
-        // API v2: unified GET /preset/locations; legacy v1 fallback: the AM4's own scan route.
-        const locations = v2
-          ? (await forgefx.presetLocations()).locations
-          : (await forgefx.am4Presets()).presets;
+        // unified GET /preset/locations — a name-scan device (e.g. the AM4) lists stored locations.
+        const locations = (await forgefx.presetLocations()).locations;
         this.scanTotal = locations.length;
         for (const p of locations) {
           if (p.isEmpty || !p.name.trim()) continue;
@@ -664,7 +661,7 @@ class LibraryStore {
       // library without a full rescan (matches the lightweight entry the initial name-scan builds).
       const dev = await forgefx.device().catch(() => null);
       const caps = dev?.capabilities;
-      const nameScan = (dev?.apiVersion ?? 1) >= 2 ? !!caps?.presets?.canScanNames && !caps?.presets?.canDeepScan : dev?.modelByte === '0x15';
+      const nameScan = !!caps?.presets?.canScanNames && !caps?.presets?.canDeepScan;
       if (nameScan) {
         const loc = (await forgefx.presetLocations()).locations.find((p) => p.location === n);
         const byId = new Map(this.entries.map((e) => [e.id, e] as const));

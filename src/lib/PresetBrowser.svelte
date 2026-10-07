@@ -1000,7 +1000,7 @@
     }
     if (e.summary.number < 0) { editor.showToast('Open it on the device to load', '#f5a623'); return; }
     editor.openBuild();
-    await editor.selectPreset(e.summary.number); // unified — routes to the legacy AM4 codec path itself on v1
+    await editor.selectPreset(e.summary.number); // unified for every device
   }
 
   // ===================== helpers =====================

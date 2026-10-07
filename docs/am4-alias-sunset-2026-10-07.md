@@ -1,5 +1,11 @@
 # AM4 alias sunset — client `/am4/*` inventory & guard (2026-10-07)
 
+> **RESOLVED BY REMOVAL (P7).** The `legacyAm4` / `!isV2` route fallback was deleted, not migrated:
+> `forgefx.ts` no longer carries any `am4*` helper and no source file under `src/` references a
+> `/am4/*` route path. The inventory/guard below (`am4Deprecation.{ts,test.ts}`) is retired and
+> replaced by `src/lib/noAm4Routes.test.ts`, which asserts a `/am4/*` reference can never reappear.
+> The history that follows is kept for context only.
+
 ForgeFX still registers 16 `/am4/*` routes as deprecated aliases of the unified API-v2 routes
 (`ForgeFX/server/src/app.ts:679-709`), `Sunset: Tue, 01 Dec 2026 00:00:00 GMT` (`app.ts:123`).
 Axis calls 12 of them from live `legacyAm4` / `!isV2` fallback branches. When the aliases are

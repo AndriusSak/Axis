@@ -1,14 +1,13 @@
 <script lang="ts">
-  // Device Tools modal — capability-gated sections (API v2): preset backup (caps.backupDump),
+  // Device Tools modal — capability-gated sections: preset backup (caps.backupDump),
   // restore (caps.restoreDump), offline .syx decode (works for both device families), firmware
   // validation (caps.firmwareValidate) and a read-only modifier-model view (caps.modifiers.model).
-  // Legacy v1 fallback: an AM4 on a pre-v2 server keeps the old /am4/* routes behind the same UI.
   import { editor } from './editor.svelte';
   import { forgefx } from './forgefx';
   import { describeSpan, classifyRow, isMismatch, summarize, type RangeTrace } from './rangeTrace';
   import type { SyxDecodeResult } from './types';
 
-  // Loose display view over BOTH modifier-model DTOs (unified gen-3 ModModel + legacy Am4ModifierModel).
+  // Loose display view over the gen-3 modifier-model DTO.
   type ModView = {
     slotCount?: number;
     fields?: Record<string, unknown>;
@@ -33,14 +32,13 @@
   const traceStats = $derived(trace ? summarize(trace.rows) : null);
 
   const caps = $derived(editor.caps);
-  const legacyAm4 = $derived(!editor.isV2 && editor.isAm4); // v1 fallback path (old /am4/* routes)
-  const canBackup = $derived(legacyAm4 || !!caps?.backupDump);
-  const canRestore = $derived(legacyAm4 || !!caps?.restoreDump);
-  const canFirmware = $derived(legacyAm4 || !!caps?.firmwareValidate);
-  const canModView = $derived(legacyAm4 || !!caps?.modifiers?.model);
-  const modBindable = $derived(!legacyAm4 && !!caps?.modifiers?.bind);
+  const canBackup = $derived(!!caps?.backupDump);
+  const canRestore = $derived(!!caps?.restoreDump);
+  const canFirmware = $derived(!!caps?.firmwareValidate);
+  const canModView = $derived(!!caps?.modifiers?.model);
+  const modBindable = $derived(!!caps?.modifiers?.bind);
   // bank-letter store convenience (Save-to-slot with A01..Z04 codes) — AM4-family addressing only
-  const canStoreSlot = $derived(legacyAm4 || (editor.bankLetterAddressing && !!caps?.supportsSave));
+  const canStoreSlot = $derived(editor.bankLetterAddressing && !!caps?.supportsSave);
   const locCount = $derived(caps?.presets?.count ?? 104);
   const bankCode = (i: number) => `${String.fromCharCode(65 + Math.floor(i / 4))}${String((i % 4) + 1).padStart(2, '0')}`;
 
@@ -62,7 +60,7 @@
     busy = true; say('');
     try {
       const loc = backupLoc === '' ? undefined : Number(backupLoc);
-      const r = legacyAm4 ? await forgefx.am4BackupPreset(loc) : await forgefx.presetBackup(loc);
+      const r = await forgefx.presetBackup(loc);
       const label = r.code ?? (r.location != null ? String(r.location) : 'active');
       download(`${editor.conn.device ?? 'preset'}-${label}-${(r.name || 'preset').replace(/[^\w-]+/g, '_')}.syx`, r.bytes);
       // ADDITIVE (opt-in): surface the decoded CRC-validity flag + scene names when the server returns them.
@@ -93,7 +91,7 @@
     busy = true; say('');
     try {
       const bytes = await fileBytes(f);
-      const r = legacyAm4 ? await forgefx.am4RestorePreset(bytes) : await forgefx.presetRestore(bytes);
+      const r = await forgefx.presetRestore(bytes);
       say(`Restored → ${r.code ?? (r.location != null ? String(r.location) : '(active)')}`);
     } catch (err) { say('Restore rejected: ' + (err as Error).message, false); }
     finally { busy = false; (e.target as HTMLInputElement).value = ''; }
@@ -105,7 +103,7 @@
     busy = true; say(''); decoded = null;
     try {
       const bytes = await fileBytes(f);
-      const r: SyxDecodeResult = legacyAm4 ? { model: 'am4', ...(await forgefx.am4DecodeSyx(bytes)) } : await forgefx.decodeSyxBytes(bytes);
+      const r: SyxDecodeResult = await forgefx.decodeSyxBytes(bytes);
       if ('presets' in r) {
         // AM4-style multi-preset bank: location codes + names (+ opt-in scene names / CRC validity)
         decoded = r.presets.map((p) => ({ index: p.index, code: p.code, name: p.name, crcValid: p.crcValid, scenes: p.sceneNames }));
@@ -125,7 +123,7 @@
     busy = true; fw = ''; say('');
     try {
       const bytes = await fileBytes(f);
-      const r = legacyAm4 ? await forgefx.am4ValidateFirmware(bytes) : await forgefx.validateFirmware(bytes);
+      const r = await forgefx.validateFirmware(bytes);
       if (r.valid) { fw = `✓ valid — ${r.blocks} data blocks, ${r.messages} messages`; say(`"${f.name}" is a valid firmware envelope`); }
       else { fw = `✗ invalid — ${r.error}`; say('Not a valid firmware file', false); }
     } catch (err) { fw = ''; say('Validation failed: ' + (err as Error).message, false); }
@@ -136,7 +134,7 @@
     modOpen = !modOpen;
     if (modOpen && !modModel) {
       try {
-        modModel = (legacyAm4 ? await forgefx.am4ModModel() : await forgefx.modModel()) as ModView | null;
+        modModel = (await forgefx.modModel()) as ModView | null;
         if (!modModel) say('This device has no decoded modifier model.', false);
       } catch (e) { say('Modifier model load failed: ' + (e as Error).message, false); }
     }
@@ -150,7 +148,7 @@
   async function storeToSlot() {
     busy = true;
     try {
-      const r = legacyAm4 ? await forgefx.am4StorePreset(storeLoc) : await forgefx.store(storeLoc);
+      const r = await forgefx.store(storeLoc);
       say(`Saved active buffer → ${('code' in r && r.code) || bankCode(storeLoc)}`);
     } catch (e) { say('Store failed: ' + (e as Error).message, false); }
     finally { busy = false; }
