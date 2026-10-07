@@ -151,16 +151,15 @@ persisted placeholder docs.
   read/written through the system/global path. The local Axis model is what would be serialised into
   whichever region. Exact frames still need a capture.
 
-### 2.3 Sets & Songs (Setlists) — **Absent** (whole surface)
+### 2.3 Sets & Songs (Setlists) — **Parked (no FC controller)** · 2026-10-07
 FM3 firmware ≥ 9 exposes **Setlists/Songs** (custom preset/scene order for live use) and FM3-Edit has
 a corresponding area with **import/export**. Axis: no page, no nav entry in the workbench (the legacy
 rail's `sets` falls through to the toast path, `ToolRail.svelte:12`), no endpoints.
-- **Setlists/Songs ARE supported on the FM3 — confirmed 2026-10-07 (Andy + FM3 Owner's Manual
-  pp.126+).** Storage is now known (§6.5, official sources): a **global SETUP area, "FC Setlists/Songs"**
-  (system region, **not** a preset). **Caveat: the feature REQUIRES an FC-6 or FC-12 foot controller**
-  ("The Setlist Songs feature requires an FC-6 or FC-12") — confirm Andy has one before treating this as
-  a target. **Next step:** the system/global read-write path for that region (needs a capture taken while
-  FM3-Edit saves a setlist); no preset-binary work involved.
+- **Storage known (§6.5, official sources):** a global SETUP area, **"FC Setlists/Songs"** (system
+  region, **not** a preset) — no preset-binary work involved.
+- **PARKED — the feature REQUIRES an FC-6 or FC-12 foot controller** (manual: "The Setlist Songs feature
+  requires an FC-6 or FC-12") and **Andy has none (confirmed 2026-10-07)**, so this is **not a target for
+  this rig**. Revisit only if an FC is added. Do not dispatch work on it.
 
 ### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap + reorder + Reset AMP per preset DONE; move/delete impossible)
 FM3-Edit's **Manage Presets** does multi-select **reorder / move / swap / duplicate / delete**
@@ -707,6 +706,29 @@ Verification on the merged tree: Axis **1629 unit tests / 154 files** · `svelte
 | R18 | §2.4 Manage Presets remainder | Done — multi-select reorder + Reset AMP per preset (no new endpoint) | `cb227ce` |
 | R19 | §2.10 + §2.11 clipboard | Done — param-value clipboard + honest cross-preset block paste | `c12d7ca` |
 | R20 | §3.5 + §3.8 rail gating | Done — Setup/Controllers gated honestly; MLM warning stopped (unverifiable) | `c429b1f` |
+
+**Remaining worklist — dispatched 2026-10-07 (round R21–R24)** (four parallel subagents, one git
+worktree each, **Axis-only / offline-provable** — no hardware, no new endpoint). After this round the
+audit is: shipped, parked (§2.3, no FC), N/A on FM3, or honestly impossible (no wire op).
+
+| # | Item | Scope |
+|---|---|---|
+| R21 | §3.2 Modifier editor remainder | read an existing assignment's live curve values back; surface modifier usage on the Controllers screen |
+| R22 | §2.11 batch-set entry | make `axis.batchSet` reachable from a rail/registry entry (today it is action-only) |
+| R23 | §2.4 Manage Presets drag-and-drop | drag-reorder over the existing `slotReorderOps` permutation (the op ships as a multi-select action) |
+| R24 | §2.9 Quick Build panel (Q) | the remaining §2.9 Partial — one-click block placement in a dedicated panel |
+
+**Deferred after R21–R24 (needs the device, a decision, or a bigger build):**
+- **§2.2 per-preset Performance Pages** — storage now known (§6.5): the per-preset page is in the preset
+  binary, so it is decodable **offline**; the surface is a feature build (decode in `presetBody.ts` +
+  an Axis panel). The **global** page + exact frames need a capture.
+- **§2.9 Grid Navigation Mode** — the last §2.9 Absent row; needs a clear definition of "skip the param
+  fetch" before it can be speced honestly.
+- **§2.5 user-cab IR upload**, **§2.8 PC/CC tables**, **§3.7 GLOBAL probes** — hardware.
+- **§3.8 per-preset FC definitions** — blocked on the body decode for that structure.
+- **§2.3 Setlists** — parked (no FC).
+- **§2.7 `.bnk` bank import / Preset+Cab bundle** — needs a way to read user-cab bytes; check for an
+  existing route before treating as endpoint-free.
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
