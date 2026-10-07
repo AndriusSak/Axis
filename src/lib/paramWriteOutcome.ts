@@ -4,7 +4,7 @@
 // into HTTP 200 `{ok:false}` (server `drivers/gen3.ts` #write returns `{ ok: !rejected }` and
 // `runtime/handlers.ts` setParamH returns it straight back). A discrete write is rarer and worth
 // confirming — unlike the continuous knob stream, which is fire-and-forget BY DESIGN because it
-// streams at high frequency (`gen3.ts:1391-1393`). Axis's `setEnum` writes optimistically (sets
+// streams at high frequency (`gen3.ts` `setParam`'s continuous branch → `#send`). Axis's `setEnum` writes optimistically (sets
 // `e.value` and records a history entry) BEFORE the round-trip, so it MUST consult the outcome and
 // undo its optimistic state when the device refused the write — otherwise a refused model/cab/enum
 // value stays on screen as if applied, indefinitely (P1.1).
@@ -55,18 +55,29 @@ export interface EnumWriteIo {
 
 /**
  * Apply a settled discrete write to the optimistic state: when the write was NOT accepted, revert
- * `target.value` to the captured `from` and drop the optimistic history entry, then surface the
- * refusal. Returns the decision so callers/tests can assert it.
+ * `target.value` to the captured `from`, drop the optimistic history entry, then surface the refusal.
+ * Returns the decision so callers/tests can assert it.
+ *
+ * STALE-SETTLEMENT GUARD (Opus A/B 2026-10-07): the revert happens ONLY when the value on screen is
+ * still the one THIS write set (`sent`). A discrete write holds its confirmation window ~250 ms, so a
+ * newer write can land on the same param before this one settles — A→B then B→C is an easy user
+ * sequence, and if B is refused, reverting to B's `from` (= A) would wipe the newer C. Comparing
+ * `target.value` against the value this write sent is exactly the staleness condition, and it belongs
+ * in this pure module (the one place provable without the runes compiler) rather than in the store
+ * wiring. The history drop and the refusal toast still apply to a stale settlement: the entry is this
+ * write's own and the refusal is real even when a newer write superseded the displayed value.
  */
 export function settleEnumWrite(
   target: EnumWriteTarget,
   from: number,
+  sent: number,
   historyId: string | null,
   outcome: WriteSettlement,
   io: EnumWriteIo
 ): WriteDecision {
   const d = decideWriteOutcome(outcome, target.name);
-  if (!d.keep) target.value = from;
+  const stale = target.value !== sent; // a newer write has superseded this one — do not clobber it
+  if (!d.keep && !stale) target.value = from;
   if (!d.keepHistory) io.dropHistory(historyId);
   if (d.toast) io.toast(d.toast.text, d.toast.accent);
   return d;

@@ -643,14 +643,8 @@ class EditorStore {
       block: cell?.display ?? e.name, param: e.name,
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
     }) : null;
-    let outcome: WriteSettlement;
-    try {
-      const r = await forgefx.setParam(effectId, e.id, value, false);
-      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
-    } catch {
-      outcome = { status: 'error' };
-    }
-    settleEnumWrite(e, from, historyId, outcome, {
+    const outcome = await this.#writeSettlement(forgefx.setParam(effectId, e.id, value, false));
+    settleEnumWrite(e, from, value, historyId, outcome, {
       dropHistory: (id) => history.drop(id),
       toast: (text, accent) => this.showToast(text, accent)
     });
@@ -1683,25 +1677,25 @@ class EditorStore {
   // reject-watches this write and may answer {ok:false} (or the transport may fail), so we AWAIT it
   // and consult paramWriteOutcome: a refused write reverts the optimistic value, drops the optimistic
   // history entry and toasts — a refused model/cab must never stay on screen (P1.1). The continuous
-  // knob path (setParam) stays fire-and-forget BY DESIGN (gen3.ts:1391-1393).
+  // knob path stays fire-and-forget BY DESIGN (`gen3.ts` `setParam`'s continuous branch → `#send`).
   setEnum = async (e: EnumParam, value: number) => {
+    const c = this.selected;
+    // Guard BEFORE the optimistic write: an early return here sends nothing, records no history and
+    // reverts nothing, so it must not leave an unsent value on screen (Opus A/B 2026-10-07).
+    if (!c || (!c.pack && !this.paramsWithoutPack)) return;
     const from = e.value;
     e.value = value; // optimistic
-    const c = this.selected;
-    if (!c || (!c.pack && !this.paramsWithoutPack)) return;
     const historyId = from !== value ? history.record({
       kind: 'param', eid: c.effectId, paramId: e.id, continuous: false, from, to: value,
       block: c.display, param: e.name,
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
     }) : null;
-    let outcome: WriteSettlement;
-    try {
-      const r = !this.isV2 && this.isAm4 ? await forgefx.am4SetParamValue(c.effectId, e.id, value) : await forgefx.setParam(c.effectId, e.id, value, false);
-      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
-    } catch {
-      outcome = { status: 'error' };
-    }
-    settleEnumWrite(e, from, historyId, outcome, {
+    // Route through the shared settlement wrapper (#writeSettlement) so the discrete-write outcome
+    // capture cannot drift from the batch sites (item: duplicated settlement logic).
+    const outcome = await this.#writeSettlement(
+      !this.isV2 && this.isAm4 ? forgefx.am4SetParamValue(c.effectId, e.id, value) : forgefx.setParam(c.effectId, e.id, value, false)
+    );
+    settleEnumWrite(e, from, value, historyId, outcome, {
       dropHistory: (id) => history.drop(id),
       toast: (text, accent) => this.showToast(text, accent)
     });
@@ -1740,27 +1734,33 @@ class EditorStore {
   toggleBypass = async (cell?: Cell) => {
     const c = cell ?? this.selected;
     if (!c?.pack) return;
-    const next = !(c.bypassed ?? false);
-    c.bypassed = next;
-    try {
-      await forgefx.setBypass(c.effectId, next);
-      history.record({ kind: 'bypass', eid: c.effectId, block: c.display, from: !next, to: next });
+    const from = c.bypassed ?? false;
+    const next = !from;
+    c.bypassed = next; // optimistic
+    // A bypass write is a discrete write the device reject-watches, so honour a {ok:false} (or a
+    // throw) through the same scalar settlement the tempo/tuner path uses — not a throw-only catch.
+    const outcome = await this.#writeSettlement(forgefx.setBypass(c.effectId, next));
+    const d = settleScalarWrite({ set: (v) => (c.bypassed = v) }, from, outcome, {
+      toast: (text, accent) => this.showToast(text, accent)
+    }, 'Bypass');
+    if (d.keep) {
+      history.record({ kind: 'bypass', eid: c.effectId, block: c.display, from, to: next });
       this.showToast(next ? 'Bypassed' : 'Engaged', next ? '#d6543f' : '#5fc46b');
-    } catch {
-      c.bypassed = !next;
     }
   };
   setChannel = async (ch: string) => {
     const c = this.selected;
     if (!c?.pack || c.channel === ch) return;
     const prev = c.channel;
-    c.channel = ch;
-    try {
-      await forgefx.setChannel(c.effectId, ch);
+    c.channel = ch; // optimistic
+    // Discrete write, device reject-watched — route {ok:false}/throw through the scalar settlement.
+    const outcome = await this.#writeSettlement(forgefx.setChannel(c.effectId, ch));
+    const d = settleScalarWrite({ set: (v) => (c.channel = v) }, prev, outcome, {
+      toast: (text, accent) => this.showToast(text, accent)
+    }, 'Channel');
+    if (d.keep) {
       if (prev) history.record({ kind: 'channel', eid: c.effectId, block: c.display, from: prev, to: ch });
       this.#scheduleBlockStateReload();
-    } catch {
-      c.channel = prev;
     }
   };
 
@@ -1925,9 +1925,16 @@ class EditorStore {
     const c = this.selected;
     if (!c?.pack) return;
     const from = this.blockType; // capture before the device swaps the model (params reset on retype)
-    // value is the device-true model ordinal = the discrete-SET value
+    // value is the device-true model ordinal = the discrete-SET value. The device reject-watches the
+    // type write, so a {ok:false} (or a throw) must NOT be reported as a success ('Type changed').
+    const outcome = await this.#writeSettlement(forgefx.setType(c.effectId, value));
+    if (outcome.status !== 'ok') {
+      this.showToast(outcome.status === 'rejected' ? 'Type change rejected by device' : 'Type change failed', '#d6543f');
+      return;
+    }
+    // The write landed; the re-read that follows is best-effort (a load error must not re-label a
+    // landed type change as a failure — the old code wrapped both in the same catch).
     try {
-      await forgefx.setType(c.effectId, value);
       await this.#loadParams();
       if (from && from.value !== value) history.record({
         kind: 'retype', eid: c.effectId, block: c.display, from: from.value, to: value,
@@ -1936,7 +1943,6 @@ class EditorStore {
       await this.load();
       this.showToast('Type changed', '#35c9d6');
     } catch (e) {
-      this.showToast('Type change rejected by device', '#d6543f');
       if (e instanceof ForgeError) console.warn(e.message);
     }
   };
@@ -2565,15 +2571,17 @@ class EditorStore {
     const prev = this.scene;
     if (prev === ui) return;
     this.scene = ui; // optimistic
-    try {
-      // API v2: the unified POST /scene switches every device; legacy v1 AM4 uses its own route.
-      await (!this.isV2 && this.isAm4 ? forgefx.am4SetScene(ui - 1) : forgefx.setScene(ui - 1));
+    // A scene switch is a discrete write the device reject-watches ({ok:false} on refusal), so route
+    // it through the scalar settlement: a refusal reverts the optimistic scene and toasts.
+    const outcome = await this.#writeSettlement(!this.isV2 && this.isAm4 ? forgefx.am4SetScene(ui - 1) : forgefx.setScene(ui - 1));
+    const d = settleScalarWrite({ set: (v) => (this.scene = v) }, prev, outcome, {
+      toast: (text, accent) => this.showToast(text, accent)
+    }, 'Scene');
+    if (d.keep) {
       history.record({ kind: 'scene', from: prev, to: ui });
       // Lightweight reflect (no full preset dump) — same path as a footswitch scene change; coalesces
       // with the scene SSE echo. Reflects bypass/channel + re-reads the open block, snappy & crash-free.
       this.#scheduleSceneReload();
-    } catch {
-      this.scene = prev;
     }
   };
   /** Public: re-read the ACTIVE scene's per-block bypass/channel from the device and re-apply it onto
@@ -2891,16 +2899,23 @@ class EditorStore {
       // response additionally carries its bank-letter code). Legacy v1 AM4 uses its own codec route.
       const r = !this.isV2 && this.isAm4 ? await forgefx.am4StorePreset(n) : await forgefx.store(n);
       this.saveOpen = false;
-      if (r.ok) {
-        history.checkpoint(`Saved to preset ${'code' in r && r.code ? r.code : n}`, false); // marker — undo continues past it
-        this.showToast(`Saved to preset ${'code' in r && r.code ? r.code : n}`, '#f5a623');
-        await this.poll();
-        if (this.canDeepScan) library.refreshSlot(n); // library cache sync (name-scan devices re-scan on open)
-      } else {
+      if (!r.ok) {
         this.showToast('Save rejected by device', '#d6543f');
+        return;
       }
+      history.checkpoint(`Saved to preset ${'code' in r && r.code ? r.code : n}`, false); // marker — undo continues past it
+      this.showToast(`Saved to preset ${'code' in r && r.code ? r.code : n}`, '#f5a623');
     } catch {
       this.showToast('Save failed', '#d6543f');
+      return;
+    }
+    // The save already landed (and 'Saved to preset N' was already toasted + checkpointed), so a
+    // poll/refresh failure in the reflection below must NOT be reported as a failed save.
+    try {
+      await this.poll();
+      if (this.canDeepScan) library.refreshSlot(n); // library cache sync (name-scan devices re-scan on open)
+    } catch {
+      /* save succeeded; the reflection refresh is best-effort */
     }
   };
 
