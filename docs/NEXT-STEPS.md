@@ -8,10 +8,10 @@ bottom.
 
 ## Where `main` is
 
-- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1 fix round** (2026-10-07,
-  below). Latest merged-tree verification: **1737 unit tests / 166 files** · `svelte-check` **0 errors
-  / 0 warnings** · build **ok** · **Playwright 142/142** (34 spec files) · ForgeFX **38 suites** ·
-  forgefx-midi **83**.
+- Rounds **R16–R20**, **R21–R24** and **R25–R28** are merged, plus the **P1 and P2 fix rounds**
+  (2026-10-07, below). Latest merged-tree verification: **1756 unit tests / 167 files** · `svelte-check`
+  **0 errors / 0 warnings** · build **ok** (bare `npm run build` — the heap flag lives in `.npmrc`) ·
+  **Playwright 142/142** (34 spec files) · ForgeFX **40 suites** · forgefx-midi **83**.
 - The repo has **no git remote configured** — `main` is the local tip; nothing is pushed.
 
 ## Shipped recently (do not redo)
@@ -31,9 +31,13 @@ bottom.
 **The next iteration's input is
 [`axis-review-2026-10-07-next-iteration-fix-list.md`](axis-review-2026-10-07-next-iteration-fix-list.md)**
 — an independent 3-pass review of this tree, every item re-read in the code before filing.
-**P1.1, P1.2 and P1.3 shipped 2026-10-07** (see the doc's status header for the commits); **P2 and P3
-are open**. The doc also carries a **"do not chase" list** (claims the review checked and rejected) and
-the hardware probes that remain — read that before re-opening anything.
+**P1.1–P1.3 and P2.1 / P2.3 / P2.4 / P2.5 shipped 2026-10-07**, plus most of P3 (engines, the `.npmrc`
+heap flag, one float-vs-enum unit set, 400s on bad route params, and the audit's stale claims). **Open:
+P2.2** (needs one decision — which write-confirmation window wins) **and the remaining P3 items** (AM4
+alias sunset, `prepare` scripts vs gitignored `dist/`, `version.ts` consistency check, the stale
+`ROADMAP.md` citations in code). See the doc's status header for commits and the merged-tree counts. The
+doc also carries a **"do not chase" list** (claims the review checked and rejected) and the hardware
+probes that remain — read that before re-opening anything.
 
 ### Blocked on hardware (needs the FM3 / the Deck)
 - **Cab 2 Mute/Solo write** (audit §3.7) — toggle cab 2's M/S on the unit and confirm it reads back;

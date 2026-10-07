@@ -1,13 +1,23 @@
 # Axis — next iteration: prioritized fix list (from the 2026-10-07 third-party review)
 
-**Status:** **P1.1, P1.2 and P1.3 SHIPPED 2026-10-07** (merged; merged-tree verify ALL GREEN) ·
-**P2 and P3 open** · **Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
+**Status:** **P1.1–P1.3 SHIPPED, and P2.1 / P2.3 / P2.4 / P2.5 + most of P3 shipped 2026-10-07** ·
+**open: P2.2 (needs one decision — which write-confirmation window wins) and the remaining P3 items** ·
+**Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
 (full report + provenance: `~/repos/stack/review-2026-10-07/REPORT.md`; the review's rejected claims
 are in its §5 — read that before re-litigating any item here).
 
-**Merged-tree verification after the P1 round (2026-10-07) — ALL GREEN:** forgefx-midi **83** ·
-ForgeFX **38 suites** (was 36) · Axis **1737 unit tests / 166 files** (was 1720/164) · `svelte-check`
-**0 errors / 0 warnings** · build **ok** · Playwright **142/142**.
+**Merged-tree verification after the P2 round (2026-10-07) — ALL GREEN:** forgefx-midi **83** ·
+ForgeFX **40 suites** (36 → 38 → 40) · Axis **1756 unit tests / 167 files** · `svelte-check`
+**0 errors / 0 warnings** · build **ok** (bare `npm run build`, no NODE_OPTIONS prefix — see P3) ·
+Playwright **142/142**.
+
+**Merged-tree verification after the P1 round:** ForgeFX 38 suites · Axis 1737 / 166 files ·
+svelte-check 0/0 · Playwright 142/142.
+
+**One integration defect the P2 round shipped and the orchestrator fixed (`a5018cd`):** the P2.1
+workstream left `pasteChannel` pushing into an undeclared `results` array — 2 svelte-check errors. No
+child suite could see it (node-env vitest cannot compile the runes module; sourceguards only grep
+wiring), which is exactly why the merged tree gets `svelte-check`.
 
 Ground truth at review time: `verify-stack.sh` **ALL GREEN** — forgefx-midi 83 · ForgeFX 36 suites ·
 Axis 1720 tests / 164 files · svelte-check 0/0 · Playwright 142/142. **None of the defects below was
@@ -83,16 +93,25 @@ read the guard would false-positive — worth a look the first time it runs agai
 
 ---
 
-## P2 — open, same shape as P1
+## P2 — P2.1 / P2.3 / P2.4 / P2.5 SHIPPED; **P2.2 open**
 
-### P2.1 Paste reports requested-as-pasted
-`Axis/src/lib/editor.svelte.ts:1748-1751` (same shape at `:2416`, `recallBlockEntry`)
+### P2.1 Paste reports requested-as-pasted — **DONE** (`bb6dac1`)
+The brief's line numbers were shifted; the real sites were `pasteChannel` (:1777), `applyCab` (:1941),
+`#applyClip` (:2293) and `recallBlockEntry` (:2461). All four now feed one `#writeSettlement(promise)`
+per write into the new pure `settleWriteSet(results, copy)` in `paramWriteOutcome.ts`, which returns
+`{requested, landed, failed, rejected, errored, checkpoint, allLanded, noneLanded, toast}`:
+`checkpoint` only when `landed > 0`, green on full success, amber `"L — N of M landed, F failed"` on
+partial, red `"nothing landed"` on total failure. The generalisation also closes a gap in the
+cross-preset reference pattern it was modelled on: that one collected `report.failed` but only caught
+**throws**, so an HTTP-200 `{ok:false}` still counted as written.
+Tests: `paramWriteOutcome.set.test.ts` (12) + 6 more sourceguard cases; the continuous/streaming paths
+(`setParam`, `setPinnedParam`, `setBpm`, `tapTempo`) stay fire-and-forget by design and are pinned as such.
+**Left open, flagged by the workstream:** `setPinnedEnum` (`:641`) is a single *discrete* pinned write
+that is still optimistically shown and swallowed — that is P1.1's per-write scope (`settleEnumWrite`),
+not the set aggregation, so it belongs in a follow-up.
 
-Every write result is discarded and the toast prints `writes.length`. The cross-preset paste at
-`:2352-2364` already collects `report.failed` and warns — reuse that pattern; report landed vs
-requested, and only checkpoint when something landed. The same swallow idiom also appears at `:1910`,
-`:2255-2258`, `:2413-2416`; one helper that "writes a set and reports what landed" would close the whole
-class, and `paramWriteOutcome.ts` (P1.1) is the natural home for it.
+Original filing (kept as the record): every write result was discarded and the toast printed
+`writes.length`; the same idiom appeared at the sites listed above.
 
 ### P2.2 Reconcile the two write-confirmation windows
 `ForgeFX/server/src/drivers/gen3.ts:271-277` (120 ms / quiet 60 ms) vs
@@ -109,21 +128,37 @@ so the case is unreachable in the suite.
   setBlock/setBypass all ride `fn=0x01`, so a rejection of one is attributable to another within the
   window. The suite covers only the foreign-*function* case.
 
-### P2.3 Scaled-enum value decode vs option list
-`ForgeFX/server/src/drivers/gen3.ts:686-697` · `ranges.generated.ts:1407`
+### P2.3 Scaled-enum value decode vs option list — **DONE** (`88ce0d0`)
+`PHASER_ORDER` is the only scaled enum in any gen-3 catalog, and the only row where `ordMax != displayMax`,
+so the fix is exactly scoped. The `raw > max` branch now unscales against the **ordinal** end and clamps:
+`value = Math.min(ordMax, Math.round((raw/65534) * (ordMax - min)) + min)` — `ordMax === max` for every
+unscaled enum, so it is a no-op off the scaled rows, and a served value is now always a member of its own
+options (no more `float32(6)` written back as a discrete ordinal).
+Test: `enum-coverage` gained case 4, feeding `raw 65534` through the mock transport — **RED before**
+(`value 10 ∈ [0..5]`), green after; it asserts both membership and `options.length === enumCount`.
+**Still unverified offline:** whether a real FM3 sends that param as a 16-bit-scaled value at all (the
+`raw ≤ max` ordinal path is unchanged either way).
 
-`PHASER_ORDER` is `{kind:'enum', displayMin:0, displayMax:10, scale:2, enumCount:6}` — the only scaled
-enum in `FM3_RANGES`. The option list is correctly capped at ordinal `ordMax = min+enumCount-1` (0..5),
-but the **value** is unscaled into display space (`raw>max` → `round(raw/65534*(max-min))+min` = 0..10),
-so a served value can sit outside its own options and write back as an invalid ordinal.
+Original filing (kept as the record): the value was computed in display space (0..10) while the options
+lived in ordinal space (0..5), and no test fed a scaled wire value, so the branch was dead under test.
 
-- **Change:** decode the value in ordinal space when `enumCount` is present (`round(display / scale)`),
-  or document why the unscale branch can never fire for a scaled enum.
-- **Test:** feed a scaled wire value in the mock and assert the served value is a member of its options.
-  (P1.3 removed the zero-fill idiom from the two coverage suites, so the harness can now carry real
-  values — but nothing yet asserts value-membership, so this is still the biggest remaining test gap.)
+### P2.4 `/diag/ranges` (and the convert routes) are missing from the browser-direct runtime — **DONE** (`cc25d95`)
+All four named routes ported into `runtime/router.ts`, plus a fifth the workstream found (`GET /preset/body`).
+The browser-safety constraint did **not** block any of them — `services/convert.ts`'s `forgefx-midi` graph
+bundles clean (base64 now uses `atob`, not the Node-only `Buffer`), and `scripts/check-browser-safe.ts`
+passes with convert in the graph.
+The drift guard also **found a real pre-existing drift on its first run** and it is fixed: `/device/cache/cloud/pull|publish`
+were registered unconditionally in the router (answering a "cloud disabled" 503 shape) while `app.ts`
+registers them only under `AXIS_CLOUD=1` — now gated on `deps.cloud`, matching the Node host. Axis gates its
+cloud actions on `cloud.available` (`deviceDefs.ts:43`), so no reachable client path changes.
+Guard: `test/api/route-parity.test.ts` (11 cases) enumerates both tables authoritatively — `app.ts` through a
+new test-only `onRoute` seam, the router through a new `listRoutes()` — and fails on any `(method, path)`
+difference that is not on the documented exception list (**/am4/* deprecated aliases**, **GET /events**,
+both verified in code). It also asserts router ⊆ app and that every app-only route has an exception.
+P3 in the same commit: `presetSelectH` and `setParamH` now answer **400** on missing/non-integer/out-of-range
+params (previously an unhandled 500 out of `encode14`), shared by both surfaces.
 
-### P2.4 `/diag/ranges` (and the convert routes) are missing from the browser-direct runtime
+Original filing (kept as the record):
 `ForgeFX/server/src/app.ts:140,346,373,123` vs `ForgeFX/server/src/runtime/router.ts:122`
 
 `/diag/ranges`, `POST /preset/convert`, `/preset/convert/export` and `POST /debug/raw` exist only in
@@ -133,7 +168,13 @@ including the diagnostic the audit recommends as ground truth.
 - **Change:** port them into `runtime/router.ts` or gate the Axis features off in direct mode.
 - **Guard:** a path-set diff test over both route tables, so a future endpoint can't land in one only.
 
-### P2.5 The audit's "honestly impossible" claims need narrowing
+### P2.5 The audit's "honestly impossible" claims need narrowing — **DONE** (`afbef9d`, Axis docs)
+The audit now says: CS MIDI is partially available (the trio 6979/6985/6986 is served; the CS exclusives
+already render) and startable offline as a MIDI/Remote *layout*, not a wire gap; FC Config is PARTIAL via
+the layout-widget rule; Devices/mirroring stays genuinely GATED; `PFC4` is recorded as Axe-Fx III only;
+§6.1's MIDI-block probe is marked answered (by §2.8) and §6.2's GLOBAL sweep is replaced by the CI guard.
+
+Original filing (kept as the record):
 `Axis/docs/NEXT-STEPS.md:58` · `docs/axis-fm3edit-feature-parity-audit.md:482-486`
 
 CS MIDI is not a wire gap: `GLOBAL_CS1_ENABLE` (6979), `GLOBAL_CS_EDIT_NUMBER` (6985) and

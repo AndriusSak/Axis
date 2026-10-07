@@ -127,8 +127,9 @@ without new ops or a preset-binary parser.
 ### 2.2 Perform / Live view — **Done (v1 — locally-persisted page)** · 2026-10-06
 FM3-Edit exposes **Global Performance pages** and **Per-Preset Performance pages** (assign any
 parameter to a big performance knob/switch). Axis's Live page was a placeholder
-(`axisWorkbenchPages.ts`), and the legacy rail's **Perform** entry is a "coming soon" toast
-(`ToolRail.svelte:11, 68-69`). Axis now ships a real **Performance / Live** page: an ordered list of
+(`axisWorkbenchPages.ts`), and the legacy rail's **Perform** entry used to be a "coming soon" toast —
+**corrected 2026-10-07 (R28, `2244c2c`)**: the rail no longer toasts; an unavailable screen renders
+visible + disabled with its real reason (`ToolRail.svelte:64-67`, `gateRailItems.ts`). Axis now ships a real **Performance / Live** page: an ordered list of
 `(family, paramId)` bindings rendered full-screen as **large, Deck-friendly tap targets** (− / + step
 for knobs, tap-to-cycle for enums), plus quick access to scenes, preset prev/next, the tuner, and tap
 tempo. Built on the workbench widget machinery's pinned-control path (`editor.setPinnedParam` /
@@ -141,8 +142,9 @@ persisted placeholder docs.
   system memory is **unknown** (see §6.5) — so the page definition is persisted in `localStorage`
   (`axis.performancePage.v1`), is **never written to the device**, and the UI says so explicitly. No
   endpoint was invented.
-- The legacy rail's **Perform** entry (§ToolRail) is still a toast — it is a separate legacy surface
-  from the workbench Live page and was left untouched.
+- The legacy rail's **Perform** entry (§ToolRail) is **no longer a toast** (R28, `2244c2c`): the rail
+  row is visible + disabled with its reason, and `gateRailItems.ts` stopped proxying it through
+  `caps.gridRouting`. The workbench Live page above is the real surface.
 - **Next step — storage now known (§6.5, official sources):** the FM3 has two Performance pages —
   **Perform-PP (per-preset)** is part of the **preset** (save the preset to commit), **Perform-Gbl
   (global)** is in **Global Settings**; each hosts ten controls, set up only in FM3-Edit (a "power-user
