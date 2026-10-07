@@ -445,12 +445,48 @@ have no range row at all. "Disabled with the exact reason" is the correct final 
 - **P1.3's original "mixed real/zero snapshot" mechanism**: not reachable — see the correction in P1.3
   above. The defect was the swallowed failure plus the silent short-burst zeroing, both now fixed.
 
-## Needs the hardware (updated after the P1 round)
+## Hardware questions — MEASURED against a live FM3, 2026-10-07
 
-1. Does the FM3 ever send a scaled enum wire value? Decides whether P2.3 is live or latent. **Open.**
-2. How late can a genuine 0x64 rejection arrive on a real link? Settles the window in P2.2. **Open.**
-3. Do GLOBAL writes actually succeed (not just read)? P1.2 fixed serving/rendering only. **Open.**
+Run with `npx tsx scripts/probe-device.ts [--writes]` (device on `/dev/ttyACM0`, model `0x11`). Raw output:
+`~/repos/stack/review-2026-10-07/` — read-only pass and `--writes` pass. **All five are now closed:**
+
+1. **Does the FM3 ever send a scaled enum wire value? — NO (Q3, `does NOT match`).** Observation:
+   `PHASER_ORDER` raw wire value **1** vs displayMax 10 (enumCount 6, channel 0) — a plain ordinal.
+   **P2.3 is LATENT, not live:** the fix is correct and worth keeping as defence, but nothing on this
+   firmware exercises it. Do not go looking for a scaled-value bug; there is none.
+2. **How late can a genuine `0x64` rejection arrive? — STILL OPEN, and the question was mis-framed (Q5).**
+   The probe's deliberate invalid write (bogus eid 16382) produced **no `0x64` at all** — the FM3
+   *silently ignores* an unknown eid rather than refusing it. So the late-rejection window cannot be
+   measured this way, and the P2.2 window (250 ms) was never approached because nothing arrived.
+   **The finding that matters: absence of a refusal is NOT acceptance.** A silently-ignored write and an
+   accepted write look identical to a client that waits for a refusal. Follow-up filed below.
+   ⚠ The probe's own reporting is incoherent here — it printed `no 0x64 arrived within 2000 ms` and
+   `latency 251 ms` in the same breath (251 ms matches the writer's own 250 ms window, so it is almost
+   certainly the probe's timer, not a device latency). **Probe reporting defect — fix before trusting Q5.**
+3. **Do GLOBAL writes actually succeed? — YES (Q1, `matches the expectation`).** `GLOBAL_FS_BRIGHTNESS`
+   (eid 1, pid 7115): read 0.0000 → wrote 0.1000 → **read back 0.1000** → restored 0.0000, restore
+   verified. The P1.2 served/rendered params are genuinely writable; the audit's "write side unverified"
+   caveat can be dropped.
 4. ~~Is there a 4th FC port (`PFC4`)?~~ **ANSWERED — no.** `PFC4` is evidenced only in the **Axe-Fx III**
    layouts (`axe-fx-iii/layouts.generated.ts:13698-13699`); the FM3 has FC ports 1-3. Nothing to fix.
-5. Does the FM3 ever pad a complete bulk read so `values.length > itemCount`? If yes, the P1.3 guard
-   needs a tolerance. **Open, low risk.**
+5. **Does the FM3 ever pad a complete bulk read? — NO (Q4, `matches the expectation`).** Cab (eid 62):
+   the `0x74` head advertised **424** `itemCount`, the assembled read delivered **424** values, extra 0.
+   The P1.3 torn-read guard (`values.length >= itemCount` ⇒ complete) is **safe as written**; no tolerance
+   needed. (This also confirms the P1.3 harness bug fix was against a real invariant.)
+
+### Filed by the measurement (new)
+
+- **Silent-ignore writes are indistinguishable from accepted writes.** The device neither acks nor
+  refuses an unknown eid. Determine what the client's write-outcome path does with a silent non-answer:
+  if the 250 ms window elapsing is read as *success*, then a silently-ignored write reports as landed —
+  exactly the P5 defect class (`200 {ok:true}` for something the device never applied). Check
+  `paramWriteOutcome` / `writeGate` semantics against this, and decide whether "no reply" should be
+  `ok:false` (timeout) rather than assumed-accepted. **Offline work — no device needed.**
+- **`probe-device.ts` Q5 reporting** — its expectation is a *measurement*, not a match/mismatch, and it
+  emits two contradictory numbers. Make the observation single-sourced and the verdict meaningful, and
+  distinguish "device refused (0x64)" from "device stayed silent".
+- **Probe diagnosability** (found on the way in): when port access fails, the probe reports
+  `no device: could not open a connection` and falls through to the serial default, so a **permission
+  error is indistinguishable from an absent device**. Name the errno and the port in the message.
+- **AM4 `#syncTelemetry` guard removal** (P7) — watch for 5 s load timeouts on an AM4; the removed
+  early-return assumed a v1 device ignoring gen-3 frames.
