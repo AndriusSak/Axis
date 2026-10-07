@@ -533,7 +533,10 @@
   // Honest stubs (audit §2.4): these need a wire-protocol op the FM3 does NOT expose, so they render as
   // DISABLED menu items carrying this reason rather than a no-op toast.
   const NO_ERASE_REASON = 'Not available — the device protocol has no slot-erase op, so a preset can’t be cleared or moved off a slot from here.';
-  const SOON = new Set(['removeDevice', 'move', 'delete']); // legacy "coming soon" fallback for non-device rows
+  // A `local:` entry is a file in the server-scanned Presets/ folder (mtime-keyed mirror) — there is no
+  // client-side delete op, so "Delete everywhere" renders DISABLED with this reason (audit §2.4/§3.4),
+  // never a no-op placeholder toast.
+  const LOCAL_NO_DELETE_REASON = 'Not available — this preset is a file in the local Presets/ folder; delete it on disk and re-scan the folder.';
   async function ctxAction(act: string) {
     const c = ctx; ctx = null;
     const e = c?.entry;
@@ -551,7 +554,8 @@
     if (act === 'openConverter') { if (e.converted) void openConvertedInConverter(e.converted); return; }
     if (act === 'delete' && e.source === 'converted') { void library.removeConverted(e.id); editor.showToast('Deleted', '#33c46b'); return; }
     if (act === 'delete' && e.source === 'file') { library.removeFile(e.id); editor.showToast('Removed from library', '#33c46b'); return; }
-    if (SOON.has(act)) editor.showToast('Coming soon', '#9b8cf0');
+    // Every other menu id is rendered DISABLED with its reason (no-dead-nav rule) and cannot arrive here.
+    // There is deliberately no placeholder fallback toast.
   }
   // Cloud-only → device: restore the latest cloud version to its origin slot, making it a real preset.
   async function convertToDevice(e: LibEntry) {
@@ -600,6 +604,15 @@
     const copyable = editor.canCopySlots;
     const slotGate = (): Pick<CtxItem, 'disabled' | 'reason'> =>
       copyable ? {} : { disabled: true, reason: 'Duplicate/swap unavailable — this server or device lacks the dump + edit-buffer-load + store primitives.' };
+    // "Delete everywhere" is wired only for imported (file) and saved-conversion entries. A device slot
+    // has no erase op; a local-folder entry is a server-scanned file with no delete op. Both render
+    // DISABLED with their exact reason — never a no-op toast (no-dead-nav rule, audit §2.4/§3.4).
+    const deleteGate = (): Pick<CtxItem, 'disabled' | 'reason'> =>
+      e.source === 'file' || e.source === 'converted'
+        ? {}
+        : e.source === 'local'
+          ? { disabled: true, reason: LOCAL_NO_DELETE_REASON }
+          : { disabled: true, reason: NO_ERASE_REASON }; // device slot (incl. synthesized cloud-only rows)
     const cloudItem: CtxItem =
       s === 'modified' ? { id: 'upload', icon: 'cloudUp', label: 'Upload changes' }
       : s === 'outdated' ? { id: 'download', icon: 'cloudDown', label: 'Update from cloud' }
@@ -632,7 +645,7 @@
       ...(cloudOn ? ['div' as const, cloudItem] : []),
       'div',
       // "Delete everywhere" clears the device slot too → not provable (no erase op) for device rows.
-      { id: 'delete', icon: 'trash', label: 'Delete everywhere', danger: true, ...(isDeviceSlot ? { disabled: true, reason: NO_ERASE_REASON } : {}) }
+      { id: 'delete', icon: 'trash', label: 'Delete everywhere', danger: true, ...deleteGate() }
     ];
   }
 

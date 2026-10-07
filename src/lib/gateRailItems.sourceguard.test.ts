@@ -40,4 +40,19 @@ describe('ToolRail §3.5 capability-gate wiring', () => {
       expect(src).toContain(`label: '${label}'`);
     }
   });
+
+  // ── R28: the legacy rail no longer lies about unavailable screens (no-dead-nav rule, 01-shell §9). ──
+  it('no longer emits a misleading "coming soon" toast for an unavailable rail screen', () => {
+    expect(src).not.toMatch(/coming soon/i);
+    expect(src).not.toMatch(/showToast/); // the rail has no toast fallthrough at all
+  });
+
+  it('routes every unwired id through the capability gate (perform/sets/scenes disabled-with-reason)', () => {
+    // the pick handler takes only the id — no label-toast fallthrough branch survives
+    expect(src).toMatch(/function pick\(id: string\)/);
+    expect(src).toMatch(/gateRailItem\(input, r\.id\)/);
+    // the disabled entry renders its reason in the tooltip on BOTH surfaces
+    expect(src).toMatch(/disabled=\{!r\.enabled\}/);
+    expect(src).toMatch(/title=\{r\.enabled \? r\.label : r\.reason\}/);
+  });
 });

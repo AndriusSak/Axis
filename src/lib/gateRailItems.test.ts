@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   GATE_RAIL_VIRTUAL_SLUGS,
+  RAIL_UNAVAILABLE_REASONS,
   gateRailItem,
   gateRailItems,
   type GateRailInput
@@ -105,23 +106,68 @@ describe('gateRailItems — §3.5 Setup/Controllers capability gate', () => {
     expect(gateRailItem(legacy, 'controllers')).toMatchObject({ visible: true, enabled: true, reason: '' });
   });
 
-  it('keeps the out-of-scope ids (fc + coming-soon routing family) on the legacy capability filter', () => {
-    // gen-3 grid: fc + scenes/perform/sets all ride their capabilities → visible
+  it('keeps fc on the legacy capability filter (a real device capability, unchanged)', () => {
+    // gen-3 grid: an fc model/virtual effect is served → visible
     expect(gateRailItem(grid, 'fc').visible).toBe(true);
-    expect(gateRailItem(grid, 'scenes').visible).toBe(true);
-    // AM4: no fc model, no cables → those entries are still filtered (unchanged, out of §3.5 scope)
+    // AM4: no fc model, no cables → still filtered (unchanged, out of §3.5 scope)
     expect(gateRailItem(am4, 'fc').visible).toBe(false);
-    expect(gateRailItem(am4, 'scenes').visible).toBe(false);
-    expect(gateRailItem(am4, 'perform').visible).toBe(false);
-    expect(gateRailItem(am4, 'sets').visible).toBe(false);
   });
 
-  it('resolves a whole rail list in order, keeping Setup/Controllers present on the AM4', () => {
+  it('renders perform + sets VISIBLE and DISABLED with an honest reason on EVERY device (never removed, never a toast)', () => {
+    const inputs: GateRailInput[] = [
+      grid,
+      am4,
+      { isV2: false, isAm4: false, caps: null },
+      { isV2: false, isAm4: true, caps: null }
+    ];
+    for (const input of inputs) {
+      for (const id of ['perform', 'sets']) {
+        const s = gateRailItem(input, id);
+        expect(s.visible).toBe(true); // never a silent disappearance (no-dead-nav rule)
+        expect(s.enabled).toBe(false); // the legacy rail has no host for these surfaces
+        expect(s.reason.length).toBeGreaterThan(20);
+        expect(s.reason).toBe(RAIL_UNAVAILABLE_REASONS[id]);
+      }
+    }
+    // each reason names the REAL blocker — the workbench surface (perform) / the FC controller (sets)
+    expect(gateRailItem(grid, 'perform').reason).toMatch(/Live|workbench/i);
+    expect(gateRailItem(grid, 'sets').reason).toMatch(/FC-6/);
+    expect(gateRailItem(grid, 'sets').reason).toMatch(/FC-12/);
+  });
+
+  it('does NOT derive perform/sets availability from caps.gridRouting', () => {
+    // toggling the grid capability must not change these two ids — their availability is a
+    // surface/FC fact, not a grid-cable one (the old generic branch was arbitrary here)
+    const noGrid: GateRailInput = { isV2: true, isAm4: false, caps: { ...baseCaps, gridRouting: false } };
+    expect(gateRailItem(noGrid, 'perform')).toMatchObject({ visible: true, enabled: false });
+    expect(gateRailItem(noGrid, 'sets')).toMatchObject({ visible: true, enabled: false });
+  });
+
+  it('renders the legacy Scene Mgr DISABLED on a grid device, and filters it only where there is no scene grid', () => {
+    const s = gateRailItem(grid, 'scenes');
+    expect(s).toMatchObject({ visible: true, enabled: false }); // workbench-only surface → disabled, not a toast
+    expect(s.reason).toBe(RAIL_UNAVAILABLE_REASONS.scenes);
+    // AM4 has no scene grid → the Scene Manager genuinely does not exist there (a real capability filter)
+    expect(gateRailItem(am4, 'scenes').visible).toBe(false);
+  });
+
+  it('resolves a whole rail list in order, keeping Setup/Controllers + perform/sets present on the AM4', () => {
     const items = gateRailItems(am4, RAIL_IDS);
     expect(items.map((i) => i.id)).toEqual([...RAIL_IDS]);
     const visible = items.filter((i) => i.visible).map((i) => i.id);
-    expect(visible).toEqual(['build', 'library', 'controllers', 'settings']);
+    // perform/sets stay visible-disabled even on the AM4 (never silently removed); scenes is filtered
+    // there because the AM4 has no scene grid.
+    expect(visible).toEqual(['build', 'library', 'controllers', 'perform', 'sets', 'settings']);
     // every visible-but-disabled entry carries a reason; every enabled one carries none
     for (const i of items.filter((x) => x.visible)) expect(i.enabled ? i.reason === '' : i.reason.length > 20).toBe(true);
+  });
+
+  it('keeps perform/sets/scenes DISABLED on a full gen-3 grid rail (no enabled dead-end)', () => {
+    const items = gateRailItems(grid, RAIL_IDS);
+    const byId = Object.fromEntries(items.map((i) => [i.id, i]));
+    for (const id of ['perform', 'sets', 'scenes']) expect(byId[id].enabled).toBe(false);
+    // and every enabled entry is a real surface the legacy rail can open
+    const enabled = items.filter((i) => i.enabled).map((i) => i.id);
+    expect(enabled).toEqual(['build', 'library', 'controllers', 'fc', 'settings']);
   });
 });
