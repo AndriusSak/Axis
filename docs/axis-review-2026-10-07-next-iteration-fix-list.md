@@ -309,6 +309,51 @@ Not from the original review: what the rounds themselves surfaced as the next be
 
 ---
 
+## Found by the Opus effort A/B (2026-10-07) — VERIFIED by reading, unfixed
+
+That run's original purpose was to calibrate `--effort` (it did — see the skill note), but it doubled as
+an unbriefed 122-line bug hunt on the code these rounds had just shipped. Everything below was re-read in
+the source before filing. The two marked **HIGH/MEDIUM** are in the same false-accepted /
+wrong-value-on-screen class this whole list has been closing.
+
+- **[HIGH] `match` closes the write window on ANY 0x64, so a late rejection is missed.**
+  `ForgeFX/server/src/drivers/gen3.ts:290` — `match: (fs) => fs.some((f) => f[5] === 0x64)` resolves on
+  *any* 0x64, while the rejection check on the next line requires the echoed function to be ours
+  (`f[6] === undefined || f[6] === fn`). A **foreign**-function 0x64 (e.g. a refused read) therefore ends
+  the wait immediately, our own rejection arriving after it is never collected, and the write reports
+  `{ok:true}`. The comment directly above promises the opposite. Fix: one `isOurReject(f)` predicate used
+  in BOTH `match` and `rejected`. **This partially defeats P2.2, which is why it matters.**
+- **[MEDIUM] A late rejection overwrites a newer value.** `Axis/src/lib/paramWriteOutcome.ts`
+  `settleEnumWrite` does `if (!d.keep) target.value = from` with **no check that the value on screen is
+  still the one this write set**. A discrete write now holds the window ~250 ms, so A→B then B→C is an
+  easy user sequence: if B is rejected, the display is reverted to B's `from` (= A), wiping C. Fix: revert
+  only when the current value still equals the value this write set, or keep a per-param sequence token.
+- **[MEDIUM] The optimistic value is set before the guard.** `Axis/src/lib/editor.svelte.ts:1687-1691`:
+  `e.value = value` runs first; the `if (!c || (!c.pack && !this.paramsWithoutPack)) return;` then exits
+  without sending, recording history or reverting — so an unsent value stays on screen. Fix: guard first,
+  or restore `from` before returning.
+- **[LOW] `#lastLocalEditAt` is set after the await** (`gen3.ts:~1446`), so on the 250 ms discrete path
+  the device-edit poll can run in that gap and echo our own write; it is also never set if `#write`
+  throws. Fix: stamp it before sending.
+- **[LOW] `value` is still unvalidated on the write route** (`runtime/handlers.ts:64-70`, shared by both
+  surfaces): P2.4 hardened `addr`/`paramId` but not `value`, so a `NaN`/non-integer ordinal relies on the
+  codec throwing → 500 instead of 400. Fix: require `Number.isFinite`, and an integer in range when
+  `!continuous`.
+- **[LOW] A post-save failure is reported as a failed save** (`editor.svelte.ts:~2897`): `await this.poll()`
+  sits inside the save `try`, so a poll error toasts "Save failed" *after* "Saved to preset N" and after
+  the checkpoint was recorded. Fix: move the poll/`refreshSlot` into their own catch.
+- **[LOW] Duplicated settlement logic** (`editor.svelte.ts:1698-1703`): the block repeats
+  `#writeSettlement` (1715-1721) inline, so the two can drift. Fix: call the wrapper.
+- **[NIT] Stale line citation** (`editor.svelte.ts:1686`): the comment cites `gen3.ts:1391-1393` for the
+  fire-and-forget design, which now lives ~1443. Cite the symbol, not the line — this is the exact rot
+  class that made the guides a liability.
+
+**Answered by the run (don't re-ask):** does `dev.request` throw on timeout, or return what it collected?
+The P2.2 suite pins the silent case as `{ok:true}` (the `WindowTransport` replays the real resolution
+semantics), so a completed wait with no 0x64 is an accept — not an error.
+
+---
+
 ## Do NOT chase (checked and rejected by the review)
 
 - **Edit-watch sweep vs channel-A baseline** (`gen3.ts:1371`): the sweep slice and its baseline are
