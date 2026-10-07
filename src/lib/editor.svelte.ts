@@ -626,19 +626,34 @@ class EditorStore {
     clearTimeout(this.#sendTimers[p.id]);
     this.#sendTimers[p.id] = setTimeout(() => forgefx.setParam(effectId, p.id as number, v, true).catch(() => {}), 60);
   };
-  /** Discrete write for a pinned control whose block may not be open. */
-  setPinnedEnum = (effectId: number, e: EnumParam, value: number) => {
+  /** Discrete write for a pinned control whose block may not be open. A discrete write is
+   *  reject-watched by the device (it may answer `{ok:false}`, or the transport may fail) and this
+   *  path writes optimistically, so — exactly like `setEnum` — we AWAIT the write and route its
+   *  outcome through the pure `settleEnumWrite`: a refused write reverts `e.value`, drops the
+   *  optimistic history entry and toasts the refusal, so a refused pinned enum can never stay on
+   *  screen (P2.1 leftover; the continuous `setPinnedParam` above stays fire-and-forget BY DESIGN). */
+  setPinnedEnum = async (effectId: number, e: EnumParam, value: number) => {
     if (this.selected?.effectId === effectId) { this.setEnum(e, value); return; }
     const from = e.value;
     e.value = value; // optimistic
     this.pinnedParams = { ...this.pinnedParams };
     const cell = this.#cellFor(effectId);
-    if (from !== value) history.record({
+    const historyId = from !== value ? history.record({
       kind: 'param', eid: effectId, paramId: e.id, continuous: false, from, to: value,
       block: cell?.display ?? e.name, param: e.name,
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
+    }) : null;
+    let outcome: WriteSettlement;
+    try {
+      const r = await forgefx.setParam(effectId, e.id, value, false);
+      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      outcome = { status: 'error' };
+    }
+    settleEnumWrite(e, from, historyId, outcome, {
+      dropHistory: (id) => history.drop(id),
+      toast: (text, accent) => this.showToast(text, accent)
     });
-    forgefx.setParam(effectId, e.id, value, false).catch(() => {});
   };
 
   // ── live audio meters (per-block monitor level, normalized→dB) ──
