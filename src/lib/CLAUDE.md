@@ -87,13 +87,15 @@ import it directly — no context or props threading.
   **all continuous streams** return `{ok:true}` unconditionally (the device sends
   no reply at all) — their settlement branches can only fire on a thrown transport
   error, so never comment that a refusal is honoured there.
-  *Known limitation (pinned, not fixed):* the stale guard is value-based
-  (`stale = value !== sent`), so an odd-length same-value burst (A→B→C→B with the
-  earlier write refused late) and a double refusal are reachable and can wipe a
-  newer value or leave an unconfirmed one on screen — see
-  `paramWriteOutcome.aba.test.ts`. The documented upgrade is a per-control write
-  token minted at write time; the pure settle signature cannot carry that ordering.
-  If the guard is replaced by a token, that test fails — which is the signal the fix landed.
+  *Write sequencing (the stale guard).* A refusal is applied only if the write that provoked it is still
+  the newest for its control: `beginWrite(key, current)` mints a token **before** the await, the settle
+  helper compares token identity (`token.n !== latest`) rather than the displayed value, and a refusal
+  reverts to the **last device-acknowledged value** (`confirmed`), never to an optimistic `from`. That
+  closes the ABA case (an odd-length same-value burst no longer lets an old refusal wipe a newer write)
+  and the double-refusal case (nothing unconfirmed is left on screen). Keys: the enum param object for
+  enums, stable strings (`bypass:<eid>`, `scene`, `tempo`, …) for scalars; per-key state is dropped when
+  its last in-flight write settles, so an external device change is picked up on the next begin.
+  `paramWriteOutcome.aba.test.ts` asserts this behaviour — if it starts failing, the guard regressed.
 
 Other stores: `cloud.svelte.ts` (true `$derived`, pure derivation + refresh),
 `library.svelte.ts` (device scan, `.syx` import, Zod-validated persisted
