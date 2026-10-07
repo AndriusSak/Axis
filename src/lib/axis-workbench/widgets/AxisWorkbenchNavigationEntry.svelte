@@ -20,6 +20,8 @@
     scenes: '❏',
     live: '▷',
     setup: '⚙',
+    // §2.11 batch-set (R22): apply one value across many presets.
+    batchSet: '⇶',
     account: '◈'
   };
 

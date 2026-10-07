@@ -276,10 +276,24 @@ const actionNavEntry = (
 ): NavigationEntryState => ({ id, label, hidden: false, target: { command }, ...extra });
 
 /**
- * The Axis seed navigation: the seven page-bound entries (each activates its page)
- * plus the two ACTION entries — Theme (opens the appearance modal) and Axis Cloud
- * (account modal, pinned to the rail footer). Page entries carry NO `target`; their
- * `pageId` binding drives `page.activate` in the generic `NavigationHost`.
+ * Cross-preset batch-set ACTION nav entry (parity audit §2.11, R22). It owns no page — it fires
+ * `axis.openBatchSet`, which docks-or-focuses the registered `axis.batchSet` panel in `main`. Defined
+ * once and reused by the seed navigation AND {@link ensureAxisBatchSetNavEntry} so a persisted
+ * document self-heals the rail entry without a version bump. Additive: the entry only OPENS the panel;
+ * the panel's own destructive-by-design preview/confirm flow is untouched.
+ */
+export const AXIS_BATCH_SET_NAV_ID = 'batchSet';
+export const AXIS_BATCH_SET_NAV_LABEL = 'Batch Set';
+const batchSetNavEntry = (): NavigationEntryState =>
+  actionNavEntry(AXIS_BATCH_SET_NAV_ID, AXIS_BATCH_SET_NAV_LABEL, 'axis.openBatchSet');
+
+/**
+ * The Axis seed navigation: the seven page-bound entries (each activates its page),
+ * the batch-set ACTION entry (§2.11, R22 — opens the registered `axis.batchSet`
+ * panel), plus the two other ACTION entries — Theme (opens the appearance modal) and
+ * Axis Cloud (account modal, pinned to the rail footer). Page entries carry NO
+ * `target`; their `pageId` binding drives `page.activate` in the generic
+ * `NavigationHost`.
  */
 export function createAxisSeedNavigation(mode: NavigationMode): NavigationLayout {
   return {
@@ -292,13 +306,14 @@ export function createAxisSeedNavigation(mode: NavigationMode): NavigationLayout
       scenes: pageNavEntry('scenes', NAV_LABELS.scenes, AXIS_PAGE_SCENES),
       live: pageNavEntry('live', NAV_LABELS.live, AXIS_PAGE_LIVE),
       setup: pageNavEntry('setup', NAV_LABELS.setup, AXIS_PAGE_SETUP),
+      [AXIS_BATCH_SET_NAV_ID]: batchSetNavEntry(),
       theme: actionNavEntry('theme', 'Theme', 'axis.openTheme'),
       account: actionNavEntry('account', 'Axis Cloud', 'axis.openAccount', {
         locked: true,
         fixedSlot: 'rail.footer'
       })
     },
-    order: ['grid', 'library', 'fc', 'controllers', 'scenes', 'live', 'setup', 'theme', 'account']
+    order: ['grid', 'library', 'fc', 'controllers', 'scenes', 'live', 'setup', AXIS_BATCH_SET_NAV_ID, 'theme', 'account']
   };
 }
 
@@ -415,6 +430,25 @@ export function ensureAxisConvertPage(doc: WorkbenchDocument): WorkbenchDocument
     // (it shipped as the converted-grid "Grid Map" minimap). Idempotent: only rewrites the old title.
     const srcPanel = layout.panels[AXIS_CONVERT_MINIMAP_PANEL];
     if (srcPanel && srcPanel.title === 'Grid Map') srcPanel.title = 'Source';
+  }
+  return doc;
+}
+
+/**
+ * Ensure the §2.11 batch-set ACTION nav entry exists on every layout (R22). Additive and idempotent:
+ * it only adds the entry when it is entirely ABSENT, so a user who deliberately HID or MOVED the entry
+ * is never overridden (a hidden entry is still present in `entries`, just flagged). Runs in the
+ * normalization chain after `ensureAxisSeedPages`, so a persisted document minted before R22 gains the
+ * rail entry without a version bump. Never touches any other entry, page, panel, or the action itself.
+ */
+export function ensureAxisBatchSetNavEntry(doc: WorkbenchDocument): WorkbenchDocument {
+  for (const layout of Object.values(doc.layouts ?? {})) {
+    if (!layout || typeof layout !== 'object' || !layout.navigation) continue;
+    const entries = (layout.navigation.entries = layout.navigation.entries ?? {});
+    if (entries[AXIS_BATCH_SET_NAV_ID]) continue;
+    entries[AXIS_BATCH_SET_NAV_ID] = batchSetNavEntry();
+    const order = Array.isArray(layout.navigation.order) ? layout.navigation.order : [];
+    layout.navigation.order = order.includes(AXIS_BATCH_SET_NAV_ID) ? order : [...order, AXIS_BATCH_SET_NAV_ID];
   }
   return doc;
 }

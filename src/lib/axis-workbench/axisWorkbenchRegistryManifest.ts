@@ -67,6 +67,9 @@ export const AXIS_WORKBENCH_NAVIGATION_IDS = [
   'scenes',
   'live',
   'setup',
+  // §2.11 batch-set ACTION entry (R22) — renders the registered `axis.batchSet` panel via
+  // `axis.openBatchSet`. Additive: a new rail entry, no existing id renamed/removed.
+  'batchSet',
   'theme',
   'account'
 ] as const;
