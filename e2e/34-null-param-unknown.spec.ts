@@ -121,10 +121,12 @@ test.describe('P10 — an unresolved param renders as an explicit unknown contro
     await page.locator('[data-idx="0,0"].cell.block').click();
     await expect(page.locator('.boardwrap')).toBeVisible();
 
-    const unknown = page.locator('.unknownctl', { hasText: 'Bright' });
+    // Selector must be exact: `hasText: 'Bright'` is a SUBSTRING match and also catches the
+    // "FS Brightness" knob's unknown tile, which is what made this look like a failure once.
+    const unknown = page.locator('.unknownctl[aria-label="Bright — value unavailable"]');
     await expect(unknown).toBeVisible();
     await expect(unknown.locator('.ukv')).toHaveText('—');
     // the fabricated "Off" (the old toggle behaviour for a null ordinal) must NOT appear
-    await expect(page.locator('.onoff-l', { hasText: 'Bright' })).toHaveCount(0);
+    await expect(page.locator('.onoff-l').filter({ hasText: /^Bright$/ })).toHaveCount(0);
   });
 });

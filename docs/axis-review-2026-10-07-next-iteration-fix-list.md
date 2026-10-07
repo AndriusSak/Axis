@@ -569,6 +569,67 @@ that would settle the GLOBAL question completely.
     at 0). NOTE: Playwright was not run in this round — the e2e spec is unexecuted and is the one claim
     that still needs the orchestrator's run to confirm.
 
+## P10 — shipped 2026-10-07 (the null contract, and tests that can actually fail)
+
+### The Axis side of the `null` contract (`544163e`)
+
+The P9 fix made ForgeFX honest (an unresolvable param is `null`, never a fabricated `0`), and the client
+had no name for it. **What the client actually did with a null, measured before the change:** every site
+used `?? 0`, so a null GLOBAL knob rendered as **a knob parked at minimum with a "0.0" readout** — the
+fabricated-value defect, mirrored client-side — and capture/write paths quietly recorded `0`. So the fix
+was not cosmetic.
+
+Now: `NamedParam.value`/`norm`/`EnumParam.value` are `number | null` (plus `unresolved?: string`), 17
+consumers touched (formatters, the editor store's setters/meter/clip paths, `paramNudge`, `blockOps`,
+`blockLibrary`, `paramClipOps`, the convert paths, and seven components). An unresolved control renders
+the inert `unknownCtl` tile (**em-dash + the server's reason**) *before* any knob/fader/slider branch; in
+`MidiRemoteSection` an unresolved knob is a disabled tile and `Dropdown`/`Toggle` are inert; a FaderBank
+band or EQ band is dropped rather than drawn at 0. Every arithmetic site that consumes a value was listed
+and guarded (range/taper maths, dial dasharray/rotation, EQ `log10/pow/exp` nodes, nudge `stepNorm`'s
+`Math.log`, `clamp01`) — `paramValue` returns `null` rather than a number, and **no `?? 0` was introduced**.
+15 unit tests + `paramValue` → null, formatters → `—` (and *not* `0.0`), a real `0` still reads `0`, and
+two tests that had *encoded the old coercion* ("defaults a missing norm to 0") were corrected to assert the
+honest skip. Source-guard hardening (the review's Q5 item) also landed here: comments stripped and checks
+scoped to method bodies for `refusedWrite`/`gridOpOutcomeWiring`/`controlSwitchWiring`, and `noAm4Routes`
+now catches `'/am4' + x` and `function am4Foo(` — proven with a temporary probe, then removed.
+
+### Tests that can actually fail (`45d6a28`, test-only, no `src/` change)
+
+Every item the review called vacuous was re-checked; where it was right, the test was made able to fail and
+**the red was demonstrated** by perturbing the fixture/mock and restoring it:
+
+- `silent-write` case 5 was vacuous by construction (`#send` never reads the reply script) → now asserts the
+  *primitive*: `sendQueued` used and `request()` called **0** times. Case 3 compared two identical mocks →
+  three genuinely different reply scripts (silent / unrelated-non-0x64 / matching-0x64) → `{ok:true}`,
+  `{ok:true}`, `{ok:false}`, with byte-identical frames.
+- `block-read-failure`'s `rejects` passed on *any* throw → `rejectsWith(fn, RegExp)` asserts the exact error.
+- `route-parity`: added a 16383/16384 write boundary twin per surface (12 rows); the driver-call counter is
+  now **per surface** rather than combined; the body-parity check is asserted unconditionally.
+- `unit-set-parity` cases 2/3 did not depend on the fix → non-empty guard + a III classifier case + a
+  source-guard that `gen3.ts` imports the shared `KNOB_UNITS` and declares no local copy.
+- `device-probe-runbook`: the empty-set `every` is guarded. **The "mock lives in the script under test" item
+  is inherent** — guarding it needs an independent fake or a change to `scripts/` — left and reported.
+
+### Found while hardening (a real parity gap, filed not papered over)
+
+**Repeated query keys genuinely differ between the two surfaces.** `?eid=1&eid=2` → Fastify sees the array
+`['1','2']`, `Number([...])` is NaN → **400**; the browser router's `URLSearchParams.get` takes the first →
+**200**. Confirmed on `/preset/monitors/live`, `/preset/looper`, **and `/fc/state`** (its new shared guard
+does not normalise an array either). Pinned by route-parity (app 400 / router 200, per route, with exact
+error strings), **not fixed** — unifying the parsers needs a `src/` change, so it is a decision item.
+
+**Merged-tree verification — GREEN:** forgefx-midi **84** · ForgeFX **43 suites** · Axis **1835 unit tests
+/ 175 files** · `svelte-check` 0/0 · build ok · Playwright **143** (chromium).
+
+**Process note worth keeping.** The merged-tree gate first reported `FAILURES PRESENT` from the new e2e
+spec, and the child could not have seen it (it was forbidden from running Playwright, so its spec shipped
+unexecuted). The failure was **in the test, not the code**: `hasText: 'Bright'` is a substring match that
+also matched the "FS **Bright**ness" knob's unknown tile, and Playwright's strict-mode violation listed
+both controls rendering correctly. The selector was made exact (aria-label / anchored regex); **no
+assertion was weakened**. Two environment facts: `npx playwright test` without `--project=chromium` fails on
+**firefox**, which is not installed on this host (the stack script runs chromium only), and a spec that ships
+unexecuted is not evidence.
+
 ## Do NOT chase (checked and rejected by the review)
 
 - **Edit-watch sweep vs channel-A baseline** (`gen3.ts:1371`): the sweep slice and its baseline are

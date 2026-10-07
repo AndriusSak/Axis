@@ -67,6 +67,12 @@ import it directly — no context or props threading.
   `DeviceEvent` union. To react to a device-side change (e.g. scene change),
   extend the existing `case` and reuse the `#eventReload` debounce — do not add
   parallel timers.
+- **Unresolved-value rule (hard).** A parameter value can be **`null`** — ForgeFX reports it when it
+  cannot resolve the value (e.g. a non-positional GLOBAL param it refuses to fabricate). Never coerce it
+  to `0`: that recreates the fabricated-value defect on the client side. `NamedParam.value` /
+  `EnumParam.value` / `norm` are `number | null`, formatters render `—`, an unresolved control renders the
+  inert `unknownCtl` tile with the server's reason, and no knob/slider/fader arithmetic may turn null into
+  `NaN` (guard before the maths, don't default at the maths).
 - **Write-outcome rule (hard).** ForgeFX answers **HTTP 200 with `{ok:false}`** when
   the device refuses a write, so a `.catch()`-only revert is NOT enough — an
   optimistic value would stay on screen forever. Every user-visible optimistic
