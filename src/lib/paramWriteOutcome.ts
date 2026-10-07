@@ -183,15 +183,33 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
 //
 // `settleScalarWrite` is the smallest scalar counterpart to `settleEnumWrite`: there is no history
 // entry to drop (a tempo/tuner change is not an undoable param edit) and the scalar lives on a FIELD,
-// so the store hands a setter rather than a mutable param object. It reuses `decideWriteOutcome` so
-// the wording/accent stay in the same toast family as the discrete-write helpers — "Write rejected by
-// device — <label>" / "Write failed — <label>". Accepted → nothing happens; refused/failed → the
-// scalar is reverted to the captured `from` and the refusal is surfaced.
+// so the store hands a reader + a setter rather than a mutable param object. It reuses
+// `decideWriteOutcome` so the wording/accent stay in the same toast family as the discrete-write
+// helpers — "Write rejected by device — <label>" / "Write failed — <label>". Accepted → nothing
+// happens; refused/failed → the scalar is reverted to the captured `from` and the refusal is surfaced.
+//
+// STALE-SETTLEMENT GUARD (P6): `settleEnumWrite` reverts only when the on-screen value is still the
+// one that write set (`stale = target.value !== sent`), so a late refusal cannot wipe a newer value
+// (an A→B then B→C sequence inside the ~250 ms discrete window). The scalar path needed the same
+// protection — a rapid double-write on ONE control (bypass/scene/channel/tempo/tuner) can clobber the
+// same way. The scalar target is NOT a readable param object though; it is a closure over a runes
+// field, so there is no `target.value` to compare. The fix is to give the target a reader (`get()`)
+// and pass the value this write SENT — then the guard is the SAME comparison as the enum one
+// (`target.get() !== sent`), one mechanism and one vocabulary, and it is provable in the node-env
+// harness with a plain local variable (a `{ get, set }` pair backed by a `let`). We chose the
+// value-sent comparison over a captured sequence token deliberately: a token would need the store to
+// mint and track a per-control counter (a second piece of state the runes module cannot expose to
+// the node-env harness) for no benefit on these small discrete controls, and it would introduce a
+// second staleness vocabulary where the enum guard already established one. The residual ABA caveat
+// (a write that re-sends the SAME value a later write set is indistinguishable) is exactly the one
+// the enum guard accepts; if that ever matters, a token is the upgrade, not a rewrite.
 
-/** Minimal view of an optimistic SCALAR (non-enum) write target: the store supplies a setter for the
- *  value it wrote optimistically (tempo `bpm`, tuner `active`), because that value lives on a runes
- *  field, not on a param object. */
+/** Minimal view of an optimistic SCALAR (non-enum) write target: the store supplies a READER and a
+ *  setter for the value it wrote optimistically (tempo `bpm`, tuner `active`, bypass, channel, scene),
+ *  because that value lives on a runes field, not on a param object. The reader is the counterpart of
+ *  reading `EnumWriteTarget.value` — it is what makes the stale-settlement guard possible. */
 export interface ScalarWriteTarget<T> {
+  get(): T;
   set(value: T): void;
 }
 
@@ -203,17 +221,21 @@ export interface ScalarWriteIo {
 /**
  * Apply a settled SCALAR write to the optimistic state: when the write was NOT accepted, revert the
  * scalar to the captured `from` and surface the refusal (same wording as the discrete-write helpers).
- * Returns the decision so callers/tests can assert it. Pure: no device, no store.
+ * STALE-SETTLEMENT GUARD: the revert happens ONLY when the value on screen (`target.get()`) is still
+ * the one THIS write set (`sent`) — a late refusal must not clobber a newer write's value. Returns
+ * the decision so callers/tests can assert it. Pure: no device, no store.
  */
 export function settleScalarWrite<T>(
   target: ScalarWriteTarget<T>,
   from: T,
+  sent: T,
   outcome: WriteSettlement,
   io: ScalarWriteIo,
   label: string
 ): WriteDecision {
   const d = decideWriteOutcome(outcome, label);
-  if (!d.keep) target.set(from);
+  const stale = target.get() !== sent; // a newer write has superseded this one — do not clobber it
+  if (!d.keep && !stale) target.set(from);
   if (d.toast) io.toast(d.toast.text, d.toast.accent);
   return d;
 }
