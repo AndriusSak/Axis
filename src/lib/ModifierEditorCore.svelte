@@ -11,6 +11,7 @@
   import { forgefx } from './forgefx';
   import { editor } from './editor.svelte';
   import { findModifierForTarget, modifiersInUse } from './modifierAssignments';
+  import { decodeModifierCurve, curveReadbackCount, formatCurveField } from './modifierCurve';
   import type { ModModel, PresetModifier } from './types';
 
   const mob = $derived(editor.isMobile);
@@ -149,6 +150,9 @@
   //    UI; ordinal/ref fields are the raw integer. Re-reads whenever the target (eid/param) changes so
   //    the docked panel re-binds instantly when the editor's ∿ badge points it at a new parameter. ──
   const WIRE_MAX = 65534;
+  // The modifier slot's raw param values as served (pid → wire value), kept for the explicit CURVE
+  // READ-BACK display below. Null until a read lands (or the model is unavailable) → all pending.
+  let liveValues = $state<Record<string, number> | null>(null);
   let loadedKey = $state(''); // guards one load per (target, eid)
   $effect(() => {
     if (!active || !mm) return;
@@ -158,6 +162,7 @@
     forgefx
       .rawBlock(eid)
       .then(({ values }) => {
+        liveValues = values;
         const next = defaults();
         for (const [k, f] of Object.entries(mm!.fields)) {
           if (!(k in next)) continue; // skip targetEffectId/targetParam (binding, shown separately)
@@ -180,8 +185,19 @@
       .catch(() => {});
   });
   $effect(() => {
-    if (!active) loadedKey = ''; // reset so the next open/target re-reads
+    if (!active) {
+      loadedKey = ''; // reset so the next open/target re-reads
+      liveValues = null;
+    }
   });
+
+  // Explicit read-back of the existing assignment's live CURVE values (parity audit §3.2 remainder).
+  // Decoded from the served raw block through the served model; a field the model/data does not expose
+  // stays "pending decode" — never an invented pid or value. Only addressable when the assignment owns
+  // the opened parameter AND carries a slot (pre-chain entries do; chain-embedded ones do not).
+  const curveReadback = $derived(decodeModifierCurve(liveValues, mm));
+  const curveRead = $derived(curveReadbackCount(curveReadback));
+  const canReadAssignmentCurve = $derived(!!matchedMod && matchedMod.slot != null);
 
   const srcOn = $derived(m.source > 0);
 
@@ -372,6 +388,29 @@
         <div class="existing">
           <span class="ex-dot"></span>
           <span>Already modulated by <b>{matchedMod.source}</b>{#if matchedMod.slot != null} · slot {matchedMod.slot}{/if}</span>
+        </div>
+
+        <!-- Live CURVE read-back of the existing assignment (parity audit §3.2 remainder). The curve
+             values live on the assignment's modifier slot and are read from the served raw block,
+             addressed through the served model. A field the model/data does not expose stays
+             "pending decode" — never an invented pid or value. -->
+        <div class="section">
+          <div class="divider"><span></span><b>CURVE READ-BACK</b><span></span></div>
+          {#if !canReadAssignmentCurve}
+            <div class="rbnote">pending decode — this assignment is chain-embedded (no addressable modifier slot to read).</div>
+          {:else if curveRead.read === 0}
+            <div class="rbnote">pending decode — {mm ? 'no live curve values were served for this modifier slot' : 'the modifier model is unavailable for this device'}.</div>
+          {:else}
+            <div class="rbgrid">
+              {#each curveReadback as f (f.key)}
+                <div class="rbfield" class:pend={f.pending}>
+                  <span class="rbk">{f.key}</span>
+                  <span class="rbv">{formatCurveField(f.key, f.value)}</span>
+                </div>
+              {/each}
+            </div>
+            <div class="rbnote">read {curveRead.read}/{curveRead.total} curve fields from modifier slot {effectiveSlot}</div>
+          {/if}
         </div>
       {/if}
 
@@ -973,5 +1012,44 @@
   .mrtgt {
     font: 600 10px/1.2 'JetBrains Mono', monospace;
     color: var(--textdim);
+  }
+  /* ── curve read-back (§3.2 remainder): the existing assignment's live curve, per field ── */
+  .rbgrid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 6px;
+  }
+  .rbfield {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: var(--bg);
+    border: 1px solid var(--surface2);
+  }
+  .rbfield.pend {
+    border-style: dashed;
+    opacity: 0.7;
+  }
+  .rbk {
+    font: 600 10px/1 'JetBrains Mono', monospace;
+    color: var(--textfaint);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+  .rbv {
+    font: 700 11px/1 'JetBrains Mono', monospace;
+    color: var(--text2);
+  }
+  .rbfield.pend .rbv {
+    color: var(--amber);
+    font-weight: 600;
+  }
+  .rbnote {
+    margin-top: 8px;
+    font: 600 10px/1.35 'JetBrains Mono', monospace;
+    color: var(--textmuted);
   }
 </style>
