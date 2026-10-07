@@ -195,7 +195,7 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
     expect(editor).toMatch(
       /const r = await forgefx\.setTempo\(n\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(this\.bpm = v\) \}, from, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, from, n, outcome/);
     // the old silent swallow + no-revert line is gone
     expect(editor).not.toMatch(/await forgefx\.setTempo\(n\)\.catch\(\(\) => \{\}\)/);
   });
@@ -204,7 +204,7 @@ describe('refused scalar writes — setBpm / toggleTuner wiring (P4 follow-ups)'
     expect(editor).toMatch(
       /const r = await forgefx\.setTuner\(next\);\s*outcome = r\.ok \? \{ status: 'ok' \} : \{ status: 'rejected' \}/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, next, outcome/);
     // the throw-only catch that ignored {ok:false} is gone
     expect(editor).not.toMatch(/forgefx\.setTuner\(next\)\.catch\(/);
   });
@@ -238,7 +238,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 
   it('toggleBypass honours {ok:false} (not just a throw) and gates the success toast', () => {
     expect(editor).toMatch(/#writeSettlement\(forgefx\.setBypass\(c\.effectId, next\)\)/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(c\.bypassed = v\) \}, from, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, from, next, outcome/);
     expect(editor).not.toMatch(/c\.bypassed = !next;/); // the old throw-only revert is gone
     // success history + toast are now behind the settlement decision
     expect(editor).toMatch(/if \(d\.keep\) \{\s*history\.record\(\{ kind: 'bypass'/);
@@ -246,7 +246,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
 
   it('setChannel honours {ok:false}, not just a throw', () => {
     expect(editor).toMatch(/#writeSettlement\(forgefx\.setChannel\(c\.effectId, ch\)\)/);
-    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(c\.channel = v\) \}, prev, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, prev, ch, outcome/);
     expect(editor).not.toMatch(/c\.channel = prev;/); // the old throw-only revert is gone
   });
 
@@ -254,7 +254,7 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
     expect(editor).toMatch(
       /#writeSettlement\(!this\.isV2 && this\.isAm4 \? forgefx\.am4SetScene\(ui - 1\) : forgefx\.setScene\(ui - 1\)\)/
     );
-    expect(editor).toMatch(/settleScalarWrite\(\{ set: \(v\) => \(this\.scene = v\) \}, prev, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, prev, ui, outcome/);
     expect(editor).not.toMatch(/this\.scene = prev;/); // the old throw-only revert is gone
   });
 
@@ -277,5 +277,43 @@ describe('optimistic-write sweep — guard/settle/retype/save wiring (Opus A/B)'
     expect(body.indexOf('Saved to preset')).toBeLessThan(pollAt);
     // ...and the poll sits in a SECOND try — the save try already returned via its 'Save failed' catch
     expect(body.slice(0, pollAt)).toMatch(/catch \{\s*this\.showToast\('Save failed', '#d6543f'\);\s*return;/);
+  });
+});
+
+// P6 — the two write-outcome items P5 left open.
+//
+// (1) `settleScalarWrite` gained the same STALE-SETTLEMENT GUARD `settleEnumWrite` has: every scalar
+// call site must supply the READER (`get`) and the value THIS write SENT, so a late refusal of an
+// earlier write cannot wipe a newer value on screen. The pure guard is proven in
+// paramWriteOutcome.scalar.test.ts; this pins the five store call sites that feed it.
+//
+// (2) `pasteBlock`'s empty-cell branch ran its placement ops inline (`for (const op of plan.ops) await
+// this.#runOp(op)`) and discarded every result, so a device-refused placement was still recorded as an
+// undoable composite step. It now routes through the SAME decision the routing ops use (`#runOps` +
+// `decideGridOpOutcome`) — the composite record is gated on every op landing, and the refusal toast is
+// surfaced (the placement toast wins over the settings toast because it is the more fundamental
+// failure). No second mechanism is introduced.
+describe('P6 — scalar stale guard wiring + pasteBlock routes through the grid-op decision', () => {
+  const editor = read('./editor.svelte.ts');
+
+  it('every scalar call site supplies the reader + the sent value (get + sent)', () => {
+    // bypass, channel, scene, tempo, tuner — all five, in the settleScalarWrite target+args shape
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.bypassed \?\? false, set: \(v\) => \(c\.bypassed = v\) \}, from, next, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => c\.channel, set: \(v\) => \(c\.channel = v\) \}, prev, ch, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.scene, set: \(v\) => \(this\.scene = v\) \}, prev, ui, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.bpm, set: \(v\) => \(this\.bpm = v\) \}, from, n, outcome/);
+    expect(editor).toMatch(/settleScalarWrite\(\{ get: \(\) => this\.tuner\.active, set: \(v\) => \(this\.tuner = \{ active: v \}\) \}, from, next, outcome/);
+    // no call site is left SETTER-ONLY — a target without `get` would silently skip the guard
+    expect(editor).not.toMatch(/settleScalarWrite\(\{ set: \(v\) =>/);
+  });
+
+  it('pasteBlock runs its placement ops through #runOps + decideGridOpOutcome (result not discarded)', () => {
+    expect(editor).toMatch(/decideGridOpOutcome\(await this\.#runOps\(plan\.ops\), plan\.label\)/);
+    // the composite step is recorded ONLY when every op landed
+    expect(editor).toMatch(/if \(outcome\.recordHistory\) history\.recordComposite\(plan\.label, plan\.ops\)/);
+    // the old inline loop that discarded every result is gone
+    expect(editor).not.toMatch(/for \(const op of plan\.ops\) await this\.#runOp\(op\);/);
+    // and the placement refusal toast is surfaced (it wins over the settings toast)
+    expect(editor).toMatch(/const toast = outcome\.toast \?\? r\.toast;/);
   });
 });

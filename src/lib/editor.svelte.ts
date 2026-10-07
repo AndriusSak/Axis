@@ -1741,7 +1741,7 @@ class EditorStore {
     // A bypass write is a discrete write the device reject-watches, so honour a {ok:false} (or a
     // throw) through the same scalar settlement the tempo/tuner path uses — not a throw-only catch.
     const outcome = await this.#writeSettlement(forgefx.setBypass(c.effectId, next));
-    const d = settleScalarWrite({ set: (v) => (c.bypassed = v) }, from, outcome, {
+    const d = settleScalarWrite({ get: () => c.bypassed ?? false, set: (v) => (c.bypassed = v) }, from, next, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Bypass');
     if (d.keep) {
@@ -1756,7 +1756,7 @@ class EditorStore {
     c.channel = ch; // optimistic
     // Discrete write, device reject-watched — route {ok:false}/throw through the scalar settlement.
     const outcome = await this.#writeSettlement(forgefx.setChannel(c.effectId, ch));
-    const d = settleScalarWrite({ set: (v) => (c.channel = v) }, prev, outcome, {
+    const d = settleScalarWrite({ get: () => c.channel, set: (v) => (c.channel = v) }, prev, ch, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Channel');
     if (d.keep) {
@@ -2380,12 +2380,19 @@ class EditorStore {
           this.showToast(plan.error ?? 'Cannot paste here', '#d6543f');
           return;
         }
-        for (const op of plan.ops) await this.#runOp(op);
-        history.recordComposite(plan.label, plan.ops);
+        // Run the placement ops through the SHARED settlement decision (`#runOps` + `gridOpOutcome.ts`)
+        // exactly like the routing ops: a device-refused placement resolves `{ok:false}`, so its write
+        // results must not be discarded — record the composite step ONLY when every op landed, and
+        // surface the refusal/partial toast the decision returns (P6).
+        const outcome = decideGridOpOutcome(await this.#runOps(plan.ops), plan.label);
+        if (outcome.recordHistory) history.recordComposite(plan.label, plan.ops);
         const r = await this.#applyClip(clip.blockId, clip, `Pasted ${clip.display}`);
         if (r.checkpoint) history.checkpoint(`Pasted ${clip.display} settings`, false);
         await this.load();
-        this.showToast(r.toast ? r.toast.text : `Pasted ${clip.display}`, r.toast ? r.toast.accent : '#35c9d6');
+        // A refused/failed PLACEMENT is the more fundamental failure, so its toast wins over the
+        // settings toast; otherwise report the settings outcome, or the success line.
+        const toast = outcome.toast ?? r.toast;
+        this.showToast(toast ? toast.text : `Pasted ${clip.display}`, toast ? toast.accent : '#35c9d6');
       }
     } catch {
       this.load();
@@ -2601,7 +2608,7 @@ class EditorStore {
     // A scene switch is a discrete write the device reject-watches ({ok:false} on refusal), so route
     // it through the scalar settlement: a refusal reverts the optimistic scene and toasts.
     const outcome = await this.#writeSettlement(!this.isV2 && this.isAm4 ? forgefx.am4SetScene(ui - 1) : forgefx.setScene(ui - 1));
-    const d = settleScalarWrite({ set: (v) => (this.scene = v) }, prev, outcome, {
+    const d = settleScalarWrite({ get: () => this.scene, set: (v) => (this.scene = v) }, prev, ui, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Scene');
     if (d.keep) {
@@ -2757,7 +2764,7 @@ class EditorStore {
     } catch {
       outcome = { status: 'error' };
     }
-    settleScalarWrite({ set: (v) => (this.bpm = v) }, from, outcome, {
+    settleScalarWrite({ get: () => this.bpm, set: (v) => (this.bpm = v) }, from, n, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Tempo');
   };
@@ -2780,7 +2787,7 @@ class EditorStore {
     } catch {
       outcome = { status: 'error' };
     }
-    settleScalarWrite({ set: (v) => (this.tuner = { active: v }) }, from, outcome, {
+    settleScalarWrite({ get: () => this.tuner.active, set: (v) => (this.tuner = { active: v }) }, from, next, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Tuner');
   };
