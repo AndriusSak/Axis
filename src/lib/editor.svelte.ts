@@ -28,6 +28,7 @@ import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
 import { settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
 import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
+import { decideGridOpOutcome } from './gridOpOutcome';
 import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
 import { blockLibrary } from './blockLibrary.svelte';
 import { newEntryId, recallWrites, type BlockLibraryEntry } from './blockLibrary';
@@ -2003,15 +2004,20 @@ class EditorStore {
       fromRows: []
     };
     this.layout = { ...this.layout, cells: [...this.layout.cells.filter((c) => !(c.row === row && c.col === col)), cell] };
+    const subject = label ?? `Place at r${row + 1}c${col + 1}`;
     try {
-      await forgefx.placeCell(this.#W(row), this.#W(col), blockId);
-      history.record({ kind: 'place', row, col, blockId, display });
+      // Settle the write before recording: a refused placement (device `{ok:false}`) must not leave
+      // an undoable step behind — see gridOpOutcome.ts.
+      const results = [await this.#writeSettlement(forgefx.placeCell(this.#W(row), this.#W(col), blockId))];
+      const outcome = decideGridOpOutcome(results, subject);
+      if (outcome.recordHistory) history.record({ kind: 'place', row, col, blockId, display });
       this.load(); // background reconcile (real name/effectId)
+      if (outcome.toast) this.showToast(outcome.toast.text, outcome.toast.accent);
     } catch {
       this.load();
     }
   };
-  removeAt = async (row: number, col: number) => {
+  removeAt = async (row: number, col: number): Promise<boolean> => {
     // capture the doomed cell + its wiring BEFORE the optimistic filter, so undo can restore both
     const gone = [...this.layout.cells, ...this.layout.shunts].find((c) => c.row === row && c.col === col);
     const inRows = gone?.fromRows.slice() ?? [];
@@ -2022,19 +2028,23 @@ class EditorStore {
       shunts: this.layout.shunts.filter((c) => !(c.row === row && c.col === col))
     };
     try {
-      await forgefx.clearCell(this.#W(row), this.#W(col));
-      if (gone) history.record({ kind: 'remove', row, col, blockId: gone.effectId, display: gone.display, inRows, outRows });
+      const results = [await this.#writeSettlement(forgefx.clearCell(this.#W(row), this.#W(col)))];
+      const outcome = decideGridOpOutcome(results, `Removed block at r${row + 1}c${col + 1}`);
+      if (outcome.recordHistory && gone) history.record({ kind: 'remove', row, col, blockId: gone.effectId, display: gone.display, inRows, outRows });
       this.load(); // background reconcile
+      if (outcome.toast) this.showToast(outcome.toast.text, outcome.toast.accent);
+      return outcome.recordHistory; // so the caller toasts success only for a removal that landed
     } catch {
       this.load();
+      return false;
     }
   };
   removeSelected = async () => {
     const c = this.selected;
     if (!c) return;
     this.closeEditor();
-    await this.removeAt(c.row, c.col);
-    this.showToast('Block removed', '#d6543f');
+    const landed = await this.removeAt(c.row, c.col);
+    if (landed) this.showToast('Block removed', '#d6543f');
   };
 
   // Move a block to any empty cell. Same-column → re-cable (preserve wires). Cross-column →
@@ -2069,30 +2079,27 @@ class EditorStore {
     };
     this.layout = { ...this.layout, cells: this.layout.cells.map(relocate), shunts: this.layout.shunts.map(relocate) };
     this.selKey = `${row},${col}`;
+    // Build the executed op sequence first (pure data), then run it through the shared #runOps so the
+    // send order — and the settlement of every write — is identical to the recorded composite.
+    const ops: import('./history.svelte').HistoryOp[] = [];
+    if (sameCol) {
+      ops.push(...outgoing.map((dr) => ({ kind: 'cable', srcRow: sr, srcCol: sc, destRow: dr, connect: false }) as const));
+      // in-cables die implicitly on clear → carried on the remove op so undo restores them with the block
+      ops.push({ kind: 'remove', row: sr, col: sc, blockId: src.effectId, display: src.display, inRows: incoming, outRows: [] });
+      ops.push({ kind: 'place', row, col, blockId: src.effectId, display: src.display });
+      ops.push(...incoming.map((fr) => ({ kind: 'cable', srcRow: fr, srcCol: col - 1, destRow: row, connect: true }) as const));
+      ops.push(...outgoing.map((dr) => ({ kind: 'cable', srcRow: row, srcCol: col, destRow: dr, connect: true }) as const));
+    } else {
+      ops.push({ kind: 'remove', row: sr, col: sc, blockId: src.effectId, display: src.display, inRows: incoming, outRows: outgoing });
+      ops.push({ kind: 'place', row, col, blockId: src.effectId, display: src.display });
+    }
+    const label = `Moved ${src.display} to r${row + 1}c${col + 1}`;
     try {
-      // mirror the executed call sequence into history ops (undo replays the inverses in reverse)
-      const ops: import('./history.svelte').HistoryOp[] = [];
-      if (sameCol) {
-        for (const dr of outgoing) await forgefx.cable(this.#W(sr), this.#W(sc), this.#W(dr), false);
-        ops.push(...outgoing.map((dr) => ({ kind: 'cable', srcRow: sr, srcCol: sc, destRow: dr, connect: false }) as const));
-        await forgefx.clearCell(this.#W(sr), this.#W(sc));
-        // in-cables die implicitly on clear → carried on the remove op so undo restores them with the block
-        ops.push({ kind: 'remove', row: sr, col: sc, blockId: src.effectId, display: src.display, inRows: incoming, outRows: [] });
-        await forgefx.placeCell(this.#W(row), this.#W(col), src.effectId);
-        ops.push({ kind: 'place', row, col, blockId: src.effectId, display: src.display });
-        for (const fr of incoming) await forgefx.cable(this.#W(fr), this.#W(col - 1), this.#W(row), true);
-        ops.push(...incoming.map((fr) => ({ kind: 'cable', srcRow: fr, srcCol: col - 1, destRow: row, connect: true }) as const));
-        for (const dr of outgoing) await forgefx.cable(this.#W(row), this.#W(col), this.#W(dr), true);
-        ops.push(...outgoing.map((dr) => ({ kind: 'cable', srcRow: row, srcCol: col, destRow: dr, connect: true }) as const));
-      } else {
-        await forgefx.clearCell(this.#W(sr), this.#W(sc));
-        ops.push({ kind: 'remove', row: sr, col: sc, blockId: src.effectId, display: src.display, inRows: incoming, outRows: outgoing });
-        await forgefx.placeCell(this.#W(row), this.#W(col), src.effectId);
-        ops.push({ kind: 'place', row, col, blockId: src.effectId, display: src.display });
-      }
-      history.recordComposite(`Moved ${src.display} to r${row + 1}c${col + 1}`, ops);
+      const results = await this.#runOps(ops);
+      const outcome = decideGridOpOutcome(results, label);
+      if (outcome.recordHistory) history.recordComposite(label, ops); // undo replays the inverses in reverse
       this.load(); // background reconcile
-      this.showToast('Moved', '#35c9d6');
+      this.showToast(outcome.toast ? outcome.toast.text : 'Moved', outcome.toast ? outcome.toast.accent : '#35c9d6');
     } catch {
       this.load();
     }
@@ -2137,14 +2144,29 @@ class EditorStore {
 
   // Execute ONE routing op forward against the device (mirror of history's redo direction — so a
   // freshly-run op and its recorded undo/redo stay in lock-step). Only the structural kinds a
-  // routing plan emits are handled here.
-  #runOp = async (op: import('./history.svelte').HistoryOp) => {
+  // routing plan emits are handled here. Returns the write's SETTLEMENT (ok / rejected / error): a
+  // device refusal is HTTP-200 `{ok:false}` and RESOLVES, so the caller must consult the result
+  // rather than treat a resolved await as success — see `#runOps` + `gridOpOutcome.ts`.
+  #runOp = async (op: import('./history.svelte').HistoryOp): Promise<WriteSettlement> => {
     switch (op.kind) {
-      case 'place': return void (await forgefx.placeCell(this.#W(op.row), this.#W(op.col), op.blockId));
-      case 'remove': return void (await forgefx.clearCell(this.#W(op.row), this.#W(op.col)));
-      case 'cable': return void (await forgefx.cable(this.#W(op.srcRow), this.#W(op.srcCol), this.#W(op.destRow), op.connect));
-      default: return;
+      case 'place': return this.#writeSettlement(forgefx.placeCell(this.#W(op.row), this.#W(op.col), op.blockId));
+      case 'remove': return this.#writeSettlement(forgefx.clearCell(this.#W(op.row), this.#W(op.col)));
+      case 'cable': return this.#writeSettlement(forgefx.cable(this.#W(op.srcRow), this.#W(op.srcCol), this.#W(op.destRow), op.connect));
+      default: return { status: 'ok' }; // non-structural op — nothing to send, nothing to refuse
     }
+  };
+
+  // Run a plan's ops forward, capturing every write's settlement. A transport ERROR aborts the loop
+  // (the link is down — stop hammering it and never finish a partial structural step), while a device
+  // REFUSAL (rejected) is recorded and the loop continues so the whole op's outcome is known.
+  #runOps = async (ops: import('./history.svelte').HistoryOp[]): Promise<WriteSettlement[]> => {
+    const results: WriteSettlement[] = [];
+    for (const op of ops) {
+      const s = await this.#runOp(op);
+      results.push(s);
+      if (s.status === 'error') break;
+    }
+    return results;
   };
 
   // Connect src → (destRow,destCol), spanning any number of columns. Intermediate empty cells get
@@ -2159,10 +2181,11 @@ class EditorStore {
       return;
     }
     try {
-      for (const op of plan.ops) await this.#runOp(op);
-      history.recordComposite(plan.label, plan.ops);
+      const results = await this.#runOps(plan.ops);
+      const outcome = decideGridOpOutcome(results, plan.label);
+      if (outcome.recordHistory) history.recordComposite(plan.label, plan.ops);
       await this.load();
-      this.showToast('Connected', '#35c9d6');
+      this.showToast(outcome.toast ? outcome.toast.text : 'Connected', outcome.toast ? outcome.toast.accent : '#35c9d6');
     } catch {
       this.load();
     }
@@ -2185,20 +2208,23 @@ class EditorStore {
       return;
     }
     try {
-      for (const op of plan.ops) await this.#runOp(op);
-      history.recordComposite(plan.label, plan.ops);
+      const results = await this.#runOps(plan.ops);
+      const successLabel = block.src ? 'Moved' : `Placed ${block.display}`;
+      const outcome = decideGridOpOutcome(results, plan.label);
+      if (outcome.recordHistory) history.recordComposite(plan.label, plan.ops);
       await this.load();
-      this.showToast(block.src ? 'Moved' : `Placed ${block.display}`, '#35c9d6');
+      this.showToast(outcome.toast ? outcome.toast.text : successLabel, outcome.toast ? outcome.toast.accent : '#35c9d6');
     } catch {
       this.load();
     }
   };
   disconnect = async (srcRow: number, srcCol: number, destRow: number) => {
     try {
-      await forgefx.cable(this.#W(srcRow), this.#W(srcCol), this.#W(destRow), false);
-      history.record({ kind: 'cable', srcRow, srcCol, destRow, connect: false });
+      const results = [await this.#writeSettlement(forgefx.cable(this.#W(srcRow), this.#W(srcCol), this.#W(destRow), false))];
+      const outcome = decideGridOpOutcome(results, 'Connection removed');
+      if (outcome.recordHistory) history.record({ kind: 'cable', srcRow, srcCol, destRow, connect: false });
       await this.load();
-      this.showToast('Connection removed', '#9a9aa3');
+      this.showToast(outcome.toast ? outcome.toast.text : 'Connection removed', outcome.toast ? outcome.toast.accent : '#9a9aa3');
     } catch {
       /* */
     }
@@ -2214,10 +2240,11 @@ class EditorStore {
       return;
     }
     try {
-      for (const op of plan.ops) await this.#runOp(op);
-      history.recordComposite(plan.label, plan.ops);
+      const results = await this.#runOps(plan.ops);
+      const outcome = decideGridOpOutcome(results, plan.label);
+      if (outcome.recordHistory) history.recordComposite(plan.label, plan.ops);
       await this.load();
-      this.showToast(plan.label, accent);
+      this.showToast(outcome.toast ? outcome.toast.text : plan.label, outcome.toast ? outcome.toast.accent : accent);
     } catch {
       this.load();
     }

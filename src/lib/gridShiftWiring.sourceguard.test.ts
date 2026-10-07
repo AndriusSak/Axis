@@ -70,9 +70,10 @@ describe('grid shift (move row / column) wiring', () => {
     expect(planner).not.toMatch(/kind: '(param|bypass|channel|retype|scene|sceneName|presetName)'/);
     expect(planner).not.toMatch(/\bfetch\(|forgefx|req</);
     expect(planner).not.toMatch(/preset\/grid/);
-    // the editor executes them through the shared #runOp (placeCell/clearCell/cable)
-    expect(editor).toMatch(/case 'place': return void \(await forgefx\.placeCell/);
-    expect(editor).toMatch(/case 'cable': return void \(await forgefx\.cable/);
+    // the editor executes them through the shared #runOp (placeCell/clearCell/cable), which now
+    // returns each write's SETTLEMENT so a refused write can't be recorded as an undoable step
+    expect(editor).toMatch(/case 'place': return this\.#writeSettlement\(forgefx\.placeCell/);
+    expect(editor).toMatch(/case 'cable': return this\.#writeSettlement\(forgefx\.cable/);
   });
 
   it('the planner is pure (no runes, DOM or network imports)', () => {
