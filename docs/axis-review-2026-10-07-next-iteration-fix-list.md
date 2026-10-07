@@ -1,7 +1,8 @@
 # Axis — next iteration: prioritized fix list (from the 2026-10-07 third-party review)
 
-**Status:** **P1.1–P1.3 SHIPPED, and P2.1 / P2.3 / P2.4 / P2.5 + most of P3 shipped 2026-10-07** ·
-**open: P2.2 (needs one decision — which write-confirmation window wins) and the remaining P3 items** ·
+**Status:** **P1.1–P1.3, ALL of P2, and the P3 items (engines, `.npmrc` heap flag, unit sets, route 400s,
+audit claims, build-order script, `version.ts` guard, stale `ROADMAP.md` cites) SHIPPED 2026-10-07** ·
+**open: the follow-ups below (found during the rounds) and the hardware probes** ·
 **Source:** independent 3-pass review of `61205e5` / `da11b1e` / `0dcda1c`
 (full report + provenance: `~/repos/stack/review-2026-10-07/REPORT.md`; the review's rejected claims
 are in its §5 — read that before re-litigating any item here).
@@ -93,7 +94,7 @@ read the guard would false-positive — worth a look the first time it runs agai
 
 ---
 
-## P2 — P2.1 / P2.3 / P2.4 / P2.5 SHIPPED; **P2.2 open**
+## P2 — ALL SHIPPED (P2.1, P2.2, P2.3, P2.4, P2.5)
 
 ### P2.1 Paste reports requested-as-pasted — **DONE** (`bb6dac1`)
 The brief's line numbers were shifted; the real sites were `pasteChannel` (:1777), `applyCab` (:1941),
@@ -113,9 +114,26 @@ not the set aggregation, so it belongs in a follow-up.
 Original filing (kept as the record): every write result was discarded and the toast printed
 `writes.length`; the same idiom appeared at the sites listed above.
 
-### P2.2 Reconcile the two write-confirmation windows
-`ForgeFX/server/src/drivers/gen3.ts:271-277` (120 ms / quiet 60 ms) vs
-`forgefx-midi/src/devices/gen3/writer.ts:159-185` (250 ms)
+### P2.2 Reconcile the two write-confirmation windows — **DONE** (`987dfb7`)
+**The decision (reversible, recorded):** align the driver's discrete-write confirmation with the writer's
+better-evidenced **250 ms**, because the cost of the longer wait is ~130 ms of extra latency on a rare,
+user-initiated discrete write, while the cost of the short window is a false "accepted" that the Axis
+client now trusts (P1.1). **The real knob was `timeoutMs`, not `quietMs`**: `request()` resolves on
+`match` (immediate), `quietMs` silence after the last inbound frame, or the `timeoutMs` hard cap — and on
+ACCEPT the device is silent, so the quiet timer never even starts and the window *is* the timeout. Both
+are now set to 250 for that reason (`gen3.ts:282-290`).
+The missing **delayed-rejection test** exists now: `MockTransport` answers synchronously and ignores the
+windows, which is exactly why the case was unreachable, so the new `write-window` suite drives a
+`WindowTransport` that replays `#once`'s real resolution semantics with a schedule of delayed frames —
+0x64 at 180 ms → `{ok:false}` (the old window's blind spot), at 130 ms → `{ok:false}`, silence →
+`{ok:true}`, late *foreign*-function 0x64 → `{ok:true}`.
+**Attribution sub-item: closed as impossible-without-inventing.** The 0x64 body is only
+`[echoedFn, resultCode]` (`write-protocol.md:29-31`; `parseMultipurposeResponse` slices 2 bytes) — there
+is no sub-action on the wire to compare, so the narrower disambiguation is not available. The limit is
+documented in `#write` and the same-function residual is pinned conservatively (matching fn ⇒ treated as
+ours ⇒ `{ok:false}`), erring toward "rejected" and never toward a false "accepted".
+**Unverifiable without the FM3:** the real post-120 ms rejection latency; 250 ms is inherited from the
+hardware-evidenced writer path rather than re-measured.
 
 `write-rejection.test.ts:9-11` documents this exact failure ("a 50 ms window could close before a
 genuine rejection arrives and report a rejected write as accepted"). All mock replies are synchronous,
@@ -188,7 +206,16 @@ records it as served (OFF/ON) — the two lists cannot both be right.
 
 ---
 
-## P3 — cleanup, cheap, do alongside
+## P3 — cleanup: **SHIPPED** engines, `.npmrc` heap flag, one float-vs-enum unit set, route 400s, the
+## `version.ts` guard, the build-order script, the audit/`ROADMAP.md` citation fixes · **OPEN: the AM4
+## alias sunset decision** (the only substantive P3 item left — see below)
+
+The individual entries below are the original filings, kept as the record; the SHIPPED list above is
+authoritative. Evidence per item: engines (`afbef9d`, `6ca47d2`), `.npmrc` heap flag (`afbef9d`, proven
+with a bare `npm run build`), `KNOB_UNITS` single source (`88ce0d0`), route 400s (`cc25d95`),
+`version.ts` drift guard (`b6e24f1` — `test/version-consistency.test.ts`), build-order script
+(`33a1e8d` — `npm run setup:stack`), audit claims (`afbef9d`), stale `ROADMAP.md` cites in code
+(ForgeFX `a26ee49`).
 
 - `ForgeFX/server/package.json:20` — `engines: ">=20 <21"` while the toolchain that passes every suite
   runs **Node 22.23.1** (`@types/node ^22.10.0`); Axis declares no `engines` at all. Align them.
@@ -215,6 +242,20 @@ records it as served (OFF/ON) — the two lists cannot both be right.
 
 *(The stale "21 chords" count this list used to carry was corrected in `NEXT-STEPS.md` when the review
 was filed — `shortcuts.ts` has 23 wired. Still worth a count assertion in the test.)*
+
+## Follow-ups found DURING the rounds (not in the original review)
+
+- **`setBpm` (`Axis/src/lib/editor.svelte.ts:2714`) has the same shape as the defects P1.1/P2.1 fixed**:
+  it sets `this.bpm = n` optimistically and then `await forgefx.setTempo(n).catch(() => {})`, so an
+  `{ok:false}` or a thrown error leaves the new tempo displayed. Flagged by the P2.1 workstream as
+  deliberately out of scope (the P2.1 record lists it fire-and-forget) — but it is user-visible state, so
+  it deserves the `settleWriteSet`/`settleEnumWrite` treatment. **Undecided.**
+- **`toggleTuner` (`:2727`) reverts on a thrown error but not on `{ok:false}`** — adjacent, same family,
+  lower impact (a tuner toggle self-corrects on the next read). **Undecided.**
+- **`setPinnedEnum` — FIXED (`33a1e8d`)**, the item that motivated the sweep above.
+- The sweep found no other bare `.catch(() => {})` on a param write: `:527` (swipe), `:627`
+  (`setPinnedParam`), `:1678` (`setParam`) are continuous/fire-and-forget by design (`gen3.ts:1391-1393`),
+  and `:966`/`:1056`/`:997`/`:1017`/`:1555` are not writes (faro imports, telemetry, cell select).
 
 ---
 
