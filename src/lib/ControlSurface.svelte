@@ -32,6 +32,7 @@
   import ContextMenu from './workbench/svelte/ContextMenu.svelte';
   import { longPress } from './axis-workbench/longPress';
   import { buildAxisPinMenuItems } from './axis-workbench/pinMenu';
+  import { buildParamValueMenuItems } from './paramClipMenu';
   import type { AxisPinTarget } from './axis-workbench/pinTargets';
   import { axisBlockEditorModifierController } from './axis-workbench/blockEditor/blockEditorModifierController';
 
@@ -1148,20 +1149,34 @@
   let pinMenuCtl = $state<Ctl | null>(null);
 
   const pinMenuItems = $derived.by<WorkbenchMenuItem[]>(() => {
-    if (!pinMenuOpen || !workbench || !pinMenuCtl) return [];
+    if (!pinMenuOpen || !pinMenuCtl) return [];
     const c = pinMenuCtl;
-    return buildAxisPinMenuItems(workbench.controller.document, (target) => void pinControlToWorkbench(c, target));
+    // Copy/Paste value (audit §2.11) lead the SAME control context menu; the pin-to-panel items follow
+    // when the workbench is available. The value items are always present so the menu is useful even
+    // without a workbench.
+    const items = buildParamValueMenuItems(
+      { label: c.label, kind: c.kind },
+      { hasClip: !!editor.paramClip, clipName: editor.paramClip?.name ?? null },
+      () => editor.copyParamValue(c.id, c.kind === 'cont'),
+      () => void editor.pasteParamValue()
+    );
+    if (workbenchCanPin && workbench) {
+      const pin = buildAxisPinMenuItems(workbench.controller.document, (target) => void pinControlToWorkbench(c, target));
+      if (pin.length) pin[0] = { ...pin[0], separatorBefore: true };
+      items.push(...pin);
+    }
+    return items;
   });
 
   function openPinMenuAt(c: Ctl, pos: WorkbenchMenuPosition) {
-    if (!workbenchCanPin || !pinnable(c)) return;
+    if (!pinnable(c)) return; // param-addressable controls always get the value menu
     pinMenuCtl = c;
     pinMenuPos = pos;
     pinMenuOpen = true;
   }
 
   function onPinContextMenu(event: MouseEvent, c: Ctl) {
-    if (!workbenchCanPin || !pinnable(c)) return;
+    if (!pinnable(c)) return;
     event.preventDefault();
     openPinMenuAt(c, menuPositionFromPointer(event));
   }
@@ -1747,8 +1762,9 @@
 <!-- modifier editor flyout (opened from a control's ∿ badge) -->
 <ModifierFlyout open={modOpen} label={modLabel} targetEffectId={modTargetEid} targetParam={modTargetParam} onClose={() => (modOpen = false)} />
 
-<!-- pin-to-panel menu: touch (long-press) + mouse (right-click) alternative to the hold-drag -->
-{#if workbenchCanPin}
+<!-- control context menu: Copy/Paste value (§2.11) always; pin-to-panel when the workbench is up.
+     touch (long-press) + mouse (right-click) alternative to the hold-drag -->
+{#if pinMenuOpen}
   <ContextMenu open={pinMenuOpen} position={pinMenuPos} items={pinMenuItems} label="Pin to custom panel" onClose={closePinMenu} />
 {/if}
 
