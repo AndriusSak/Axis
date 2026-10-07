@@ -114,8 +114,9 @@ without new ops or a preset-binary parser.
   never serve them and `PUT /preset/blocks/:eid/params/:paramId` has **no verified eid** to target.
   Neither `GET /preset/blocks` (grid blocks only) nor `GET /preset/scene-state`
   (`{effectId,bypassed,channel}`) carries CS state. On the device the rows sit in the PRESET **section**
-  (sectionTag 57 of the param walk; enum ON/OFF/LAST) — the preset-dump/section space — and host→device
-  write-back of that space does not exist (§6.4). The one candidate eid (200 / `ID_PRESET_FC`, from the
+  (sectionTag 57 of the param walk; enum ON/OFF/LAST) — the preset-dump/section space — and there is no
+  host→device write-back of *that section's rows* (the dump chain itself IS writable — §5 — but no
+  per-section addressing exists). The one candidate eid (200 / `ID_PRESET_FC`, from the
   `CONTROLLERS` layout page's `crossBlock`) is deliberately excluded from the FM3 effectId table and is
   hardware-**unverified** — do **not** build on it. Revisit only after a capture proves the
   `(eid, paramId)` for family PRESET (see §6.8).
@@ -142,16 +143,20 @@ persisted placeholder docs.
   endpoint was invented.
 - The legacy rail's **Perform** entry (§ToolRail) is still a toast — it is a separate legacy surface
   from the workbench Live page and was left untouched.
-- **Next step:** device-side storage needs RE (§6.5). If it turns out the FM3 stores Global/Per-Preset
-  performance pages, this local model is what would be serialised into that region.
+- **Next step:** device-side storage needs RE (§6.5) — **info requested 2026-10-07** (does the FM3
+  front panel / FM3-Edit expose performance pages? a capture while FM3-Edit saves one? see §6.5). If it
+  turns out the FM3 stores Global/Per-Preset performance pages, this local model is what would be
+  serialised into that region.
 
 ### 2.3 Sets & Songs (Setlists) — **Absent** (whole surface)
 FM3 firmware ≥ 9 exposes **Setlists/Songs** (custom preset/scene order for live use) and FM3-Edit has
 a corresponding area with **import/export**. Axis: no page, no nav entry in the workbench (the legacy
 rail's `sets` falls through to the toast path, `ToolRail.svelte:12`), no endpoints.
-- **Next step:** determine storage (front-panel Setup menu area ⇒ almost certainly a *system/global*
-  region, **not** a preset ⇒ needs an RE spike for read/write). Until then it is a **research item**,
-  not a wiring task.
+- **Setlists/Songs ARE supported on the FM3 — confirmed 2026-10-07 (Andy)**, so this is no longer
+  firmware-gated and the surface is buildable. **Next step:** locate the storage region (front-panel
+  Setup menu area ⇒ almost certainly a *system/global* region, **not** a preset) — needs an RE spike for
+  read/write, or a capture taken while FM3-Edit saves a setlist (see §6.5). Until the region is known it
+  stays a **research item**, not a wiring task.
 
 ### 2.4 Manage Presets (bank librarian) — **Partial** (duplicate + swap + reorder + Reset AMP per preset DONE; move/delete impossible)
 FM3-Edit's **Manage Presets** does multi-select **reorder / move / swap / duplicate / delete**
@@ -179,8 +184,11 @@ FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav
 Auto-Trim / output format options), Scratchpad naming, UltraRes marking. Axis has only the *picker*
 (`GET /cab/irs`, `CabPicker.svelte`) + favourites. No `POST /cab/*` write endpoints at all; no
 upload; no IR-capture UI (IR capture on the FM3 is front-panel/III-editor).
-- **Next step:** low priority unless Andy shares IR packs; IR upload is a multi-frame SyEx transfer
-  that must be verified on hardware first.
+- **Custom-IR upload to the device IS available — confirmed 2026-10-07 (Andy)**, so this is buildable
+  rather than blocked: implement the multi-frame SyEx user-cab upload (`POST /cab/*` write endpoints +
+  an import UI) per the FM3 spec, then load-test on hardware. `presetAuthorIr.ts` already authors IR
+  data into a preset dump **offline**. **Next step:** the cab write endpoints + import UI; hardware-
+  verify the upload (the multi-frame transfer is the part that needs the device).
 
 ### 2.6 Library (block/channel library on disk) — **DONE (Axis-local format)** · 2026-10-06
 FM3-Edit's **Library** stores named **blocks (all 4 channels) and single channels** as `.blk` files,
@@ -500,10 +508,19 @@ custom label, live read-back. Status after the FC-parity round (`fcParity.ts` +
   `parsePresetBank`, `serializePresetDump`, `extractPresetName`, `retargetPresetDumpToEditBuffer`) and
   `presetBody.ts` decodes the reassembled body into a typed model — grid cells, placed blocks,
   per-channel effect types, amp model + knobs, **modifiers** (`Gen3Modifier`) and scene controllers.
-  `ForgeFX` consumes it (`POST /preset/decode`, backups, local scan). What is still **not** captured is
-  the host→device **write-back** of 0x77/0x78/0x79 (stated in that file's own header). So the
-  follow-ons below are no longer blocked on "build a parser" — they are blocked on *surfacing* the
-  decoded model (e.g. modifier read-back, §3.2) or on RE for things the body does not contain.
+  `ForgeFX` consumes it (`POST /preset/decode`, backups, local scan). **The host→device write-back also
+  EXISTS — corrected 2026-10-07 (verified in code).** The gen-3 driver pushes the 0x77/0x78/0x79 chain
+  straight into the device's EDIT BUFFER (`Gen3Driver.loadPresetBytes` → `retargetPresetDumpToEditBuffer`
+  patches the 0x77 header to the `7F 7F` edit-buffer sentinel and fixes the frame checksum in place),
+  wired at `POST /preset/load` and used by Axis's audition / file-load / template-load paths; a slot is
+  written only by the separate `store(n)`, and a version restore is load-then-store. The code records
+  this direction as **live-validated on FM3 by the ForgeFX version-audition flow**, and the
+  authored-output leg is offline-gated by `presetValidate.ts` + the author round-trip tests
+  (`preset-author-ir.test.ts`). `presetDump.ts`'s own header still reads "not captured" — read that as
+  the *evidence-discipline* note (no recorded host→device USBPcap), **not** as "unimplemented". What
+  remains is a **hardware load test** of an *authored/edited* dump. So the follow-ons below are no
+  longer blocked on "build a parser" or "build a writer" — they are blocked on *surfacing* the decoded
+  model (e.g. modifier read-back, §3.2) or on RE for things the body does not contain.
 - **Silent-drop gates are the recurring defect class here** (`KNOB_UNITS`, enum length caps). Two of
   this audit's "candidate gaps" (§3.7) are that same class — verify before building UI for them.
 
@@ -549,12 +566,18 @@ not surfaced — see §3.6 item 3.
 4. ~~**Is a preset-binary parser in scope?**~~ **ANSWERED 2026-10-06: it already exists.** `forgefx-midi/
    src/devices/gen3/presetDump.ts` handles the 0x77/0x78/0x79 read chain and `presetBody.ts` decodes
    grid / channels / types / amp knobs / **modifiers** / scene controllers; `ForgeFX` exposes it via
-   `POST /preset/decode`. The genuine remaining gap is host→device **write-back** of that chain.
+   `POST /preset/decode`. **RESOLVED 2026-10-07:** host→device **write-back** of that chain also exists
+   (`Gen3Driver.loadPresetBytes` + `retargetPresetDumpToEditBuffer` → `POST /preset/load`; live-validated
+   on FM3 for edit-buffer audition; store via `store(n)`; authored output offline-gated by
+   `presetValidate.ts`). Remaining: a hardware load test of an authored dump — see §5.
 5. **Does FM3 store performance pages / setlists in the preset or in system memory?** Determines
-   whether either can be built without new RE.
+   whether either can be built without new RE. **Info requested 2026-10-07 (Andy):** (a) does the FM3's
+   own front-panel Setup menu expose a Performance Pages / Setlists area, and does FM3-Edit write it?
+   (b) either a `.syx`/USBPcap taken while FM3-Edit SAVES a performance page or a setlist, or the
+   matching firmware release-note section — either one pins the storage region and the read/write frames.
 6. **Cab 2 Mute/Solo write path** (see §3.7) — the outstanding hardware check from the last handoff.
-7. **Setlists/Songs availability** on Andy's firmware (added in a later fw line; confirm the unit's
-   version supports it before treating §2.3 as a target).
+7. ~~**Setlists/Songs availability** on Andy's firmware~~ — **RESOLVED 2026-10-07: the FM3 supports
+   Setlists/Songs** (confirmed by Andy). The only open question is the storage region (item 5).
 8. **Are the 51 `PRESET_FC_SCENE*_CS*_MODE` rows fn=0x01-addressable?** Family PRESET has no wire
    effectId (`FM3_EFFECT_IDS.PRESET === null`; `familyForEffectId(57)` = `familyForEffectId(200)` =
    `undefined`). The device param walk lists them in **section 57** (family PRESET; enum ON/OFF/LAST),
@@ -619,9 +642,12 @@ remain absent.
 
 **Keystone / research**
 13. ~~**Preset-binary parser**~~ — **ALREADY EXISTS** (read path; see §5). ~~modifier read-back~~
-    **DONE 2026-10-06** (§3.2). What is left is blocked on **RE / hardware**, in value order:
-    **Performance pages** device-side storage (§2.2/§6.5), **Setlists/Songs** (§2.3/§6.7),
-    **IR/cab management** (§2.5 — needs a hardware-verified multi-frame upload).
+    **DONE 2026-10-06** (§3.2). ~~host→device write-back~~ — **ALSO EXISTS (verified 2026-10-07; §5)**:
+    edit-buffer push + store + offline-validated authoring all ship; only a hardware load test of an
+    *authored* dump remains. What is left is blocked on **RE / hardware**, in value order:
+    **Performance pages** device-side storage (§2.2/§6.5), **Setlists/Songs** (§2.3/§6.7 — FM3 support
+    confirmed 2026-10-07; storage region still unknown), **IR/cab management** (§2.5 — custom-IR upload
+    available on the FM3 per 2026-10-07; the multi-frame upload must be implemented + load-tested).
 
 **Round W1–W4 — merged 2026-10-06** (orchestrator: Lykos; four parallel subagents, one git worktree
 each, all four Axis-only and offline-provable — no hardware, no new endpoint). All four merged with
@@ -671,8 +697,10 @@ Verification on the merged tree: Axis **1629 unit tests / 154 files** · `svelte
 
 **Deferred / N/A on FM3**
 - Global blocks (§2.9) — Axe-Fx only.
-- NAM Manager — Axe-Fx III only (fw 2026 line).
-- IR Capture — front panel / III-editor.
+- NAM Manager — Axe-Fx III only (announced 2026-10-07 as coming soon to the III); **FM3 support is
+  unconfirmed — do not plan for it.**
+- ~~IR Capture~~ — **does not exist (corrected 2026-10-07)**: there is no IR-capture feature on these
+  units, so it was never a real gap.
 
 ---
 
