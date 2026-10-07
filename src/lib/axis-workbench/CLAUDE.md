@@ -1,5 +1,9 @@
 # Workbench framework guide
 
+> **Rules only — never restate an implementation here; point at the module that owns it.**
+> A restated pattern in the app-layer guide drifted from the code and taught a defect that took three
+> fix rounds to remove. If you are about to paste code into this file, paste a path instead.
+
 This file applies when working under `src/lib/axis-workbench/` or `src/lib/workbench/`.
 
 ## Two-layer architecture
@@ -129,6 +133,12 @@ Interaction and rendering coverage is Playwright e2e: `e2e/*.spec.ts` with
 `VITE_AXIS_WORKBENCH=1`, the `bootCleanWorkbench` helper from `e2e/support/workbench.ts`,
 viewport width ≥ 1366, and stable selectors/data-attributes.
 
+Because the component itself is never executed by vitest, **only `svelte-check` on the
+merged tree catches a scope/type error inside a `.svelte`/`.svelte.ts` file** — a green
+unit run proves nothing about whether the component compiles. Writes that a device can
+refuse must settle through the pure helpers in `../paramWriteOutcome.ts` (see the
+app-layer guide's write-outcome rule).
+
 ## Theming
 
 - `workbench/` components use `--aw-*` tokens ONLY. A unit test fails on hex color
@@ -167,6 +177,8 @@ factories and embedded app components are exactly what stays behind.
   as checklists.
 - Review: run the `workbench-reviewer` agent over the diff before committing framework
   changes.
-- Framework changes on the layout-rework branch must be logged in
-  `docs/axis_layout_rework_progress_log.md` and tracked in Plane (see root `CLAUDE.md`,
-  Task tracking section).
+- Record framework work where the project records everything else: `docs/NEXT-STEPS.md` is
+  the orientation file, `docs/axis-fm3edit-feature-parity-audit.md` is the live backlog,
+  and dated round inputs live under `docs/` (do not resurrect the banner-stale plans).
+  Task tracking in Plane is mandatory — see the root `CLAUDE.md`, Task tracking section
+  (that file is gitignored and local-only by design).
