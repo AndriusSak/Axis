@@ -38,8 +38,11 @@ the hardware probes that remain — read that before re-opening anything.
 ### Blocked on hardware (needs the FM3 / the Deck)
 - **Cab 2 Mute/Solo write** (audit §3.7) — toggle cab 2's M/S on the unit and confirm it reads back;
   if writes are ignored, revise `285c11b` rather than paper over it.
-- **25 `unit:'unverified'` GLOBAL params** — probe `GET /diag/ranges?family=GLOBAL&pid=N` on a clean
-  store; these are the candidate silent Setup gaps (§3.7).
+- **GLOBAL Setup params** — **resolved offline 2026-10-07 (P1.2, `2fa29d9`)**: the device's own layout
+  widget is now the serving evidence, so `FS_BRIGHTNESS`/`FS_LCD_CONTRAST` (7115/7116) and the FC
+  default-layout/clone dropdowns serve, and `server/test/drivers/layout-param-coverage.test.ts` enforces
+  the invariant in CI. No clean-store `/diag/ranges` sweep is needed. What remains hardware-only is
+  whether GLOBAL **writes** are accepted (§3.7).
 - **DynaCab 2-axis pad** — verified in e2e only, not on the Deck (§3.6 item 6).
 - **§2.5 user-cab IR upload** — the FM3 accepts custom IRs (manual "Loading User Cabs", p.118); the
   multi-frame SyEx upload must be implemented, then load-tested on the device.
@@ -97,7 +100,7 @@ npx vitest run <the branch's test files> && npm run check
 # on the merged tree (authoritative)
 npx vitest run
 npm run check
-NODE_OPTIONS=--max-old-space-size=2560 npm run build   # the default heap OOMs on this VM
+npm run build   # the heap flag now lives in .npmrc (`node-options`) — no NODE_OPTIONS prefix needed
 npx playwright test --project=chromium                  # 142 tests; boots its own :5199 server
 ```
 

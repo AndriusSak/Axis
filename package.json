@@ -8,6 +8,9 @@
   },
   "homepage": "https://github.com/sKuhLight/Axis",
   "private": true,
+  "engines": {
+    "node": ">=20"
+  },
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

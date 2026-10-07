@@ -450,15 +450,22 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
 - **Cab 2 Mute/Solo write** — the one item the last handoff could not prove; the cache row said float,
   the catalogue says enum, and the fix trusted the catalogue (`285c11b`). **Toggle cab 2's M/S on the
   unit and confirm the state changes + reads back.**
-- **GLOBAL family: 25 params are `unit: 'unverified'`** in the FM3 catalog. ForgeFX's `KNOB_UNITS`
-  allowlist (`gen3.ts:141-143`) excludes `unverified`, so any *float* row on those defs is dropped
-  from the served knob list (this exact mechanism deleted the DynaCab Position param). Enum-shaped
-  rows are still served (`rangeFor`, `gen3.ts:557-563`). **Candidate silent gaps in Setup:**
-  `GLOBAL_CS*_*` (control-switch config, 12 params), `GLOBAL_MIDI_MAPPING`, `GLOBAL_REMOTE_MUTE`,
-  `GLOBAL_USB_RECORD` / `_3_4_PLAYBACK`, `GLOBAL_FC_TYPE_PFC*` / `_CLONE_*` / `_DEFAULT_LAYOUT_*`,
-  `GLOBAL_FS_BRIGHTNESS` / `_LCD_CONTRAST`, `GLOBAL_FC_FS_TUNER_MODE`, `GLOBAL_DEVICE_NAME_BEGIN`.
-  → **Probe:** `GET /diag/ranges?family=GLOBAL&pid=N` for each suspect pid, then open Setup with a
-  **clean store** (`bootCleanWorkbench` / fresh cache) and check the control is present.
+- **GLOBAL family: 25 params are `unit: 'unverified'`** in the FM3 catalog — **largely RESOLVED
+  2026-10-07 (P1.2, `2fa29d9`)**. The original diagnosis was that `KNOB_UNITS` (`gen3.ts:157-159`)
+  excludes `unverified`, so any *float* row on those defs is dropped from the served knob list (the
+  mechanism that had deleted the DynaCab Position param). The fix makes the **device's own editor
+  layout** the evidence: `layoutWidgetByFamily()` (`devices.ts`) indexes every layout `knob`/`dropdown`
+  binding by the param's OWNING family, and the serve filters honour it, so a param the device draws is
+  served even when the catalog unit/kind disagrees. `GLOBAL_FS_BRIGHTNESS` / `_LCD_CONTRAST` (7115/7116,
+  knob 0..100), `GLOBAL_FC_DEFAULT_LAYOUT_PFC1-3` (3602-3604, dropdowns) and the FC clones now serve —
+  the earlier blanket "candidate silent gaps" list is superseded (it was also wrong about
+  `GLOBAL_MIDI_MAPPING` 97, long served — see §2.8).
+  **What is still genuinely unserved** is only what has **no range row at all**, and none of those is a
+  `knob`/`dropdown` binding: `GLOBAL_REMOTE_MUTE` (114, 0 layout refs — nothing renders a hole),
+  `GLOBAL_DEVICE_NAME_BEGIN` (1334, referenced by name-entry widgets that the guard below does not
+  cover). → **Probe:** now CI, not hardware: `server/test/drivers/layout-param-coverage.test.ts`
+  asserts every layout-referenced param is served or on a documented unmount allowlist. Remaining
+  hardware question is only whether those GLOBAL **writes** are accepted (§3.7 item 1 spirit).
 - **FC editor fields** whose metadata is absent from the served model are silently *hidden* rather
   than gated (`FcEditor.svelte` header) — so an FM3 whose model lacks a field shows a shorter editor
   with no warning. Verify the served `/fc/model` covers every control FM3-Edit's FC Edit shows.
@@ -479,10 +486,20 @@ custom label, live read-back. Status after the FC-parity round (`fcParity.ts` +
 - **Layout Links** (switch changes layout after press) — **DONE via the served Layout category
   (ord 6)**: functions Select / Master Layout / Inc-Dec render through the generic per-switch
   fields; the editor hints the mapping. No separate device param exists (verified in `fcModel`).
-- **CS MIDI** (control-switch MIDI assignment) — **GATED**: it is a Setup → MIDI/Remote table
-  (§2.8); no FC (eid 199) param serves it.
-- **FC Config** (startup layout/view, 1:1 copy) and **Devices** tab (mirroring) — **GATED**:
-  external-FC device settings; no served param exposes them.
+- **CS MIDI** (control-switch MIDI assignment) — **PARTIALLY AVAILABLE, reclassified 2026-10-07.** The
+  earlier "GATED: no served param serves it" was too broad. The GLOBAL family serves the CS params:
+  `GLOBAL_CS1_ENABLE` (6979), `GLOBAL_CS_EDIT_NUMBER` (6985) and `GLOBAL_CS_COMMAND_BEGIN` (6986) all
+  carry enum rows, and `GLOBAL_CS1-6_EXCLUSIVE` (7107-7112) are served **and already rendered** on the
+  Setup MIDI/Remote board (4 layout refs each). What is missing is a **layout** for the
+  enable/edit-number/command trio — those three have 0 layout refs, so they are not drawn, not
+  unserved. Building the MIDI/Remote CS table is startable offline: no new wire op and no
+  calibration row is required.
+- **FC Config** (startup layout/view, 1:1 copy) and **Devices** tab (mirroring) — **Devices/mirroring is
+  genuinely GATED** (no served param exposes it). **FC Config is now PARTIAL**: with the layout-widget
+  rule (P1.2), `GLOBAL_FC_DEFAULT_LAYOUT_PFC1-3` (3602-3604) and the `FC_CLONE_*` siblings (3606-3608)
+  serve, and the device's own layout draws them as dropdowns. `PFC4` (3601/3609) does **not** exist on
+  the FM3 — it appears only in the **Axe-Fx III** layouts (`axe-fx-iii/layouts.generated.ts:13698-13699`);
+  do not plan for a 4th FC port.
 - **Import / export layouts** (backup) — **DONE** (client-side, `fcLayoutPackage.ts`): Axis JSON
   `.fclayout.json`, FM3 exports by live read-back (`/fc/state`), blind devices export the session’s
   values; import validates then writes back field-by-field with configs remapped to the target layout.
@@ -563,11 +580,16 @@ not surfaced — see §3.6 item 3.
 
 ## 6. Uncertain / needs verification (probe list, no guessing)
 
-1. **Is the MIDI block placeable on the FM3?** The catalog has a `MIDIBLOCK` family (13 params) and
-   `SMI: 'MIDIBLOCK'` mapping, but no virtual effect / roster entry was confirmed. → list `GET /blocks`
-   from a live FM3 and check for a midi/smi slug.
-2. **Which GLOBAL params are actually served?** → `GET /diag/ranges?family=GLOBAL&pid=<n>` for the 25
-   `unverified` pids; open Setup on a clean store and diff the rendered controls against the catalog.
+1. ~~**Is the MIDI block placeable on the FM3?**~~ — **ANSWERED (no).** §2.8 already verified it: the
+   `MIDIBLOCK` family is `addressing:'virtual'`, absent from `EFFECT_BASES` (so `effectRoster()` never
+   offers it), absent from `GEN3_VIRTUAL_EFFECTS` (`registryCore.ts`), and `blockParams(190)` serves no
+   controls (13 defs, all `_BEGIN` markers/TEST rows, 0 range rows). Keep the honest negative — do not
+   re-probe.
+2. ~~**Which GLOBAL params are actually served?**~~ — **ANSWERED OFFLINE 2026-10-07.** Reading
+   `ranges.generated.ts` + `params.ts` + `rangeFor` settles it (the blanket "25 unverified = candidate
+   gaps" list was wrong — most are served), and the device's own layout widget is now honoured (P1.2,
+   `2fa29d9`). The invariant is enforced in CI by
+   `server/test/drivers/layout-param-coverage.test.ts`; no live `/diag/ranges` sweep is needed.
 3. **Scene ops over the wire.** `setScene` is deliberately fire-and-forget (`BACKLOG.md` W1.1: scene is
    not in the write-protocol op table). Copy/swap/bulk scenes need a plan: either new ops (verify they
    exist) or a client-side dump→store sequence. **RESOLVED 2026-10-06 (§2.1):** no wire op is needed —
@@ -619,7 +641,8 @@ not surfaced — see §3.6 item 3.
    **DONE** (`planDisconnectAll/planInsertShunt/planResetBlock/planSwap/planPasteBlock` in `gridRouting.ts`;
    ⌘D/⌘U/⌘I/⌘C/⌘V). Caveat: reset restores placement+wires, not the pre-reset param VALUES (v1 limit).
 3. ~~**Channel copy/paste/reset** (§2.10)~~ — **DONE** (`blockOps.ts` + Block Editor footer).
-4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; **21 wired, 0 reserved** as of 2026-10-07).
+4. ~~**Keyboard shortcut map** (§2.12)~~ — **DONE** (`shortcuts.ts` registry; **23 wired, 0 reserved** — corrected 2026-10-07, the count in this
+ line had gone stale at 21 after Q and G were added in R24/R25).
 5. **Mute + Scene Ignore** (§3.1) — **Scene Ignore DONE** (served `*_SCENEIGNORE` enum); **Mute
    left disabled** (no served generic per-block mute param — see §3.1).
 6. **Block-pane height / search-card** UX fixes (§3.6 items 1-2) — **DONE** (compact search rows).
