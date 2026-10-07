@@ -41,6 +41,7 @@
   import { notifyReady as otaNotifyReady, checkForUpdate as otaCheck } from '$lib/direct/ota';
   import { isAxisWorkbenchFeatureEnabled } from '$lib/axis-workbench/featureGate';
   import { axisWorkbenchController } from '$lib/axis-workbench/axisWorkbenchStore.svelte';
+  import { axisWorkbenchRegistry } from '$lib/axis-workbench/axisWorkbenchRegistry';
   import { AXIS_PAGE_PRESET_BROWSER } from '$lib/axis-workbench/axisWorkbenchPages';
   import { pollIntervalsFor } from '$lib/pollIntervals';
   import { resolveShortcut, isEditingTarget } from '$lib/shortcuts';
@@ -179,6 +180,23 @@
           if (!t) return;
           e.preventDefault();
           void editor.pasteBlock(t.row, t.col);
+          return;
+        }
+        // FM3-Edit Quick Build (§2.9 remainder) — dock/focus the workbench Quick Build panel through its
+        // registered action. The legacy shell has no workbench, so Q falls back to the Cmd+K palette
+        // (the placement surface that covers placement there).
+        case 'quickBuild': {
+          e.preventDefault();
+          if (workbenchEnabled)
+            void axisWorkbenchRegistry.runActionResult('axis.openQuickBuild', {
+              controller: axisWorkbenchController,
+              source: 'host'
+            });
+          else {
+            editor.paletteMode = 'place';
+            editor.placeTarget = null;
+            editor.paletteOpen = true;
+          }
           return;
         }
         // §2.12 remainder — FM3-Edit manage-presets / engage-all-scenes / arrow value-nudges.

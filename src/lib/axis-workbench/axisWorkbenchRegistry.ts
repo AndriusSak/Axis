@@ -15,6 +15,7 @@ import AxisHistoryDockPanel from './panels/AxisHistoryDockPanel.svelte';
 import AxisLivePanel from './panels/AxisLivePanel.svelte';
 import AxisPlaceholderPanel from './panels/AxisPlaceholderPanel.svelte';
 import AxisPresetBrowserPanel from './panels/AxisPresetBrowserPanel.svelte';
+import AxisQuickBuildPanel from './panels/AxisQuickBuildPanel.svelte';
 import AxisSceneManagerPanel from './panels/AxisSceneManagerPanel.svelte';
 import AxisSignalGridPanel from './panels/AxisSignalGridPanel.svelte';
 import AxisVirtualScreenPanel from './panels/AxisVirtualScreenPanel.svelte';
@@ -55,6 +56,7 @@ AXIS_WORKBENCH_BASE_PANEL_TYPES.forEach((type) => {
     type === 'axis.virtualScreen' ? AxisVirtualScreenPanel :
     type === 'axis.placeholder' ? AxisPlaceholderPanel :
     type === 'axis.sceneManager' ? AxisSceneManagerPanel :
+    type === 'axis.quickBuild' ? AxisQuickBuildPanel :
     type === 'axis.batchSet' ? AxisBatchSetPanel :
     type === 'axis.live' ? AxisLivePanel :
     type === 'axis.convertGrid' ? AxisConvertGridPanel :
@@ -181,6 +183,18 @@ registry.registerAction(
     panelType: 'axis.live',
     title: 'Live',
     region: 'main'
+  })
+);
+// Quick Build (parity audit §2.9 remainder) — the FM3-Edit one-click block placement panel. Opened by
+// the 'Q' chord (shortcuts.ts → routes/+page.svelte) or the panel's action; docks-or-focuses a left
+// panel. Placement reuses the existing grid op (editor.place → forgefx.placeCell).
+registry.registerAction(
+  createAxisNavigationPanelAction({
+    actionId: 'axis.openQuickBuild',
+    panelId: 'axis.quickBuild',
+    panelType: 'axis.quickBuild',
+    title: 'Quick Build',
+    region: 'left'
   })
 );
 registry.registerAction(createAxisPinSelectedParametersAction());

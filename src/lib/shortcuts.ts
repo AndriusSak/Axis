@@ -148,6 +148,16 @@ export const SHORTCUTS: readonly ShortcutDef[] = [
     matches: [{ key: 'u', mod: true }],
   },
   {
+    // FM3-Edit Quick Build (§2.9 remainder) — a curated one-click block PLACEMENT panel, docked by the
+    // 'Q' chord. Placement reuses the existing grid op (editor.place → forgefx.placeCell); the panel
+    // itself is registered as the workbench panel 'axis.quickBuild' / action 'axis.openQuickBuild'.
+    id: 'quickBuild',
+    label: 'Open Quick Build panel',
+    chord: 'Q',
+    status: 'wired',
+    matches: [{ key: 'q' }],
+  },
+  {
     id: 'resetChannel',
     label: 'Reset the selected block to model defaults',
     chord: '⌘I',

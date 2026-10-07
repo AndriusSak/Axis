@@ -37,6 +37,8 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     // grid/structure ops (audit §2.9) — wired by the W2 grid round
     expect(idOf(ev('d', { metaKey: true }))).toBe('disconnectCable');
     expect(idOf(ev('u', { metaKey: true }))).toBe('insertShunt');
+    // Quick Build panel (audit §2.9 remainder) — a bare Q.
+    expect(idOf(ev('q'))).toBe('quickBuild');
     expect(idOf(ev('i', { metaKey: true }))).toBe('resetChannel');
     expect(idOf(ev('c', { metaKey: true }))).toBe('copyBlock');
     expect(idOf(ev('v', { metaKey: true }))).toBe('pasteBlock');
@@ -63,6 +65,7 @@ describe('shortcut registry — FM3-Edit parity map', () => {
     // …and every bare chord, so the user can type A/B/C/D/P/Space normally.
     expect(idOf(ev('a'), true)).toBeNull();
     expect(idOf(ev('p'), true)).toBeNull();
+    expect(idOf(ev('q'), true)).toBeNull();
     expect(idOf(ev(' '), true)).toBeNull();
     expect(idOf(ev('Backspace'), true)).toBeNull();
     // …including the arrow nudges, so the caret moves inside a value field instead.
