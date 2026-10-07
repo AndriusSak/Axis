@@ -169,8 +169,8 @@
       <footer class="foot">
         <button class="act" disabled={!sel.pack} onclick={() => editor.copyChannel()} title="Copy the current channel's values">Copy CH</button>
         <button class="act" disabled={!sel.pack || !editor.channelClip} onclick={() => editor.pasteChannel()} title="Paste the copied values onto the current channel">Paste CH</button>
-        <button class="act" disabled={!editor.canPasteChannelAcrossBlocks} onclick={() => editor.pasteChannelAcrossBlocks()} title="Paste the copied channel into THIS block's current channel — the copy must have come from a different block">Paste CH → Block</button>
-        <button class="act" disabled={!sel.pack || !sel.channel || editor.sceneCount < 1} onclick={() => editor.setChannelAcrossScenes()} title="Set this block's channel in EVERY scene, then return to the current scene">CH → All Scenes</button>
+        <button class="act" disabled={!editor.canPasteChannelAcrossBlocks} onclick={() => editor.pasteChannelAcrossBlocks()} aria-label="Paste the copied channel into this block's current channel" title="Paste the copied channel into THIS block's current channel — the copy must have come from a different block">Paste to Block</button>
+        <button class="act" disabled={!sel.pack || !sel.channel || editor.sceneCount < 1} onclick={() => editor.setChannelAcrossScenes()} aria-label="Set this block's channel in every scene" title="Set this block's channel in EVERY scene, then return to the current scene">CH → Scenes</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetChannel()} title="Reset this channel to the model's defaults">Reset CH</button>
         <button class="act" disabled={!sel.pack || !editor.blockType} onclick={() => editor.resetBlock()} title="Reset all four channels to their models' defaults">Reset Block</button>
         <button class="act lib" disabled={!sel.pack} onclick={() => editor.saveBlockToLibrary()} title="Save this block's model + active-channel values to the Block Library (Axis-local .axblk)">Save to Lib</button>
@@ -416,7 +416,11 @@
   }
   .act {
     height: 44px;
-    padding: 0 16px;
+    /* 12px, not 16px: the footer carries 12 actions now (audit §2.10 added two channel ops) and the
+       wider inset pushed the row 11px past a 1280px card, wrapping it onto a second line — which cost
+       the block pane one visible control-search row at 1280x800 (e2e/28). Chrome must not steal
+       content area, so the row stays one line with ~85px of slack instead. */
+    padding: 0 12px;
     border: 1px solid var(--border-2);
     background: var(--surface);
     color: var(--text-dim);
