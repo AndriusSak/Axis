@@ -22,6 +22,7 @@ import {
   acknowledgeRouting,
   placeBlock,
   moveBlock,
+  addBlock,
   discardBlock,
   unplaceBlock,
   setBlockParam,
@@ -171,6 +172,9 @@ class ConvertScratchStore {
   };
   unplace = (blockKey: string) => this.#tx((s) => unplaceBlock(s, blockKey));
   move = (blockKey: string, row: number, col: number) => this.#tx((s) => moveBlock(s, blockKey, row, col));
+
+  /** Append a NEW block (offline paste placement — a cloned instance; see convertBlockClip). */
+  insertBlock = (block: ScratchBlock) => this.#tx((s) => addBlock(s, block));
 
   // ── offline block edits driven by the real-grid convert surface (convertEditor.svelte.ts) ──
   // These wrap the pure transitions through the same #tx snapshot-swap the resolve panel uses, so a

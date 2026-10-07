@@ -15,13 +15,15 @@ import { convertScratch } from './convertScratch.svelte';
 import { scratchToLayout, keyAt, EMPTY_LAYOUT } from './convertScratchAdapter';
 import { gridLayoutFromScratch, effectKeyMap, isGridTarget, keyForGridCell } from './convertGridAdapter';
 import { connectOnLayout, disconnectOnLayout, moveOnLayout, removeAtOnLayout, bypassOnLayout, applyRouteOps } from './convertGridEdit';
-import { planDisconnectAll, planInsertShunt, planResetBlock, planSwap, type RouteCell } from './gridRouting';
+import { planDisconnectAll, planInsertShunt, planResetBlock, planSwap, planPasteBlock, planReplaceShunt, type RouteCell } from './gridRouting';
+import { captureBlockClip, planClipWrites, cloneBlockForPaste, pastedBlockKey, placedEffectId } from './convertBlockClip';
 import { planGridShiftRow, planGridShiftColumn } from './gridShift';
 import { applyGridEditsToState } from './convertGridSerialize';
 import { paramValue } from './format';
 import { buildParams, buildEnums } from './convertParams';
 import type { Cell, Layout } from './grid';
 import type { EditorSurface } from './editorSurface';
+import type { BlockClipboard } from './editor.svelte';
 import type { NamedParam, EnumParam, DetectResult, DeviceLayout, LiveMonitor, CabState } from './types';
 import type { SwipeCtrl } from './layouts';
 import type { BlockLibraryEntry } from './blockLibrary';
@@ -117,6 +119,11 @@ class ConvertEditor {
   cabPickerOpen = $state(false);
   params = $state<NamedParam[]>([]);
   enums = $state<EnumParam[]>([]);
+  /** Offline in-memory block clipboard (audit §2.9 copy/paste) — the SAME `BlockClipboard` shape the
+   *  live editor uses. `#clipSourceKey` remembers which ScratchBlock it was captured from so a paste
+   *  PLACEMENT can clone it (the clipboard payload carries no block key). */
+  blockClipboard = $state<BlockClipboard | null>(null);
+  #clipSourceKey: string | null = null;
 
   get blockLayout(): DeviceLayout | null {
     return null;
@@ -188,6 +195,15 @@ class ConvertEditor {
   #cellAt(row: number, col: number): Cell | null {
     const l = this.layout;
     return [...l.cells, ...l.shunts].find((c) => c.row === row && c.col === col) ?? null;
+  }
+  /** Reflect a model retype on the grid tile (grid targets render the cell's own display; slot/chain
+   *  targets derive it from the block's typeName, so they need no patch here). */
+  #retypeCell(row: number, col: number, name: string): void {
+    if (!name) return;
+    const l = this.#gridLayout;
+    if (!l) return;
+    const patch = (c: Cell): Cell => (c.row === row && c.col === col ? { ...c, display: name } : c);
+    this.#gridLayout = { ...l, cells: l.cells.map(patch), shunts: l.shunts.map(patch) };
   }
   /** PUBLIC: the ScratchBlock key at a displayed grid cell (grid targets address by the stable effectId,
    *  slot targets by the coordinate). The convert grid panel uses this to attach per-cell conflict
@@ -527,11 +543,98 @@ class ConvertEditor {
       '#9a9aa3'
     );
   };
-  copyBlock = async (_cell?: Cell): Promise<void> => {
-    this.showToast('Copy is not available offline', '#f5a623');
+  /** Copy a block's model + settings into the in-memory clipboard (offline — no device, no forgefx). */
+  copyBlock = async (cell?: Cell): Promise<void> => {
+    const c = cell ?? this.selected;
+    if (!c || c.kind !== 'block') {
+      this.showToast('Nothing to copy', '#d6543f');
+      return;
+    }
+    this.#ensureGrid(); // grid targets: seed the editable layout + effect map on first touch
+    const s = convertScratch.state;
+    const key = this.#keyForCell(c);
+    const block = s && key ? s.blocks.find((b) => b.key === key) : undefined;
+    if (!block) {
+      this.showToast('Nothing to copy', '#d6543f');
+      return;
+    }
+    this.blockClipboard = captureBlockClip(c, block);
+    this.#clipSourceKey = key;
+    this.showToast(`Copied ${c.display}`, '#35c9d6');
   };
-  pasteBlock = async (_row: number, _col: number): Promise<void> => {
-    this.showToast('Paste is not available offline', '#f5a623');
+  /** Paste the clipboard within the offline grid — the same three cases as the live editor: onto an
+   *  existing block (settings), onto a shunt (replace it), or into an empty cell (place a fresh
+   *  instance), reusing the live structural planners (`planPasteBlock` / `planReplaceShunt`) and the
+   *  same `BlockClipboard`. Anything the offline surface cannot model refuses with a NAMED reason. */
+  pasteBlock = async (row: number, col: number): Promise<void> => {
+    const clip = this.blockClipboard;
+    if (!clip) {
+      this.showToast('Clipboard is empty', '#d6543f');
+      return;
+    }
+    const s = convertScratch.state;
+    if (!s) {
+      this.showToast('No preset loaded to paste into', '#d6543f');
+      return;
+    }
+    const grid = this.#isGrid ? this.#ensureGrid() : null; // seed on first touch (grid targets)
+    const occ = this.#cellAt(row, col);
+
+    // ── onto an existing BLOCK → settings paste (offline matches each value by native name) ──
+    if (occ?.kind === 'block') {
+      const key = this.#keyForCell(occ);
+      const target = key ? s.blocks.find((b) => b.key === key) : undefined;
+      if (!target) {
+        this.showToast('That block cannot be edited offline', '#f5a623');
+        return;
+      }
+      const { writes, dropped, retype } = planClipWrites(target, clip);
+      for (const w of writes) convertScratch.setParam(target.key, w.index, w.value);
+      if (retype) {
+        convertScratch.setType(target.key, { typeName: retype.typeName, typeValue: retype.typeValue });
+        this.#retypeCell(occ.row, occ.col, retype.typeName ?? '');
+      }
+      const note = dropped ? ` (${dropped} value${dropped === 1 ? '' : 's'} not exposed)` : '';
+      this.showToast(`Pasted onto ${occ.display}${note}`, dropped ? '#f5a623' : '#35c9d6');
+      return;
+    }
+
+    // ── onto a shunt / an empty cell → placement (reuse the live structural planners) ──
+    if (!grid) {
+      this.showToast('Paste placement needs a 2-D grid target', '#f5a623');
+      return;
+    }
+    const layout = grid;
+    if (row < 0 || col < 0 || row >= layout.rows || col >= layout.cols) {
+      this.showToast('Off the grid — nothing to paste there', '#d6543f');
+      return;
+    }
+    const source = this.#clipSourceKey ? s.blocks.find((b) => b.key === this.#clipSourceKey) : undefined;
+    if (!source) {
+      this.showToast('The copied block is no longer in this preset', '#f5a623');
+      return;
+    }
+    // A placement needs a block instance. Reuse the copied instance id when it is FREE in the layout,
+    // else a free synthetic id (offline has no device roster to allocate a family instance).
+    const eid = placedEffectId(
+      [...layout.cells, ...layout.shunts].map((c) => c.effectId),
+      clip.blockId
+    );
+    const plan =
+      occ?.kind === 'shunt'
+        ? planReplaceShunt(toRoute(layout.cells), toRoute(layout.shunts), toRoute([occ])[0], { blockId: eid, display: clip.display })
+        : planPasteBlock(toRoute(layout.cells), toRoute(layout.shunts), row, col, eid, clip.display);
+    if (!plan.ok) {
+      this.showToast(plan.error ?? 'Cannot paste here', '#d6543f');
+      return;
+    }
+    const key = pastedBlockKey(source.key, s.blocks.map((b) => b.key));
+    const fromRows = occ?.kind === 'shunt' ? [...occ.fromRows] : [];
+    const block = cloneBlockForPaste(source, clip, { row, col }, fromRows, key, eid > 0 ? eid : undefined);
+    convertScratch.insertBlock(block);
+    this.#effectMap.set(eid, key);
+    this.#gridLayout = applyRouteOps(layout, plan.ops, this.shuntBase);
+    this.showToast(`Pasted ${clip.display}`, '#35c9d6');
   };
 
   // ── block / param writes → convertScratch (offline) ──
@@ -606,4 +709,5 @@ export const convertEditor: EditorSurface & {
   externalDrop: { row: number; col: number; valid: boolean } | null;
   setExternalDrop: (sourceKey: string, row: number, col: number) => void;
   clearExternalDrop: () => void;
+  blockClipboard: BlockClipboard | null;
 } = new ConvertEditor();
