@@ -26,6 +26,7 @@ import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue,
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
+import { settleEnumWrite, type WriteSettlement } from './paramWriteOutcome';
 import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
 import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
 import { blockLibrary } from './blockLibrary.svelte';
@@ -1663,18 +1664,32 @@ class EditorStore {
       60
     );
   };
-  // enum/discrete write: send the ordinal (continuous=false → device-confirmed)
-  setEnum = (e: EnumParam, value: number) => {
+  // enum/discrete write: send the ordinal (continuous=false → device-confirmed). The device
+  // reject-watches this write and may answer {ok:false} (or the transport may fail), so we AWAIT it
+  // and consult paramWriteOutcome: a refused write reverts the optimistic value, drops the optimistic
+  // history entry and toasts — a refused model/cab must never stay on screen (P1.1). The continuous
+  // knob path (setParam) stays fire-and-forget BY DESIGN (gen3.ts:1391-1393).
+  setEnum = async (e: EnumParam, value: number) => {
     const from = e.value;
     e.value = value; // optimistic
     const c = this.selected;
     if (!c || (!c.pack && !this.paramsWithoutPack)) return;
-    if (from !== value) history.record({
+    const historyId = from !== value ? history.record({
       kind: 'param', eid: c.effectId, paramId: e.id, continuous: false, from, to: value,
       block: c.display, param: e.name,
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
+    }) : null;
+    let outcome: WriteSettlement;
+    try {
+      const r = !this.isV2 && this.isAm4 ? await forgefx.am4SetParamValue(c.effectId, e.id, value) : await forgefx.setParam(c.effectId, e.id, value, false);
+      outcome = r.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      outcome = { status: 'error' };
+    }
+    settleEnumWrite(e, from, historyId, outcome, {
+      dropHistory: (id) => history.drop(id),
+      toast: (text, accent) => this.showToast(text, accent)
     });
-    (!this.isV2 && this.isAm4 ? forgefx.am4SetParamValue(c.effectId, e.id, value) : forgefx.setParam(c.effectId, e.id, value, false)).catch(() => {});
   };
   /**
    * Nudge the currently selected/open parameter of the open block by one step (parity §2.12 ↑/↓).
