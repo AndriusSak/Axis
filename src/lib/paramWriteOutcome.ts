@@ -44,6 +44,102 @@ export function decideWriteOutcome(outcome: WriteSettlement, paramName: string):
   return { keep: false, keepHistory: false, toast: { text, accent: REFUSED_COLOR } };
 }
 
+// ── write-initiation sequencing ─────────────────────────────────────────────────────────────────
+//
+// The stale guard needs WRITE-INITIATION ORDER, not a value comparison. The older `stale = value !==
+// sent` could not tell "the display still holds the value MY write put there" from "a LATER write put
+// the same value there" (an ABA burst: A→B→C→B), so an older write's late refusal looked
+// un-superseded and wiped the newer value; and it reverted to the optimistic `from` rather than a
+// device-confirmed value, so a second refusal in a burst could leave an unconfirmed value on screen.
+// Both are closed by giving each control a monotonic write counter:
+//
+//   beginWrite(key, current)  — called BEFORE the await; mints this write's token on `key`. With
+//                               nothing in flight on `key` it also records `current` as the
+//                               device-confirmed value: an idle control shows what the device holds.
+//   …settle (below)           — `stale = token.n !== latest` is IDENTITY, not value, so an ABA burst
+//                               cannot defeat it; a non-stale refusal reverts to the last CONFIRMED
+//                               value, updated on every accepted write, never to an unconfirmed `from`.
+//
+// `key` is the enum param OBJECT for enums (stable identity across writes) or a stable string for a
+// scalar field (`bypass:<eid>`, `scene`, `tempo`, `tuner`). Object keys live in a WeakMap so a
+// discarded param set cannot leak; string keys in a Map. A key's state is DROPPED when its last
+// in-flight write settles, so the maps cannot grow and each control's `confirmed` value is re-seeded
+// from the idle on-screen value (which, with nothing in flight, is exactly what the device holds).
+//
+// Mechanistic note: the trigger for overlapping writes is NOT the confirmation window. On a refusal
+// the server's reject-watch resolves IMMEDIATELY (`gen3.ts` #write `match: isOurReject`), so a
+// refusal never waits out the 250 ms; the window gates only the SILENT ACCEPT case, which never
+// reverts. The realistic trigger is a write queued behind slow reads (bulk reads up to 2.5 s, the
+// `meters` serial reads, the edit poll) or a transport drop mid-burst.
+export type WriteKey = object | string;
+
+export interface WriteToken {
+  /** this write's sequence number on its key (monotonic across a control's writes) */
+  readonly n: number;
+  /** the control this write belongs to */
+  readonly key: WriteKey;
+}
+
+interface WriteSeqState {
+  /** token of the most recently BEGUN write on this key — the only non-stale write */
+  latest: number;
+  /** writes begun but not yet settled on this key */
+  inflight: number;
+  /** the value the device is known to hold (`current` while idle, then each accepted write's value) */
+  confirmed: unknown;
+}
+
+let objectSeq = new WeakMap<object, WriteSeqState>();
+let stringSeq = new Map<string, WriteSeqState>();
+let writeCounter = 0;
+
+const seqGet = (key: WriteKey): WriteSeqState | undefined =>
+  typeof key === 'string' ? stringSeq.get(key) : objectSeq.get(key);
+const seqSet = (key: WriteKey, s: WriteSeqState): void => {
+  if (typeof key === 'string') stringSeq.set(key, s);
+  else objectSeq.set(key, s);
+};
+const seqDrop = (key: WriteKey): void => {
+  if (typeof key === 'string') stringSeq.delete(key);
+  else objectSeq.delete(key);
+};
+
+/**
+ * Mint this write's sequencing token on `key`; call BEFORE awaiting the write (and before the value
+ * the settle helper must be able to revert to is mutated). `current` is the pre-write on-screen value
+ * — it becomes the device-confirmed revert target when nothing else is in flight on `key`.
+ */
+export function beginWrite(key: WriteKey, current: unknown): WriteToken {
+  let s = seqGet(key);
+  if (!s) { s = { latest: 0, inflight: 0, confirmed: current }; seqSet(key, s); }
+  s.latest = ++writeCounter;
+  s.inflight++;
+  return { n: s.latest, key };
+}
+
+/** Reduce a settled write's sequencing state; returns the revert target for a NON-stale refusal. */
+function advanceSequencer(
+  token: WriteToken,
+  sent: unknown,
+  accepted: boolean
+): { stale: boolean; revertTo: unknown } {
+  const s = seqGet(token.key);
+  if (!s) return { stale: true, revertTo: undefined }; // no initiation state — never revert blind
+  const stale = token.n !== s.latest; // identity, not value: an ABA burst cannot fool this
+  if (accepted) s.confirmed = sent;   // the device acknowledged THIS write's value
+  s.inflight = Math.max(0, s.inflight - 1);
+  const revertTo = s.confirmed;
+  if (s.inflight === 0) seqDrop(token.key); // burst over — the next begin re-seeds from the display
+  return { stale, revertTo };
+}
+
+/** TEST/DIAGNOSTIC ONLY — clear all in-flight sequencing state (the app never needs this). */
+export function resetWriteSequencer(): void {
+  objectSeq = new WeakMap();
+  stringSeq = new Map();
+  writeCounter = 0;
+}
+
 /** Minimal view of the discrete param the write targets — only the mutable `value` is touched.
  *  `value` may be `null` (the server could not resolve the ordinal — non-positional GLOBAL); an
  *  unknown on-screen value is never equal to the value this write sent, so a late refusal will not
@@ -57,42 +153,33 @@ export interface EnumWriteIo {
 }
 
 /**
- * Apply a settled discrete write to the optimistic state: when the write was NOT accepted, revert
- * `target.value` to the captured `from`, drop the optimistic history entry, then surface the refusal.
- * Returns the decision so callers/tests can assert it.
+ * Apply a settled discrete write to the optimistic state: when the write was NOT accepted and is NOT
+ * superseded, revert `target.value` to the last device-CONFIRMED value, drop the optimistic history
+ * entry, then surface the refusal. Returns the decision so callers/tests can assert it.
  *
- * STALE-SETTLEMENT GUARD (Opus A/B 2026-10-07): the revert happens ONLY when the value on screen is
- * still the one THIS write set (`sent`). A discrete write holds its confirmation window ~250 ms, so a
- * newer write can land on the same param before this one settles — A→B then B→C is an easy user
- * sequence, and if B is refused, reverting to B's `from` (= A) would wipe the newer C. Comparing
- * `target.value` against the value this write sent is the staleness condition, and it belongs
- * in this pure module (the one place provable without the runes compiler) rather than in the store
- * wiring. The history drop and the refusal toast still apply to a stale settlement: the entry is this
- * write's own and the refusal is real even when a newer write superseded the displayed value.
+ * STALE-SETTLEMENT GUARD: the revert happens ONLY for the latest write on the control (`token.n ===
+ * latest`, tracked by the sequencing block above) — a write no newer write has superseded. The check
+ * is WRITE-IDENTITY, not value equality, so an odd-length same-value burst (A→B→C→B, where the
+ * display returns to an older write's value) can no longer make that older write look
+ * un-superseded. The revert target is the last value the device CONFIRMED, not the optimistic `from`,
+ * so a burst of refusals cannot leave a value on screen the device never held. The history drop and
+ * the refusal toast still apply to a superseded settlement: the entry is this write's own and the
+ * refusal is real even when a newer write superseded the displayed value.
  *
- * KNOWN LIMITATION (P9 2026-10-07) — the guard is VALUE-based, so an ABA burst defeats it. A→B then
- * B→C then C→B (an odd-length toggle/enum burst) leaves the display equal to this write's `sent`
- * again, so a late refusal of the FIRST write reads "not stale" and reverts to its `from`, wiping the
- * THIRD write's newer value. This is reachable in normal use (the 250 ms window makes a 3-write burst
- * easy), not theoretical. Closing it needs per-control WRITE-INITIATION ordering — a sequence token
- * minted at write time — which the pure settle signature cannot carry (its inputs are a stateless
- * snapshot: target + from + sent + outcome). Supplying it means either the store minting a token
- * (store state, declined in P6) or hoisting a stable per-control target so this module can key a
- * WeakMap on it; both widen the contract seven store call sites and their sourceguard regexes depend
- * on. Documented, not fixed, in `paramWriteOutcome.aba.test.ts` (which pins the ABA and the
- * double-refusal case): if it ever matters, that token is the upgrade the module already names.
+ * `token` comes from `beginWrite(e, from)` (the enum param object is its own stable key); the `from`
+ * value is no longer passed here — the sequencer carries the confirmed value it replaced.
  */
 export function settleEnumWrite(
   target: EnumWriteTarget,
-  from: number,
+  token: WriteToken,
   sent: number,
   historyId: string | null,
   outcome: WriteSettlement,
   io: EnumWriteIo
 ): WriteDecision {
   const d = decideWriteOutcome(outcome, target.name);
-  const stale = target.value !== sent; // a newer write has superseded this one — do not clobber it
-  if (!d.keep && !stale) target.value = from;
+  const { stale, revertTo } = advanceSequencer(token, sent, d.keep);
+  if (!d.keep && !stale) target.value = revertTo as number;
   if (!d.keepHistory) io.dropHistory(historyId);
   if (d.toast) io.toast(d.toast.text, d.toast.accent);
   return d;
@@ -117,7 +204,8 @@ export function settleEnumWrite(
 // The batch sites reload params FROM THE DEVICE after the set (`#loadParams()` / `load()`), so there
 // is no optimistic local value to revert here — the visual state self-corrects on the reload, and
 // the one thing the UI must never do is claim a failed write landed. (Sites that DO write
-// optimistically and hold a local value use `settleEnumWrite` per value, as `setEnum` does.)
+// optimistically and hold a local value use `settleEnumWrite`/`settleScalarWrite` per value, as
+// `setEnum` does.)
 
 const LANDED_COLOR = '#33c46b'; // the success accent the paste/recall paths already use
 const PARTIAL_COLOR = '#f5a623'; // the warning accent the cross-preset paste already uses
@@ -205,40 +293,20 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
 // so the store hands a reader + a setter rather than a mutable param object. It reuses
 // `decideWriteOutcome` so the wording/accent stay in the same toast family as the discrete-write
 // helpers — "Write rejected by device — <label>" / "Write failed — <label>". Accepted → nothing
-// happens; refused/failed → the scalar is reverted to the captured `from` and the refusal is surfaced.
+// happens; refused/failed (and not superseded) → the scalar is reverted to the last device-confirmed
+// value and the refusal is surfaced.
 //
-// STALE-SETTLEMENT GUARD (P6): `settleEnumWrite` reverts only when the on-screen value is still the
-// one that write set (`stale = target.value !== sent`), so a late refusal cannot wipe a newer value
-// (an A→B then B→C sequence inside the ~250 ms discrete window). The scalar path needed the same
-// protection — a rapid double-write on ONE control can clobber the same way (of the five scalar call
-// sites only bypass and channel are actually reject-watched on gen3: `setBypass`/`setChannel` go
-// through `#write`; scene, tempo and tuner return `{ok:true}` unconditionally, so the guard there can
-// only ever fire on a thrown transport error). The scalar target is NOT a readable param object
-// though; it is a closure over a runes field, so there is no `target.value` to compare. The fix is to
-// give the target a reader (`get()`) and pass the value this write SENT — then the guard is the SAME
-// comparison as the enum one (`target.get() !== sent`), one mechanism and one vocabulary, and it is
-// provable in the node-env harness with a plain local variable (a `{ get, set }` pair backed by a
-// `let`). We chose the value-sent comparison over a captured sequence token deliberately: a token
-// would need the store to mint and track a per-control counter (a second piece of state the runes
-// module cannot expose to the node-env harness) for no benefit on these small discrete controls, and
-// it would introduce a second staleness vocabulary where the enum guard already established one.
-//
-// KNOWN LIMITATION (P9 2026-10-07) — the ABA caveat is REACHABLE, not theoretical. A value that a
-// later write re-sends becomes indistinguishable from this write's own value, and an odd-length
-// toggle/enum burst (A→B→C→B, e.g. bypass/tuner toggled false→true→false→true) is exactly that case:
-// a late refusal of the FIRST write reads "not stale" and reverts to its `from`, wiping the THIRD
-// write's value. The double-refusal case is likewise reachable — `from` is captured from OPTIMISTIC
-// state, so a second refusal can revert to a value the device never confirmed, leaving it on screen
-// while the device holds the original. Both are pinned in `paramWriteOutcome.aba.test.ts`. Closing
-// either needs per-control WRITE-INITIATION ordering (a token minted at write time, or a tracked
-// last-CONFIRMED value) — per-control state the pure inputs do not carry and the store would have to
-// supply; P6 declined that, and supplying it now would widen the seven call sites and their
-// sourceguards. If it ever matters, a token is the upgrade, not a rewrite.
+// The scalar target is NOT a readable param object — it is a closure over a runes field, so it has no
+// stable identity to key the sequencer on. The store therefore supplies BOTH a reader (`get()`, the
+// counterpart of `EnumWriteTarget.value`) AND a stable string key to `beginWrite` (`bypass:<eid>`,
+// `scene`, `tempo`, `tuner`). Of the scalar call sites only bypass and channel are actually
+// reject-watched on gen3 (`setBypass`/`setChannel` go through #write); scene, tempo and tuner return
+// `{ok:true}` unconditionally, so the guard there can only ever fire on a thrown transport error.
 
 /** Minimal view of an optimistic SCALAR (non-enum) write target: the store supplies a READER and a
  *  setter for the value it wrote optimistically (tempo `bpm`, tuner `active`, bypass, channel, scene),
  *  because that value lives on a runes field, not on a param object. The reader is the counterpart of
- *  reading `EnumWriteTarget.value` — it is what makes the stale-settlement guard possible. */
+ *  reading `EnumWriteTarget.value`. */
 export interface ScalarWriteTarget<T> {
   get(): T;
   set(value: T): void;
@@ -250,23 +318,28 @@ export interface ScalarWriteIo {
 }
 
 /**
- * Apply a settled SCALAR write to the optimistic state: when the write was NOT accepted, revert the
- * scalar to the captured `from` and surface the refusal (same wording as the discrete-write helpers).
- * STALE-SETTLEMENT GUARD: the revert happens ONLY when the value on screen (`target.get()`) is still
- * the one THIS write set (`sent`) — a late refusal must not clobber a newer write's value. Returns
- * the decision so callers/tests can assert it. Pure: no device, no store.
+ * Apply a settled SCALAR write to the optimistic state: when the write was NOT accepted and is NOT
+ * superseded, revert the scalar to the last device-CONFIRMED value and surface the refusal (same
+ * wording as the discrete-write helpers). Returns the decision so callers/tests can assert it. Pure:
+ * no device, no store.
+ *
+ * STALE-SETTLEMENT GUARD: the revert happens ONLY for the latest write on the control (`token.n ===
+ * latest`, from `beginWrite(key, from)`), never by comparing values — so a same-value (ABA) burst
+ * cannot defeat it — and the revert target is the last CONFIRMED value, so a burst of refusals cannot
+ * leave a value on screen the device never held. The scalar's `key` is a stable string the store
+ * supplies because the runes field has no object identity to key on.
  */
 export function settleScalarWrite<T>(
   target: ScalarWriteTarget<T>,
-  from: T,
+  token: WriteToken,
   sent: T,
   outcome: WriteSettlement,
   io: ScalarWriteIo,
   label: string
 ): WriteDecision {
   const d = decideWriteOutcome(outcome, label);
-  const stale = target.get() !== sent; // a newer write has superseded this one — do not clobber it
-  if (!d.keep && !stale) target.set(from);
+  const { stale, revertTo } = advanceSequencer(token, sent, d.keep);
+  if (!d.keep && !stale) target.set(revertTo as T);
   if (d.toast) io.toast(d.toast.text, d.toast.accent);
   return d;
 }

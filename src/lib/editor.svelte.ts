@@ -26,7 +26,7 @@ import { captureChannel, pasteChannelWrites, sceneIgnoreParam, sceneIgnoreValue,
 import { planSetChannelAcrossScenes, applySetChannelAcrossScenes, planCopyChannelAcrossBlocks, applyCopyChannelAcrossBlocks } from './channelOps';
 import { bulkBypass, type SceneIo } from './sceneOps';
 import { planNudge } from './paramNudge';
-import { settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
+import { beginWrite, settleEnumWrite, settleScalarWrite, settleWriteSet, type WriteSettlement, type WriteSetReport } from './paramWriteOutcome';
 import { captureParamValue, planParamPaste, applyParamPaste, type ParamValueClip } from './paramClipOps';
 import { decideGridOpOutcome } from './gridOpOutcome';
 import { isCrossPreset, planCrossPresetBlockPaste, applyCrossPresetBlockPaste } from './r19BlockClipOps';
@@ -644,6 +644,7 @@ class EditorStore {
     // Unresolved ordinal (non-positional GLOBAL) — no honest `from`; leave it (its control renders inert).
     if (e.value == null) return;
     const from = e.value;
+    const token = beginWrite(e, from); // mint this write's ordering token before the optimistic set
     e.value = value; // optimistic
     this.pinnedParams = { ...this.pinnedParams };
     const cell = this.#cellFor(effectId);
@@ -653,7 +654,7 @@ class EditorStore {
       fromLabel: e.options.find((o) => o.value === from)?.label, toLabel: e.options.find((o) => o.value === value)?.label
     }) : null;
     const outcome = await this.#writeSettlement(forgefx.setParam(effectId, e.id, value, false));
-    settleEnumWrite(e, from, value, historyId, outcome, {
+    settleEnumWrite(e, token, value, historyId, outcome, {
       dropHistory: (id) => history.drop(id),
       toast: (text, accent) => this.showToast(text, accent)
     });
@@ -1696,6 +1697,7 @@ class EditorStore {
     if (!c || (!c.pack && !this.paramsWithoutPack)) return;
     if (e.value == null) return; // unresolved ordinal (non-positional GLOBAL) — never step from a fabricated 0
     const from = e.value;
+    const token = beginWrite(e, from); // mint this write's ordering token before the optimistic set
     e.value = value; // optimistic
     const historyId = from !== value ? history.record({
       kind: 'param', eid: c.effectId, paramId: e.id, continuous: false, from, to: value,
@@ -1707,7 +1709,7 @@ class EditorStore {
     const outcome = await this.#writeSettlement(
       forgefx.setParam(c.effectId, e.id, value, false)
     );
-    settleEnumWrite(e, from, value, historyId, outcome, {
+    settleEnumWrite(e, token, value, historyId, outcome, {
       dropHistory: (id) => history.drop(id),
       toast: (text, accent) => this.showToast(text, accent)
     });
@@ -1748,11 +1750,12 @@ class EditorStore {
     if (!c?.pack) return;
     const from = c.bypassed ?? false;
     const next = !from;
+    const token = beginWrite(`bypass:${c.effectId}`, from); // ordering token before the optimistic set
     c.bypassed = next; // optimistic
     // A bypass write is a discrete write the device reject-watches, so honour a {ok:false} (or a
     // throw) through the same scalar settlement the tempo/tuner path uses — not a throw-only catch.
     const outcome = await this.#writeSettlement(forgefx.setBypass(c.effectId, next));
-    const d = settleScalarWrite({ get: () => c.bypassed ?? false, set: (v) => (c.bypassed = v) }, from, next, outcome, {
+    const d = settleScalarWrite({ get: () => c.bypassed ?? false, set: (v) => (c.bypassed = v) }, token, next, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Bypass');
     if (d.keep) {
@@ -1764,10 +1767,11 @@ class EditorStore {
     const c = this.selected;
     if (!c?.pack || c.channel === ch) return;
     const prev = c.channel;
+    const token = beginWrite(`channel:${c.effectId}`, prev); // ordering token before the optimistic set
     c.channel = ch; // optimistic
     // Discrete write, device reject-watched — route {ok:false}/throw through the scalar settlement.
     const outcome = await this.#writeSettlement(forgefx.setChannel(c.effectId, ch));
-    const d = settleScalarWrite({ get: () => c.channel, set: (v) => (c.channel = v) }, prev, ch, outcome, {
+    const d = settleScalarWrite({ get: () => c.channel, set: (v) => (c.channel = v) }, token, ch, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Channel');
     if (d.keep) {
@@ -2617,6 +2621,7 @@ class EditorStore {
   selectScene = async (ui: number) => {
     const prev = this.scene;
     if (prev === ui) return;
+    const token = beginWrite('scene', prev); // ordering token before the optimistic set
     this.scene = ui; // optimistic
     // A scene switch is routed through the scalar settlement so a THROWN transport error reverts the
     // optimistic scene and toasts. NOTE (P9): on gen3 a scene switch is NOT reject-watched — `setScene`
@@ -2624,7 +2629,7 @@ class EditorStore {
     // so the server never answers `{ok:false}` here and the guard cannot fire on a device refusal; only
     // a transport throw reaches it. The settlement is kept for the uniform contract (+ future drivers).
     const outcome = await this.#writeSettlement(forgefx.setScene(ui - 1));
-    const d = settleScalarWrite({ get: () => this.scene, set: (v) => (this.scene = v) }, prev, ui, outcome, {
+    const d = settleScalarWrite({ get: () => this.scene, set: (v) => (this.scene = v) }, token, ui, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Scene');
     if (d.keep) {
@@ -2774,6 +2779,7 @@ class EditorStore {
     const n = Math.round(bpm);
     if (!Number.isFinite(n) || n < 20 || n > 250) return;
     const from = this.bpm;
+    const token = beginWrite('tempo', from); // ordering token before the optimistic set
     this.bpm = n; // optimistic
     let outcome: WriteSettlement;
     try {
@@ -2782,7 +2788,7 @@ class EditorStore {
     } catch {
       outcome = { status: 'error' };
     }
-    settleScalarWrite({ get: () => this.bpm, set: (v) => (this.bpm = v) }, from, n, outcome, {
+    settleScalarWrite({ get: () => this.bpm, set: (v) => (this.bpm = v) }, token, n, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Tempo');
   };
@@ -2797,6 +2803,7 @@ class EditorStore {
   toggleTuner = async () => {
     const next = !this.tuner.active;
     const from = this.tuner.active;
+    const token = beginWrite('tuner', from); // ordering token before the optimistic set
     this.tuner = { active: next }; // optimistic
     let outcome: WriteSettlement;
     try {
@@ -2805,7 +2812,7 @@ class EditorStore {
     } catch {
       outcome = { status: 'error' };
     }
-    settleScalarWrite({ get: () => this.tuner.active, set: (v) => (this.tuner = { active: v }) }, from, next, outcome, {
+    settleScalarWrite({ get: () => this.tuner.active, set: (v) => (this.tuner = { active: v }) }, token, next, outcome, {
       toast: (text, accent) => this.showToast(text, accent)
     }, 'Tuner');
   };
