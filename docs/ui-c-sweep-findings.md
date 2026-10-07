@@ -5,10 +5,10 @@ Scope: surfaces not covered by the earlier 7-page geometric sweep. Sweep specs:
 `e2e/support/geometry.ts`. All invariants are clipping-aware (ancestor overflow
 intersection + viewport clamp; a scrollable ancestor makes content reachable).
 
-Status: **41 tests green** (17 in spec 25 + 24 in spec 26; 3 marked `test.fail(...)`
-= expected-to-fail defects below). No source was changed: every defect lands in a
-file this workstream was told not to edit. If an owner fixes one, Playwright reports
-the unexpected pass and the `test.fail` marker should be removed.
+Status (2026-10-07): **RESOLVED — all three defects are fixed and the four `test.fail` markers are
+removed.** The defects lived in `src/lib/workbench/svelte/` and were fixed there (NavigationHost /
+WidgetZone / WorkbenchHost); the suite is 41/41 green (142/142 with the specs added since). This
+file is kept as the **measurement record** — the numbers below are the regression baselines.
 
 ## Clean (measured, backed by probes)
 
@@ -30,7 +30,7 @@ the unexpected pass and the `test.fail` marker should be removed.
 
 ## Defects (owned by other workstreams — reported, not fixed)
 
-### F1 — phone bottom nav clips entries unreachable
+### F1 — phone bottom nav clips entries unreachable — **FIXED 2026-10-07**
 `NavigationHost.svelte`. `.aw-nav[data-nav-mode='bottom']` is `overflow: hidden`;
 at 390px it gets 275px but its 9 entries need 408px (each 40px, step 46, nav right
 edge = 327). **Setup (x=328), Theme (x=374), Axis Cloud (x=420)** have zero visible
@@ -38,7 +38,7 @@ area and no scrollable ancestor → unreachable by touch. Whatever page is activ
 ~3 entries clip (on Setup, Grid/PB/Footswitches move to x=−81/−35/11).
 Test: `26 … phone: every bottom-nav entry is reachable`.
 
-### F2 — `⋯` overflow chip menu opens off-screen
+### F2 — `⋯` overflow chip menu opens off-screen — **FIXED 2026-10-07**
 `WidgetZone.svelte`. `.aw-overflow-menu { top: calc(100% + 8px) }` opens downward,
 so for any bottom-bar zone the menu lands below the fold:
 - phone 390×844: chip 352,806 43×30 → menu 352,852 270×159, visible height **0**;
@@ -48,7 +48,7 @@ so for any bottom-bar zone the menu lands below the fold:
 The chip only exists outside edit mode (edit mode sets the zone `overflow: visible`).
 Tests: `25 … overflow chip menu (bottom bar zone) @1440`, `26 … phone: the overflow chip menu is reachable`.
 
-### F3 — phone edit mode: bottom-bar controls clip to zero
+### F3 — phone edit mode: bottom-bar controls clip to zero — **FIXED 2026-10-07**
 `NavigationHost.svelte` / `WidgetZone.svelte` (aggravated by the rail in
 `WorkbenchHost.svelte`). While editing, `shouldRenderRail` forces the widgets-only
 rail visible as a 64px static left strip, shrinking `.aw-frame` to 326px. The bar's
@@ -57,7 +57,7 @@ the surplus is clipped: nav entries Scenes/Live/Setup/Theme/Axis Cloud, the `+`
 add-page control and scene buttons 4–8 all measure **zero visible area** (x=300…484
 vs a 390px viewport). Test: `26 … phone edit mode: no bottom-bar control is unreachable`.
 
-## Minimal fix proposals (for the owning workstreams)
+## Minimal fix proposals — ALL IMPLEMENTED 2026-10-07 (kept as the design record)
 
 - **F1**: give `.aw-nav[data-nav-mode='bottom']` `overflow-x: auto` (the design
   comment forbids a scrollbar — alternative: shrink `min-width` below 40px, or seed

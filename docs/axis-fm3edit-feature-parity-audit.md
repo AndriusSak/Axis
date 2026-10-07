@@ -772,7 +772,7 @@ conflicts**. Verification on the merged tree: Axis **1720 unit tests / 164 files
 | Modifier editor limits | `src/lib/ModifierEditorCore.svelte` |
 | FC editor model/limits | `src/lib/FcEditor.svelte`, `src/lib/axis-workbench/fc/*` |
 | Undo/redo scope | `src/lib/history.svelte.ts` |
-| Shortcuts | `src/routes/+page.svelte:86-94` |
+| Shortcuts | `src/lib/shortcuts.ts` (the registry) + the dispatch in `src/routes/+page.svelte` |
 | Client API surface | `src/lib/forgefx.ts` |
 | Server route table | `ForgeFX/server/src/runtime/router.ts` |
 | KNOB_UNITS / range serving | `ForgeFX/server/src/drivers/gen3.ts:141-143, 557-578` |

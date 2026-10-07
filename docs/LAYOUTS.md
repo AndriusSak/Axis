@@ -1,5 +1,12 @@
 # Layouts
 
+> **⚠️ STATUS (2026-10-07):** the two "Status note" blocks below were written before the workbench
+> rounds and are **wrong now** — corrected inline. The served `layout` IS carried
+> (`BlockParams.layout`, `src/lib/types.ts`) and **is** consumed by the Control Surface's
+> Axis-Layouts profiles; and the tool rail **no longer** shows "coming soon" stubs — Setup /
+> Controllers / FC open virtual-effect screens (gated honestly, audit §3.5). The live backlog is
+> `docs/axis-fm3edit-feature-parity-audit.md`.
+
 How Axis organizes a block's controls into pages, where that arrangement comes from, and where the
 work is headed. This doc describes both **what ships today** and the **design being implemented** —
 each section is tagged accordingly so the two are never confused.
@@ -62,11 +69,11 @@ named, switchable **layout profiles** per context (per block family, and per vir
 - **Custom / duplicated** — user-created profiles (including duplicates of Default or another
   profile), switchable and persisted.
 
-> **Status note.** As of this writing, the served `layout` field is **not yet consumed** by the
-> editor store ([`src/lib/editor.svelte.ts`](../src/lib/editor.svelte.ts)) and the API client's
-> `BlockParams` type does **not** yet carry it — wiring the served layout through and adding the
-> profile switcher (Default/Blank/custom) is the in-progress work. The existing built-in
-> Ideal/Advanced/EQ tabs plus user custom tabs are the shipped predecessor of this system.
+> **Status note (SUPERSEDED 2026-10-07 — this SHIPPED).** The served `layout` is carried on
+> `BlockParams.layout` (`src/lib/types.ts`) and consumed by `ControlSurface.svelte`'s Axis-Layouts
+> profiles: **Default** (device-authentic, seeded from the served layout, re-seeded on a type change
+> via a variant fingerprint), **Blank**, and user custom profiles. The built-in Ideal/Advanced/EQ
+> tabs plus user custom tabs remain as the predecessor/fallback.
 
 ## Virtual-effect screens — Setup / Controllers / Modifier / FC
 
@@ -84,12 +91,12 @@ The design points the **same Control Surface** at one of these effect ids — i.
 block editor pointed at effect id `1` — and renders it with the Default layout profile seeded from
 the served layout, just like an audio block.
 
-> **Status note.** The tool rail ([`src/lib/ToolRail.svelte`](../src/lib/ToolRail.svelte)) currently
-> implements only the **Build** (grid) screen; the Controllers / Footswitches / Scenes / Perform /
-> Sets / Settings rail items are **stubs** that announce "coming soon." Wiring these screens to the
-> virtual-effect endpoints (effect id `1`/`2`/`3`/`199`) is in progress. See the broader
-> [ROADMAP](ROADMAP.md) for sequencing — the Setup screen is the nearest of these, since the GLOBAL
-> block is reachable through the existing param path.
+> **Status note (SUPERSEDED 2026-10-07 — this SHIPPED).** The rail opens **Setup** (eid 1),
+> **Controllers** (eid 2) and **Footswitches** (eid 199) as virtual-effect screens through the normal
+> param path, and the misleading "coming soon" toasts are **gone**. A screen whose capability is
+> absent renders **disabled with the exact reason** (`src/lib/gateRailItems.ts`, audit §3.5);
+> `perform`/`sets`/`scenes` have no host in the legacy shell and are gated disabled. The live backlog
+> is `docs/axis-fm3edit-feature-parity-audit.md` — the [ROADMAP](ROADMAP.md) is banner-stale.
 
 ## Multi-device
 

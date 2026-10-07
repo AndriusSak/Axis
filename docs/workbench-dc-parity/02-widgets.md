@@ -1,5 +1,12 @@
 # Workbench DC parity — 02 · Widgets
 
+> **⚠️ STATUS (2026-10-07):** this is a **design-parity specification** captured 2026-07-07. Its
+> unchecked `- [ ]` gap list has **not** been maintained through the later workbench rounds and is
+> **partly obsolete** (the widget fit/overflow system, the rail, nav modes and the phone layouts have
+> all changed since). Trust the CODE over the checkboxes here; the **live backlog is
+> `docs/axis-fm3edit-feature-parity-audit.md`**.
+
+
 Source of truth: `design/AxisWidget.dc.html` (plus the sizing/estimating logic
 that lives in `design/Axis Layout System.dc.html` — quoted here because it
 drives widget rendering). Binding specification: port verbatim.

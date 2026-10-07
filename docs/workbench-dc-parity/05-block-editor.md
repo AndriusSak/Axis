@@ -1,5 +1,12 @@
 # 05 — Block Editor panel & Modifier part (`design/AxisBlockEditor.dc.html`)
 
+> **⚠️ STATUS (2026-10-07):** this is a **design-parity specification** captured 2026-07-07. Its
+> unchecked `- [ ]` gap list has **not** been maintained through the later workbench rounds and is
+> **partly obsolete** (the widget fit/overflow system, the rail, nav modes and the phone layouts have
+> all changed since). Trust the CODE over the checkboxes here; the **live backlog is
+> `docs/axis-fm3edit-feature-parity-audit.md`**.
+
+
 Source of truth: `design/AxisBlockEditor.dc.html` (1088 lines, branch `layout-rework`). One component serving two panels:
 
 - **`be-part` unset / `"full"`** → the Block Editor panel (toolbar, channel selector, page tabs, arrange mode, parameter board, tray, type search, toasts) **plus** the modifier *flyout* when no docked modifier part exists.

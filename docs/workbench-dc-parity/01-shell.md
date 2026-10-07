@@ -1,5 +1,12 @@
 # Workbench DC parity — 01 · Shell / Window Manager
 
+> **⚠️ STATUS (2026-10-07):** this is a **design-parity specification** captured 2026-07-07. Its
+> unchecked `- [ ]` gap list has **not** been maintained through the later workbench rounds and is
+> **partly obsolete** (the widget fit/overflow system, the rail, nav modes and the phone layouts have
+> all changed since). Trust the CODE over the checkboxes here; the **live backlog is
+> `docs/axis-fm3edit-feature-parity-audit.md`**.
+
+
 Source of truth: `design/Axis Layout System.dc.html` (branch `layout-rework`).
 This file is the **binding specification** — production must port the logic
 verbatim (thresholds, math, choreography), not re-derive it. All code blocks

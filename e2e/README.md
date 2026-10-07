@@ -85,7 +85,15 @@ attributes were added**:
 - `.aw-zone-empty` (empty custom-panel hint)
 - Buttons by accessible text: `Customize`, `Done`, `Map`, `Stage`, `＋ Panel`
 
-## Test inventory (9 files, 17 tests)
+## Test inventory (34 spec files, 142 tests as of 2026-10-07)
+
+> The nine files listed below were the original shell-basics set. The suite has since grown well
+> past them: nav/pages/drawers (`10`–`14`), device/param coverage (`15`–`19`), geometry sweeps
+> (`21`–`26`), cab + block-pane parity (`27`–`29`), and the R21–R24 feature surfaces
+> (`30`–`33`: batch-set rail entry, Quick Build + `Q`, Manage Presets drag-reorder, modifier curve
+> read-back + Controllers usage panel). **Do not trust a hand-kept count here** — run
+> `npx playwright test --project=chromium --list` for the authoritative list.
+
 
 1. **01-boot** — shell chrome renders; no console errors beyond the filtered
    ForgeFX/`/api` connection failures.

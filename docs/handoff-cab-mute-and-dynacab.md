@@ -1,8 +1,12 @@
 # Handoff — Cab Mute/Solo, DynaCab graph, CPU readout (Oct 2026)
 
-Status: **the reported bug is fixed and confirmed on hardware** ("It is visible now"). This file
-records what shipped, what is still open, and how to pick it up. Written for a session that has none
-of the context above.
+Status (2026-10-07): **the shipped fixes are merged** (the branches below are merged and deleted).
+Of the "REMOTE WORK" list, **items 2–5, 7 and 8 are DONE** (audit §3.6 items 1–4 + the range-trace
+panel); **only items 1 and 6 remain open, and both need hardware.** The "Test state at handoff"
+numbers at the bottom are historical — current is Axis **1720 unit tests / 164 files**, `svelte-check`
+0/0, Playwright **142/142**.
+
+Original status: **the reported bug is fixed and confirmed on hardware** ("It is visible now").
 
 ## What was fixed
 
