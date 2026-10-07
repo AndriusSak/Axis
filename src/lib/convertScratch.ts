@@ -398,6 +398,13 @@ export function moveBlock(state: ScratchState, blockKey: string, row: number, co
   return placeBlock(state, blockKey, row, col);
 }
 
+/** Append a NEW block to the scratch buffer (offline paste placement — a cloned instance). No-op when a
+ *  block with the same key already exists (the caller allocates a fresh key, so this is a guard). */
+export function addBlock(state: ScratchState, block: ScratchBlock): ScratchState {
+  if (state.blocks.some((b) => b.key === block.key)) return state;
+  return { ...state, blocks: [...state.blocks, block] };
+}
+
 /** Discard a block entirely: drop it and resolve every conflict that referenced it. */
 export function discardBlock(state: ScratchState, blockKey: string): ScratchState {
   return {
