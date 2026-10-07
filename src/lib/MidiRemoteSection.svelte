@@ -7,9 +7,13 @@
   import Dropdown from './Dropdown.svelte';
   import { fmtValue } from './format';
   import { buildMidiRemoteRows, MIDI_REMOTE_GAPS } from './midiRemote';
+  import { buildControlSwitchRows, CONTROL_SWITCH_GAPS } from './controlSwitch';
   import type { NamedParam, EnumParam } from './types';
 
   const rows = $derived(buildMidiRemoteRows(editor.params, editor.enums));
+  // Control Switches (CS) group — served GLOBAL CS params that the FM3 editor layouts do NOT reference
+  // (see controlSwitch.ts for the verified ground truth), so nothing else draws them on the Setup screen.
+  const csRows = $derived(buildControlSwitchRows(editor.params, editor.enums));
   const setKnob = (p: NamedParam, n: number) => editor.setParam(p, n);
   const setSel = (e: EnumParam, v: number) => editor.setEnum(e, v);
 </script>
@@ -45,6 +49,51 @@
       {/if}
     {/each}
   </div>
+
+  <div class="subhead">Control Switches</div>
+  <div class="grid">
+    {#each csRows as r (r.spec.id)}
+      {#if r.status === 'knob'}
+        <Knob
+          value={r.param.norm ?? 0}
+          label={r.param.name}
+          valueText={fmtValue(r.param)}
+          onInput={(v) => setKnob(r.param, v)}
+          onReset={() => setKnob(r.param, 0)}
+        />
+      {:else if r.status === 'select'}
+        <div class="ctl">
+          <Dropdown
+            label={r.enumParam.name}
+            value={r.enumParam.value}
+            options={r.enumParam.options}
+            onChange={(v) => setSel(r.enumParam, v)}
+          />
+          {#if r.ordinalOnly}
+            <span class="hint" title={`${r.spec.name} (pid ${r.spec.id})`}>
+              no option labels served — ordinal {r.enumParam.value}
+            </span>
+          {/if}
+        </div>
+      {:else}
+        <div class="gated" title={`${r.spec.label} (${r.spec.name}) — not served: ${r.reason}`}>
+          <span class="gl">{r.spec.label}</span>
+          <span class="gw">not served on this device — {r.reason}</span>
+        </div>
+      {/if}
+    {/each}
+  </div>
+
+  {#if CONTROL_SWITCH_GAPS.length}
+    <div class="gaps">
+      {#each CONTROL_SWITCH_GAPS as g (g.label)}
+        <div class="gated wide" title={`${g.addressing} — ${g.reason}`}>
+          <span class="gl">{g.label}</span>
+          <span class="gw">not possible — {g.reason}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
 
   {#if MIDI_REMOTE_GAPS.length}
     <div class="gaps">
@@ -87,6 +136,25 @@
     flex-wrap: wrap;
     gap: 16px 20px;
     align-items: flex-start;
+  }
+  .subhead {
+    margin: 16px 0 12px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text2);
+  }
+  .ctl {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .hint {
+    font-size: 10.5px;
+    line-height: 1.3;
+    color: var(--textdim);
+    max-width: 180px;
   }
   .gaps {
     display: flex;
