@@ -624,13 +624,52 @@
     mpReorderPreview = null; mpReorderConfirmed = false; mpReorderStatus = '';
     mpReorderOpen = true;
   }
+  /** Apply a new content order, then invalidate any stale preview/confirm. The ↑/↓ and drag paths
+   *  share this, so a reorder always re-derives through the SAME planner below (no second path). */
+  function mpReorderSetOrder(next: number[]) {
+    mpReorderOrder = next;
+    mpReorderPreview = null; mpReorderConfirmed = false;
+  }
   function mpReorderMove(i: number, dir: -1 | 1) {
     const j = i + dir;
     if (j < 0 || j >= mpReorderOrder.length) return;
     const next = [...mpReorderOrder];
     [next[i], next[j]] = [next[j], next[i]];
-    mpReorderOrder = next;
-    mpReorderPreview = null; mpReorderConfirmed = false;
+    mpReorderSetOrder(next);
+  }
+  // ── drag-and-drop reorder (R23) ──
+  // Dragging row A onto row B (or into a new position) only PERMUTES the same content-order array the
+  // ↑/↓ buttons drive, then rebuilds the identical content-permutation plan via mpReorderDryRun. It
+  // cannot add or drop slots, so the same-slot-set guard in planSlotReorder is never weakened.
+  let mpDragIndex = $state<number | null>(null);
+  let mpDragOverIndex = $state<number | null>(null);
+  function mpReorderDragStart(e: DragEvent, i: number) {
+    mpDragIndex = i;
+    if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', String(i)); }
+  }
+  function mpReorderDragOver(e: DragEvent, i: number) {
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    mpDragOverIndex = i;
+  }
+  function mpReorderDragLeave(i: number) {
+    if (mpDragOverIndex === i) mpDragOverIndex = null;
+  }
+  function mpReorderDragEnd() { mpDragIndex = null; mpDragOverIndex = null; }
+  function mpReorderReorder(from: number, to: number) {
+    if (from === to || from < 0 || to < 0 || from >= mpReorderOrder.length || to >= mpReorderOrder.length) return;
+    const next = [...mpReorderOrder];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    mpReorderSetOrder(next);
+    mpReorderDryRun(); // build the same content-permutation plan the 'Reorder…' dry run builds
+  }
+  function mpReorderDrop(e: DragEvent, i: number) {
+    e.preventDefault();
+    const from = mpDragIndex;
+    mpReorderDragEnd();
+    if (from == null) return;
+    mpReorderReorder(from, i);
   }
   /** The moves: content of mpReorderOrder[i] now lives at the i-th fixed destination slot. */
   function mpReorderMoves(): SlotMove[] {
@@ -1410,7 +1449,19 @@
     </p>
     <ul class="mp-list">
       {#each mpReorderOrder as src, i (src)}
-        <li class="mp-row">
+        <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
+        <li
+          class="mp-row"
+          class:dragging={mpDragIndex === i}
+          class:drop-target={mpDragOverIndex === i && mpDragIndex !== i}
+          draggable="true"
+          ondragstart={(e) => mpReorderDragStart(e, i)}
+          ondragover={(e) => mpReorderDragOver(e, i)}
+          ondragleave={() => mpReorderDragLeave(i)}
+          ondrop={(e) => mpReorderDrop(e, i)}
+          ondragend={mpReorderDragEnd}
+        >
+          <span class="mp-grip" aria-hidden="true" title="Drag to reorder">⠿</span>
           <span class="mp-pos">{String(i + 1).padStart(2, '0')}</span>
           <span class="mp-slot mono">{String(src).padStart(3, '0')}</span>
           <span class="mp-name">{mpSlotName(src)}</span>
@@ -2307,6 +2358,21 @@
     gap: 7px;
     padding: 3px 4px;
     font: 500 11px/1.4 var(--font-ui);
+    cursor: grab;
+  }
+  .mp-row.dragging {
+    opacity: 0.45;
+  }
+  .mp-row.drop-target {
+    outline: 1px dashed var(--accent, var(--text2));
+    outline-offset: -1px;
+    border-radius: 6px;
+  }
+  .mp-grip {
+    color: var(--textdim);
+    font: 700 12px/1 var(--font-mono);
+    cursor: grab;
+    user-select: none;
   }
   .mp-pos {
     color: var(--textdim);
