@@ -131,19 +131,23 @@ Each item names its blocker and what closing it would require.
   back `populated: true` with a content region **byte-identical to slots 1 and 12**, which hold the same
   IR — the content test the byte-identical replay could not do. `?page=0x30` answers a clean 400.
 
-- **§2.5d cab-slot DELETE / rename / reorder — FM3-Edit has all three; the wire ops are uncaptured.**
-  The parity audit's §2.5 lists FM3-Edit's **Manage Cabs** as *reorder / rename / delete user IRs* — so
-  these are **gaps, not proven-impossible**, and the "no slot-erase op" negative elsewhere in this file
-  is about **PRESET** slots (§3.4 / `presetSlotOps.ts`), which is a different thing and must not be
-  quoted as evidence about cab slots. Closing needs the same fixture that settled the upload: **one
-  capture of FM3-Edit's Manage Cabs doing a delete, a rename and a reorder** (that single session
-  unlocks all three), or a bounded probe of the per-slot sub-actions adjacent to `0x4B` — the probe
-  route has unknown blast radius on a device holding a real IR library, so the capture is the safe one.
-  **Delete-by-zeroing was TESTED TWICE and is NOT a delete (2026-10-08):** with a STALE close the unit
-  discards the upload (the slot stays empty because nothing was written — §2.5e arm C); with a **correct**
-  close (once the checksum was decoded) the container IS stored and the slot reads **POPULATED**, i.e. a
-  SILENT IR, not an empty slot. So the upload path can write a silent cabinet but cannot empty one, and
-  the honest status is unchanged: **Delete needs the real op** — the capture of FM3-Edit's Manage Cabs.
+- **§2.5d cab-slot DELETE — SOLVED, and NO capture was needed (2026-10-08).** There is no remove opcode,
+  but there IS a delete: a container whose entire chunk area is **`0x7F`** — the blank fill Fractal's own
+  loader ships as `empty_ir.syx` — is ACCEPTED (all 2048 words identical ⇒ their XOR is 0 ⇒ close
+  `00 00 00 00 00`) and the destination slot then reads **EMPTY**, indistinguishable from a
+  never-written slot. Verified on the unit with the slot-state read-back: an already-empty slot stayed
+  empty, and **eight slots that held real IRs flipped `populated` → `empty`** while an untouched
+  neighbour kept reading populated. Shipped as `buildBlankCabIrContainer` (refuses an unmeasured
+  geometry), `Gen3Driver.clearCabSlot` (fail-closed: `ok` needs the `0x00` close AND a post-read of
+  `empty`), `POST /cab/slots/clear` on both surfaces (registered in the write gate, refused in remote
+  mode), an **erase (×) control** on occupied rows in Axis's USER bank, and `scripts/clear-cab-slot.ts`
+  (dry-run by default). Verified end-to-end through the routes: upload → populated → clear → `ok:true`,
+  `wasPopulated:true`, `nowPopulated:false`.
+  **The earlier "delete-by-zeroing" test does NOT generalise** — zeroing the *samples* keeps a real name,
+  is stored, and reads *populated* (a silent IR). The blank FILL is the device's own "unwritten" pattern,
+  which is why it reads empty.
+  **Still open in the Manage Cabs family:** *reorder* (no wire op identified) and whether FM3-Edit
+  reveals a user-slot NAME (§2.5c) — a capture would still settle those two.
 
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":

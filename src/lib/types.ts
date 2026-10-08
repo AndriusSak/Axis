@@ -541,6 +541,26 @@ export interface CabSlotStateResult {
 }
 
 /**
+ * Result of erasing a user cab slot (POST /cab/slots/clear) — the device's delete.
+ *
+ * `ok` is fail-closed on two independent things: the unit ACCEPTING the blank container (close answer
+ * 0x00, not the 0x13 discard) AND the slot then reading `empty`. A slot that still reads populated, or
+ * that cannot be read back, is never reported as cleared.
+ */
+export interface CabSlotClearResult {
+  ok: boolean;
+  index: number;
+  page: number;
+  /** The slot's state before the clear: true/false/null (null = unreadable, never "empty"). */
+  wasPopulated: boolean | null;
+  /** The state after — the clear is confirmed only on `false`. */
+  nowPopulated: boolean | null;
+  /** The blank container's close answer: `0x00` accepted, `0x13` DISCARDED. */
+  closeCode: number | null;
+  reason: string;
+}
+
+/**
  * Result of a user-cab IR upload (POST /cab/ir/upload).
  *
  * `ok` is ACK-BACKED: the server listens during the paced send and reports the device's frame-by-frame

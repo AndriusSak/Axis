@@ -39,7 +39,8 @@ import type {
   ConvertResponse,
   ConvertExportResponse,
   ConverterPreset,
-  CabSlotStateResult
+  CabSlotStateResult,
+  CabSlotClearResult
 } from './types';
 import { rangeQuery, type RangeTrace } from './rangeTrace';
 
@@ -518,6 +519,24 @@ export const forgefx = {
       if (opts.to != null) qs.set('to', String(opts.to));
     }
     return req<CabSlotStateResult[]>(`/cab/slots${qs.toString() ? `?${qs}` : ''}`);
+  },
+
+  /**
+   * ERASE a user cab slot — the device's delete. Sends the BLANK container (every chunk byte 0x7F,
+   * Fractal's own loader asset) and the server confirms it through the slot-state read-back.
+   *
+   * DESTRUCTIVE: the slot's IR is gone. Measured 2026-10-08: the unit accepts the blank container and
+   * the slot then reads empty, on empty slots and on slots holding real IRs. `ok` requires both the
+   * accepted close answer and a post-read of empty — never assume it worked.
+   */
+  clearCabSlot: (opts: { user?: number; page?: number; index?: number }) => {
+    const qs = new URLSearchParams();
+    if (opts.user != null) qs.set('user', String(opts.user));
+    else {
+      if (opts.page != null) qs.set('page', String(opts.page));
+      if (opts.index != null) qs.set('index', String(opts.index));
+    }
+    return req<CabSlotClearResult>(`/cab/slots/clear?${qs}`, { method: 'POST' });
   },
 
   /** Current cab block state (mode / per-slot bank + IR + dyna type) for the picker. */

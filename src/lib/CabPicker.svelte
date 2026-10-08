@@ -93,6 +93,41 @@
   let userLoading = $state(false);
   let userErr = $state('');
   let userTried = $state(false); // a FAILED read must not make the effect retry forever
+  let clearMsg = $state('');
+  let clearMsgOk = $state(true);
+  let clearing = $state(false);
+
+  // ERASE a user slot — the device's delete, and the ONLY way to empty one: an upload can replace a
+  // slot's IR but cannot remove it (measured: a correctly-checksummed zeroed container is STORED and
+  // reads populated; the blank container is what the unit treats as empty). Destructive, so confirm.
+  async function clearSlot(slot: number) {
+    if (clearing) return;
+    if (!confirm(`Erase user slot ${slot}?\n\nThis sends the blank IR container, which is how this unit is cleared — the slot's current IR is gone. It cannot be undone from here.`)) return;
+    clearing = true;
+    clearMsg = '';
+    try {
+      const r = await forgefx.clearCabSlot({ user: slot });
+      clearMsgOk = r.ok;
+      clearMsg = r.ok
+        ? `Slot ${slot}: ${r.reason}`
+        : `Slot ${slot}: ${r.reason}`;
+      if (r.ok) {
+        // refresh the occupancy map so the row stops claiming "occupied"
+        const page = 0x10 + Math.floor((slot - 1) / 128);
+        const rows = await forgefx.cabSlots({ page, from: 0, to: 127 }).catch(() => null);
+        if (rows) {
+          const m = new Map(userSlots ?? []);
+          for (const row of rows) m.set((page - 0x10) * 128 + row.index + 1, row.populated);
+          userSlots = m;
+        }
+      }
+    } catch (e) {
+      clearMsgOk = false;
+      clearMsg = `Slot ${slot}: NOT cleared — ${(e as Error).message}`;
+    } finally {
+      clearing = false;
+    }
+  }
   const USER_PAGES = [0x10, 0x11, 0x12, 0x13]; // 4 pages × 128 = the 512 user slots
 
   // SEQUENTIAL on purpose: one serial port, so parallel calls just queue behind each other, and a
@@ -373,6 +408,10 @@
             {:else}
               occupancy read from the unit — this firmware cannot read user-slot NAMES back (FM3-Edit
               shows the names it recorded itself), so slots are listed as occupied/empty.
+              <span class="erasehint">· × erases a slot (sends the blank IR container)</span>
+            {/if}
+            {#if clearMsg}
+              <div class="clearmsg" class:bad={!clearMsgOk}>{clearMsg}</div>
             {/if}
           </div>
         {/if}
@@ -393,6 +432,14 @@
                   </span>
                   {#if isCurrent(r)}<span class="now mono">● live</span>{:else if r.fi === hi}<span class="ret mono">↵</span>{/if}
                 </button>
+                {#if mode === 'legacy' && bank === 'USER' && r.sub.startsWith('occupied')}
+                  <button
+                    class="erase"
+                    aria-label="Erase slot"
+                    title="Erase this slot — sends the blank IR container, which is how this unit is cleared. Destructive; the IR cannot be recovered from here."
+                    disabled={clearing}
+                    onclick={() => clearSlot(r.index + 1)}>×</button>
+                {/if}
                 <button class="star" class:on={isFav(r.id)} aria-label="Favorite" title={isFav(r.id) ? 'Unfavorite' : 'Favorite'} onclick={() => toggleFav(r.id)}>{isFav(r.id) ? '★' : '☆'}</button>
               </div>
             {/each}
@@ -696,6 +743,35 @@
     border-radius: 5px;
     padding: 1px 6px;
     cursor: pointer;
+  }
+  .erasehint {
+    color: var(--text-faint);
+  }
+  .clearmsg {
+    margin-top: 4px;
+    color: var(--text);
+  }
+  .clearmsg.bad {
+    color: var(--amber, #d9a34a);
+  }
+  .rowwrap .erase {
+    flex: none;
+    background: transparent;
+    border: 1px solid var(--surface-3);
+    border-radius: 6px;
+    color: var(--textmuted);
+    font-size: 13px;
+    line-height: 1;
+    padding: 4px 7px;
+    cursor: pointer;
+  }
+  .rowwrap .erase:hover {
+    color: var(--text);
+    border-color: var(--red, #b4544a);
+  }
+  .rowwrap .erase:disabled {
+    opacity: 0.45;
+    cursor: default;
   }
   /* ── USER bank occupancy note ── */
   .banknote {
