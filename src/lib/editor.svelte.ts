@@ -16,6 +16,8 @@ import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, 
 import { surfApplyRemote } from './surfaceStore.svelte';
 import { isRemoteBuild } from './cloudBrowser';
 import { paramValueAtNorm } from './format';
+import { planSwipe } from './swipeWrite';
+import { ParamWriteDebouncer } from './paramWriteDebounce';
 import { mayReplacePending, type ReloadKind } from './eventReload';
 import { isSceneStateUsable } from './sceneStateRefresh';
 import { runRevertPreset } from './revertPreset';
@@ -103,7 +105,6 @@ function scrubPII(s: string): string {
     .replace(/(\/(?:home|Users)\/)[^\/\r\n"]+/g, '$1<user>');
 }
 const EMPTY: Layout = { cells: [], shunts: [], rows: 4, cols: 12, name: '', model: '', crcValid: true };
-const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
 const SHUNT_ID = 1024; // FM3 routing/shunt cell base effect id (decoder: eid > 1000)
 
 class EditorStore {
@@ -398,7 +399,8 @@ class EditorStore {
   toast = $state<{ text: string; accent: string } | null>(null);
 
   #toastT: ReturnType<typeof setTimeout> | null = null;
-  #sendTimers: Record<string | number, ReturnType<typeof setTimeout>> = {};
+  /** Continuous param-write debounce, keyed by BLOCK + param (never pid alone — see paramWriteDebounce). */
+  #writeDebounce = new ParamWriteDebouncer();
 
   // ── derived ──
   // Phones AND tablets use the compact layout (burger + slide-in drawer that hides scenes/nav/status);
@@ -518,18 +520,23 @@ class EditorStore {
     if (!ctrls.length) return;
     const active = Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1);
     const ctl = ctrls[active];
-    const m = this.meters[cell.effectId] ?? { defaultId: ctl.id, defaultName: ctl.name, typeName: '', vals: {} as Record<number, MeterVal> };
-    const prev = m.vals[ctl.id];
-    const norm = clamp01((prev?.norm ?? 0.5) + deltaNorm);
-    m.vals = { ...m.vals, [ctl.id]: { ...(prev ?? { value: 0 }), norm, value: paramValueAtNorm(norm, { min: prev?.min, max: prev?.max, unit: prev?.unit, log: prev?.log }) } };
+    const m = this.meters[cell.effectId];
+    // A write must NEVER be derived from an assumed reading. `planSwipe` returns null when there is no
+    // honest reading for the active control (never polled, or an unresolved param whose value was
+    // deliberately not seeded) — the old code defaulted the missing position to one half and wrote it.
+    const next = planSwipe(m?.vals[ctl.id], deltaNorm);
+    if (!next || m == null) return;
+    m.vals = { ...m.vals, [ctl.id]: { ...m.vals[ctl.id], norm: next.norm, value: next.value } };
     this.meters = { ...this.meters, [cell.effectId]: m };
-    // keep the open editor's knob in sync if this is the selected block
+    // keep the open editor's knob in sync if this is the selected block — never fabricate a position on
+    // an UNRESOLVED param (its knob is inert by design; setParam would refuse it anyway).
     if (this.selected?.effectId === cell.effectId) {
       const p = this.params.find((x) => x.id === ctl.id);
-      if (p) p.norm = norm;
+      if (p && p.unresolved == null) p.norm = next.norm;
     }
-    clearTimeout(this.#sendTimers[ctl.id]);
-    this.#sendTimers[ctl.id] = setTimeout(() => forgefx.setParam(cell.effectId, ctl.id, norm, true).catch(() => {}), 50);
+    this.#writeDebounce.schedule(cell.effectId, ctl.id, 50, () =>
+      forgefx.setParam(cell.effectId, ctl.id, next.norm, true).catch(() => {})
+    );
   };
   /** Read every placed block's meter + swipe-control values (background, debounced — load() runs
    * after every optimistic edit, so coalesce the N bulk reads). */
@@ -630,8 +637,9 @@ class EditorStore {
       kind: 'param', eid: effectId, paramId: p.id, continuous: true, from, to: v,
       block: cell?.display ?? p.name, param: p.name, min: p.min, max: p.max, unit: p.unit, log: p.log
     });
-    clearTimeout(this.#sendTimers[p.id]);
-    this.#sendTimers[p.id] = setTimeout(() => forgefx.setParam(effectId, p.id as number, v, true).catch(() => {}), 60);
+    this.#writeDebounce.schedule(effectId, p.id, 60, () =>
+      forgefx.setParam(effectId, p.id as number, v, true).catch(() => {})
+    );
   };
   /** Discrete write for a pinned control whose block may not be open. A discrete write is
    *  reject-watched by the device (it may answer `{ok:false}`, or the transport may fail) and this
@@ -1677,13 +1685,10 @@ class EditorStore {
       kind: 'param', eid: c.effectId, paramId: p.id, continuous: true, from, to: v,
       block: c.display, param: p.name, min: p.min, max: p.max, unit: p.unit, log: p.log
     });
-    clearTimeout(this.#sendTimers[p.id]);
-    // The unified PUT {value, continuous:true} writes every device (AM4 addr = pidLow).
+    // The unified PUT {value, continuous:true} writes every device (AM4 addr = pidLow). Debounced by
+    // BLOCK + param (a pid-only key let a write to pid N on another block cancel this one).
     const eid = c.effectId, pid = p.id as number;
-    this.#sendTimers[pid] = setTimeout(
-      () => forgefx.setParam(eid, pid, v, true).catch(() => {}),
-      60
-    );
+    this.#writeDebounce.schedule(eid, pid, 60, () => forgefx.setParam(eid, pid, v, true).catch(() => {}));
   };
   // enum/discrete write: send the ordinal (continuous=false → device-confirmed). The device
   // reject-watches this write and may answer {ok:false} (or the transport may fail), so we AWAIT it

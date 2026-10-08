@@ -33,6 +33,7 @@ import {
   type ScratchState,
   type ScratchBlock,
   type ApplyOp,
+  type ParamKind,
   type SaveOverrides
 } from './convertScratch';
 
@@ -179,9 +180,10 @@ class ConvertScratchStore {
   // ── offline block edits driven by the real-grid convert surface (convertEditor.svelte.ts) ──
   // These wrap the pure transitions through the same #tx snapshot-swap the resolve panel uses, so a
   // knob turn / bypass / re-route re-renders the fake grid exactly like a conflict resolution does.
-  /** Set one param's value on a block, by its index in the block's params array. */
-  setParam = (blockKey: string, paramIndex: number, value: number) =>
-    this.#tx((s) => setBlockParam(s, blockKey, paramIndex, value));
+  /** Set one param's value on a block, by its index in the block's params array. `patch` carries the
+   *  write-path metadata (`norm`/`kind`) the apply plan needs — the convert editor passes them. */
+  setParam = (blockKey: string, paramIndex: number, value: number, patch: { norm?: number; kind?: ParamKind } = {}) =>
+    this.#tx((s) => setBlockParam(s, blockKey, paramIndex, value, patch));
   /** Toggle a block's offline bypass. */
   bypass = (blockKey: string) => this.#tx((s) => toggleBlockBypass(s, blockKey));
   /** Replace a placed block's routing feed-rows (computed by the surface from a cable gesture). */
@@ -288,7 +290,9 @@ async function runOp(op: ApplyOp): Promise<void> {
       await forgefx.setType(op.effectId, op.value);
       return;
     case 'set-param':
-      await forgefx.setParam(op.effectId, op.paramId, op.value);
+      // UNIT-CORRECT write: the op carries the payload + opcode (float → normalized continuous;
+      // enum → discrete ordinal). The flag is NEVER omitted — an omitted flag is continuous.
+      await forgefx.setParam(op.effectId, op.paramId, op.value, op.continuous);
       return;
   }
 }
