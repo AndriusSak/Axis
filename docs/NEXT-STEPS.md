@@ -40,12 +40,14 @@ Each item names its blocker and what closing it would require.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
-- **GLOBAL writes are unproven (hardware question Q1).** `GLOBAL_FS_BRIGHTNESS` (7115) /
-  `GLOBAL_FS_LCD_CONTRAST` (7116) serve as controls but their **values are `null` (unresolved)**
-  and they **render inert and are unwritable**. Whether the FM3 *accepts* a GLOBAL write is
-  unproven. **Closing requires an independent read** — a different sub-action, or the front
-  panel — because a read-back that merely echoes our own write is not verification (P8). See
-  `docs/decisions/0003-global-inert.md`.
+- **GLOBAL writes are unproven (hardware question Q1).** The FM3 **reads** GLOBAL from the eid-1
+  (`fn=0x1F`) bulk body, measured on the device 2026-10-07 to be **14,880 records indexed by pid**
+  (`body[7115]` = `Mini Display/Ring Brightness`, raw `65534` = 100%). GLOBAL values are therefore
+  **no longer served as unresolved/inert** — the earlier "served UNKNOWN" refusal (ADR-0003) rested on
+  a refuted stride/positional premise and is being reverted (ADR-0004). What remains unproven is
+  whether the FM3 *accepts* a GLOBAL **write**. **Closing requires an independent write-confirmation** —
+  a different sub-action, or the front panel — because a read-back that merely echoes our own write is
+  not verification (P8). Device facts: `docs/decisions/0004-global-bulk-indexed-by-pid.md`.
 - **The `0x64` latency question is mis-framed (Q5).** The probe's deliberate invalid write (bogus
   eid 16382) produces **no `0x64` at all** — the FM3 *silently ignores* an unknown eid rather than
   refusing it — so the late-rejection window cannot be measured this way. **Closing requires a
@@ -85,12 +87,18 @@ Each item names its blocker and what closing it would require.
   no tuner capability; the same "`{ok:true}`-unconditionally" wording is in
   `paramWriteOutcome.ts:195`. **Closing: cite the symbols and drop "unconditional".** The
   conclusion (neither is reject-watched on gen3) still holds for the FM3.
-- **The LED incident's `0.0000` is still attributed to the broken GLOBAL bulk read** in code
-  comments (`gen3.ts:265`, `gen3.ts:753`), `PROVENANCE.md:490-491` and the ForgeFX ADR
-  `ForgeFX/docs/decisions/0004-global-bulk-read-unknown.md`. That attribution is **suspected,
-  unconfirmed** (the probe reads through the per-pid GET, not `blockParams`). Closing: correct
-  those files in the next `src/`/provenance round.
-- **GLOBAL controls inert — deliberate position, not a defect.** See ADR-0003.
+- **The LED incident's `0.0000` cause is now MEASURED — the old "broken GLOBAL bulk read" attribution
+  is refuted.** The bulk body holds 14,880 records and **is** pid-indexed (so `base+7115` was in range,
+  never past the block). The `0.0000` came from the **per-pid GET** (`fn 0x01 sub 01 00`): on this
+  firmware its reply is a **canned template** whose decode yields `2.085e-41` — a denormal that
+  **displays as `0.0000`** — which the probe read as the "original" brightness and wrote back as a
+  restore, darkening the rings. Code comments (`gen3.ts:265`, `gen3.ts:753`) and `PROVENANCE.md:490-491`
+  still carry the refuted attribution, as does the ForgeFX ADR
+  `ForgeFX/docs/decisions/0004-global-bulk-read-unknown.md` (outside this repo). Closing: correct those
+  files in the next `src/`/provenance round.
+- **GLOBAL controls inert — REVERTED; the position was refuted by measurement.** ADR-0003 is superseded
+  by ADR-0004: the eid-1 bulk body is pid-indexed and `base+7115` is in range, so GLOBAL is not
+  deliberately unreadable/unwritable. Do not re-assert the old position.
 
 **Blocked on a new endpoint (out of scope for the offline rounds)**
 
@@ -118,8 +126,12 @@ One line per recorded decision. ADRs live in `docs/decisions/`.
   the feature-gated dual UI, node-env-only tests, and the framework/binding layer split.
 - `docs/decisions/0002-app-feature-tooling.md` — app-feature tooling: the singleton runes store
   as the single source of truth, hand-mirrored API types, and the cross-repo workflow.
-- `docs/decisions/0003-global-inert.md` — **GLOBAL Setup params are served UNKNOWN, rendered
-  inert, and unwritable** (accepted, interim).
+- `docs/decisions/0003-global-inert.md` — **GLOBAL Setup params were served UNKNOWN, rendered
+  inert, and unwritable** (accepted, interim; **superseded by ADR-0004** — its stride/positional
+  premise was refuted by the 2026-10-07 device measurement).
+- `docs/decisions/0004-global-bulk-indexed-by-pid.md` — **the eid-1 GLOBAL bulk body is 14,880
+  records indexed by pid**; values are served by pid and are UNKNOWN only for a pid beyond the body
+  (accepted). Records the 65534 = 100% raw scale and the per-pid GET's unusable canned-template reply.
 - **AM4 is out of scope by user decision.** Andy owns an FM3 only and will not test an AM4; the
   `/am4/*` alias fallback was removed outright (P7, not migrated), so the AM4 load-timeout
   question is closed *by decision, not by verification*. **Do not propose AM4 testing or an AM4

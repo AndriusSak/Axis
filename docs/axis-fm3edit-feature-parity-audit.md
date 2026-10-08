@@ -468,6 +468,13 @@ From the current handoff (`docs/handoff-cab-mute-and-dynacab.md` §"REMOTE WORK"
   cover). → **Probe:** now CI, not hardware: `server/test/drivers/layout-param-coverage.test.ts`
   asserts every layout-referenced param is served or on a documented unmount allowlist. Remaining
   hardware question is only whether those GLOBAL **writes** are accepted (§3.7 item 1 spirit).
+  **Measured 2026-10-07 (read-only, real FM3) — corrects the old stride/positional "runs past the
+  block" story:** the eid-1 (`fn=0x1F`) bulk body is **14,880 records indexed by pid**, so
+  `body[7115]` (`GLOBAL_FS_BRIGHTNESS`) = `65534` at 100% and `45874` at 70% (`0.70 × 65534`);
+  `body[7116]` = `32767` at 50%; `Ring Intensity Bright` `body[110]` = `65534`. Raw scale
+  **65534 = 100%**. The per-pid GET (`fn 0x01 sub 01 00`) reply is a **canned template** on this
+  firmware (`2.085e-41`, displays `0.0000`) and is unusable as a read. The GLOBAL families are
+  therefore **not** deliberately unreadable — see ADR-0004 (ADR-0003 superseded).
 - **FC editor fields** whose metadata is absent from the served model are silently *hidden* rather
   than gated (`FcEditor.svelte` header) — so an FM3 whose model lacks a field shows a shorter editor
   with no warning. Verify the served `/fc/model` covers every control FM3-Edit's FC Edit shows.
@@ -592,6 +599,7 @@ not surfaced — see §3.6 item 3.
    gaps" list was wrong — most are served), and the device's own layout widget is now honoured (P1.2,
    `2fa29d9`). The invariant is enforced in CI by
    `server/test/drivers/layout-param-coverage.test.ts`; no live `/diag/ranges` sweep is needed.
+   GLOBAL **values** are read by pid from the 14,880-record eid-1 body — see ADR-0004 and §3.7.
 3. **Scene ops over the wire.** `setScene` is deliberately fire-and-forget (`BACKLOG.md` W1.1: scene is
    not in the write-protocol op table). Copy/swap/bulk scenes need a plan: either new ops (verify they
    exist) or a client-side dump→store sequence. **RESOLVED 2026-10-06 (§2.1):** no wire op is needed —
