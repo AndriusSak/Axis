@@ -503,9 +503,11 @@ export const forgefx = {
    * Read back the unit's own per-slot cab STATE — READ-ONLY, one device query per slot.
    *
    * This is the independent confirmation an IR upload lacked: `populated` is the unit's flag and
-   * `contentRegion` is a content-derived fingerprint shared byte for byte by slots holding the same IR.
-   * It is NOT a name (the region's encoding is undecoded) — render "populated", never "holds <name>",
-   * and never show `populated: null` as "empty".
+   * `nameRegion` is a NAME-derived fingerprint — measured: three slots sharing a name but holding
+   * completely different samples share it, while the same samples under a renamed container do not. So
+   * it follows a RENAME (useful) and cannot tell two IRs with the same name apart. Its encoding is
+   * undecoded, so it is NOT the name: render "populated", never "holds <name>", and never show
+   * `populated: null` as "empty".
    */
   cabSlots: (opts: { user?: number; page?: number; from?: number; to?: number } = {}) => {
     const qs = new URLSearchParams();

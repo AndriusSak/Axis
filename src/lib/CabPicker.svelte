@@ -251,7 +251,7 @@
       // Report that first and in full — it is the difference between "sent" and "stored".
       if (r.discarded) {
         irMsgOk = false;
-        irMsg = `DISCARDED by the unit — nothing was stored. Every frame was acknowledged, but the close frame answered 0x13: the container's content does not match its own close-frame value (measured: a renamed, zeroed or otherwise EDITED container is thrown away, and an empty slot stays empty). Only a container byte-identical to one the device or FM3-Edit produced is accepted today.`;
+        irMsg = `DISCARDED by the unit — nothing was stored. Every frame was acknowledged, but the close frame answered 0x13: the container's content does not match the checksum in its own close frame. Axis recomputes that checksum for a rename or any other edit, so this should not happen from this UI — report it if it does.`;
         irFile = null;
         return;
       }
@@ -342,8 +342,8 @@
               class="rename"
               bind:value={irRename}
               maxlength="32"
-              placeholder="rename — will be DISCARDED (see note)"
-              title="MEASURED 2026-10-08: the unit refuses any container whose content does not match its own close-frame value, and answers the close frame 0x13. A renamed container is discarded — an empty destination stays empty. The close value must be recomputed for a rename, and its encoding is not decoded. Leaving this blank sends the container verbatim, which IS accepted."
+              placeholder="rename (32 chars — the close frame is recomputed)"
+              title="MEASURED 2026-10-08: the container's close frame is a CHECKSUM over its content, and the unit DISCARDS any container whose close value does not match. A rename therefore recomputes it — measured working: the unit answered close-code 0x00 and the destination slot became populated. Leaving this blank uploads the container unchanged."
             />
             <button class="go" onclick={sendIr} disabled={irBusy}>{irBusy ? 'Sending…' : 'Send to unit'}</button>
             <button class="cancel" onclick={() => { irFile = null; irMsg = ''; }} disabled={irBusy}>Cancel</button>

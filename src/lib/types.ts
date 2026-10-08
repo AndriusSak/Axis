@@ -522,7 +522,7 @@ export interface CabSlot {
  * `fn=0x01 sub=0x4B` query — READ-ONLY).
  *
  * This is the independent confirmation an IR upload lacked: `populated` is the unit's own flag, and
- * `contentRegion` is a content-derived fingerprint that two slots holding the same IR share byte for
+ * `nameRegion` is a content-derived fingerprint that two slots holding the same IR share byte for
  * byte. It is NOT a name — the region's encoding is undecoded and no simple scheme yields one — so
  * render "populated", never "holds <name>". `populated: null` means the unit gave no parseable answer
  * and must never be shown as "empty".
@@ -535,7 +535,7 @@ export interface CabSlotStateResult {
   populated: boolean | null;
   flag: number | null;
   /** The content-derived region — identical for slots holding the same IR. Not a name. */
-  contentRegion: number[];
+  nameRegion: number[];
   /** Why `populated` is null, when it is. */
   note?: string;
 }

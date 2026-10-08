@@ -70,9 +70,12 @@ Each item names its blocker and what closing it would require.
   end-to-end from both sides of the glass, not just from the acks. (A byte-identical re-upload into the
   same slot is a weak content test by construction; what it establishes is that the path stores and does
   not corrupt, which is the property that was in doubt.)
-  **Still open:** (a) a **rename** — RUN on hardware and it FAILS, see §2.5e (the unit discards it);
-  (b) there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state read-back** —
-  see below. Do not re-derive any of this from the gen-2 wiki page.
+  **A RENAME IS SOLVED (measured 2026-10-08)** — see §2.5e: the close frame is a checksum over the
+  container's content, `buildCabIrSyx` recomputes it for an edit, and a renamed container uploaded to an
+  EMPTY slot drew close-code `0x00` with the slot becoming POPULATED. The shipped rename that carried the
+  old close was not merely "unverified" — it was **silently discarded by the unit**.
+  **Still open:** there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state
+  read-back** — see below. Do not re-derive any of this from the gen-2 wiki page.
 
 - **§2.5e the close frame is a CONTENT CHECK, and a mismatch makes the unit DISCARD the upload —
   MEASURED in four controlled arms (2026-10-08).** Each arm uploaded to an EMPTY user slot, so "was it
@@ -90,10 +93,16 @@ Each item names its blocker and what closing it would require.
   `0x13` arms — which is the trap: **reading only the frame acks reports "acknowledged" for an upload the
   device threw away.** The driver now requires the `0x00` close answer for `ok` and reports
   `discarded`/`closeCode`/`reason`; Axis's strip says "DISCARDED by the unit — nothing was stored".
-  **Consequences:** a container can only be uploaded BYTE-IDENTICAL to one the device or FM3-Edit
-  produced. A rename, converted samples, or a zeroed "delete" all need the close value **RECOMPUTED**,
-  and its encoding is not decoded — that single unknown now blocks rename, delete-by-zeroing, and any
-  `.wav`/`.ir` import. It is the critical path for the whole cab feature.
+  **THE ENCODING IS DECODED (2026-10-08) — the close value is the XOR of every decoded 32-bit chunk word
+  of the data frames, the 8 NAME chunks INCLUDED (2048 words on both geometries), re-encoded as five
+  LSB-first septets.** Reproduced byte for byte by two independent implementations against **11
+  containers** spanning model bytes `0x03`, `0x07`, `0x10`, `0x11` and both frame geometries (66×32-chunk
+  and 10×256-chunk). Falsified on the way: sum, CRC-32/CRC-32c, Adler-32, FNV-1a, DJB2, a length field,
+  an opaque constant, samples-only coverage, and the last byte being a separate flag (it is the top septet
+  of the same 32-bit value). Shipped as `cabIrContentXor` / `computeCabIrClosePayload`; `buildCabIrSyx`
+  recomputes the close for any edit (a no-op for an untouched container), and the driver **refuses to send
+  a container it knows the unit will discard** unless asked to measure that. So an EDITED container is now
+  possible — a rename is measured-working, and a converted `.wav`/`.ir` is no longer blocked by this.
 
 - **§2.5b per-slot cab state — the read-back that exists, MEASURED and now SHIPPED (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
   upload's start frame (byte 12 = index, byte 13 = page; `0x10`–`0x13` user banks, `0x20` scratchpad);
@@ -103,11 +112,15 @@ Each item names its blocker and what closing it would require.
   (U0001 and U0012) share it byte for byte, while all 500 empty user slots and all 16 empty scratchpad
   slots share one identical payload. Confirmed on the live unit with
   `scripts/probe-cab-slot-state.ts`: U0001–U0012 `0x01`, U0013+ and the scratchpad `0x7F`, 0 silent.
-  **What this does and does not give:** it can confirm *a named slot is populated and matches the
-  fingerprint of the source slot* — the fail-closed confirmation the load test was missing — but it is
-  **not a name oracle**: no 4-per-5-septet, 8-per-7 or plain-7-bit decoding at any offset yields the known
-  name, the region's algorithm is unknown, and bytes 28–29 moved between the capture and the live read
-  (volatile — do not treat them as content). Report **"populated"**, never "holds `<name>`". Natural next
+  **CORRECTED 2026-10-08 — the region is NAME-derived, not sample-derived.** Measured with three
+  containers that share the name "LT TV Mix 7" but hold wildly different samples (the real IR, an
+  all-zero sample set and a one-byte spike): all three give an IDENTICAL region, while the SAME samples
+  under a renamed container give a DIFFERENT one. So the region follows the NAME — which means it CAN
+  confirm a rename (it moves) but CANNOT tell two IRs that share a name apart. It is still **not a name
+  oracle**: no 4-per-5-septet, 8-per-7 or plain-7-bit decoding at any offset yields the known name, and
+  its encoding is undecoded. Report **"populated"**, never "holds `<name>`". The EMPTY-slot payload is
+  **not stable across sessions** (the same empty slots read `…3e 00 1e 04 03 38…` in the morning and
+  `…3e 00 0d 26 70…` hours later) — treat it as unstable and never build on its bytes. Natural next
   increment: a read-only `queryCabSlot` driver method + route that returns the raw flag/region and the
   measured populated/empty reading.
   **Shipped:** the codec (`forgefx-midi/devices/gen3/cabSlotState.ts`), `Gen3Driver.queryCabSlots()`,
@@ -126,11 +139,11 @@ Each item names its blocker and what closing it would require.
   capture of FM3-Edit's Manage Cabs doing a delete, a rename and a reorder** (that single session
   unlocks all three), or a bounded probe of the per-slot sub-actions adjacent to `0x4B` — the probe
   route has unknown blast radius on a device holding a real IR library, so the capture is the safe one.
-  **Delete-by-zeroing was TESTED and does not work as hoped (§2.5e arm C):** a zeroed container draws
-  `0x13` and is DISCARDED — the slot stays empty because it was never written, not because the unit
-  treats zeros as "no IR". So the interim truth is narrower than it looked: an upload can only ever
-  REPLACE a slot with a container the device already accepts, and it cannot empty one. Delete needs
-  either the real op (the capture) or a recomputed close value — the same blocker as the rename.
+  **Delete-by-zeroing was TESTED TWICE and is NOT a delete (2026-10-08):** with a STALE close the unit
+  discards the upload (the slot stays empty because nothing was written — §2.5e arm C); with a **correct**
+  close (once the checksum was decoded) the container IS stored and the slot reads **POPULATED**, i.e. a
+  SILENT IR, not an empty slot. So the upload path can write a silent cabinet but cannot empty one, and
+  the honest status is unchanged: **Delete needs the real op** — the capture of FM3-Edit's Manage Cabs.
 
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":
@@ -161,16 +174,6 @@ Each item names its blocker and what closing it would require.
 - **§3.8 per-preset FC definitions** — blocked on the same body decode as §2.2.
 - **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
   Do not build.
-
-**Blocked on a decision**
-
-- **A scale-1 OFFSET enum would display its selected option one off, if it were ever served (latent —
-  measured 2026-10-08).** `GLOBAL/7389` (options `["1 SECOND","2 SECONDS",…]`) has body raw `2` while the
-  panel shows **"2 SECONDS"**: the stored value is the DISPLAY value, not a 0-based index. The client builds
-  its option list ordinal-indexed and shows the label at that index, so a served `2` would render the *third*
-  option. It is unserved today (76 GLOBAL params are served; 7389 is not), so nothing misbehaves. **Closing
-  requires deciding the serving contract for offset selectors** (serve the display value and index labels by
-  `value − displayMin`) — a `src/` change, no capture needed, panel is the oracle.
 
 **Blocked on a new endpoint (out of scope for the offline rounds)**
 
@@ -253,6 +256,16 @@ One line per recorded decision. ADRs live in `docs/decisions/`.
   control — so a scale re-introduced in the driver OR inside the codec fails. **Always pass `continuous`
   explicitly** — omitting it silently selects the other opcode's unit, and the scaled-enum case
   (`PHASER_ORDER`) is still unmeasured (see ADR 0006).
+- **Scale-1 OFFSET selectors serve the display value and index labels by `value − displayMin` — IMPLEMENTED
+  2026-10-08 (server-side, `#enumOptions`).** `GLOBAL/7389` stores the DISPLAY value (body raw `2` ↔ panel
+  "2 SECONDS") while the device-true label tables are 0-based by ORDINAL, so reading the label at index
+  `value` shifted every offset label by one and rendered the option AFTER the true one. Fixed in
+  `ForgeFX/server/src/drivers/gen3.ts` by indexing at `value − min` (`min` = displayMin; a no-op for 0-based
+  lists and the scaled PHASER_ORDER). Six served FM3 offset enums were live-affected (DELAY/87 SVF Type,
+  PITCH/35 Track Mode, PITCH/76 Tempo, FILTER/21 · FLANGER/30 · PHASER/23 Quantize). The Axis client needed
+  no change (it renders `options.find(o => o.value === value)`). Guarded by
+  `ForgeFX/server/test/drivers/enum-coverage.test.ts` (the DELAY/87 mapping pinned literally + a
+  `value − displayMin` invariant over every served offset enum). Panel remains the oracle; no hardware claim.
 - **An unchanged read is not evidence of a change, and a fire-and-forget write reports `{ok:true}`
   unconditionally.** A write to a port that answers nothing still "succeeds", so a value that did not
   move is evidence *against* the write, not for it. Verify through an independent path and against a
