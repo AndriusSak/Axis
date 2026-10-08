@@ -65,6 +65,11 @@ Each item names its blocker and what closing it would require.
   editor gets** (start + 8 data + end), so `uploadCabIr` now requires a destination, **refuses the
   scratchpad** (measured-refused in every probe, as is the `7F 7F` sentinel), and reports `ok` from the
   acks rather than from "the frames were handed over".
+  **Confirmed on the unit by Andy (2026-10-08):** the slot the load test wrote (user slot 1, which
+  already held that IR) **reads the same and sounds the same** — so the verbatim path is confirmed
+  end-to-end from both sides of the glass, not just from the acks. (A byte-identical re-upload into the
+  same slot is a weak content test by construction; what it establishes is that the path stores and does
+  not corrupt, which is the property that was in doubt.)
   **Still open:** (a) a **rename** has never been run on hardware — the name lives in the first data
   frame while the `0x7C` value is carried verbatim, so the driver gates it behind `allowUnverified`;
   (b) there is still **no cab-name read-back**: `fn=0x12` is refused, and the editor's catalogue read
