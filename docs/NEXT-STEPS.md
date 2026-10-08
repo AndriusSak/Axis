@@ -146,8 +146,30 @@ Each item names its blocker and what closing it would require.
   **The earlier "delete-by-zeroing" test does NOT generalise** — zeroing the *samples* keeps a real name,
   is stored, and reads *populated* (a silent IR). The blank FILL is the device's own "unwritten" pattern,
   which is why it reads empty.
-  **Still open in the Manage Cabs family:** *reorder* (no wire op identified) and whether FM3-Edit
-  reveals a user-slot NAME (§2.5c) — a capture would still settle those two.
+  **Still open in the Manage Cabs family:** *reorder* and whether FM3-Edit reveals a user-slot NAME
+  (§2.5c). Both now depend on a **slot-data read**, and that has been PROBED for (§2.5f) — it does not
+  appear to exist. A capture of Manage Cabs renaming or reordering is what would settle them.
+
+- **§2.5f is there a slot-DATA read (or a user-slot name)? — PROBED 2026-10-08, boundary now measured.**
+  Two families were swept, read-shaped and bounded, guarded by a full before/after bank snapshot:
+  1. **`fn=0x7D/0x7E/0x7F/0x79` with the `[index, page]` pair** (the neighbours of the upload trio
+     `0x7A/0x7B/0x7C`, in both measured payload shapes) — **every one REFUSED with `0x64`**. There is no
+     read counterpart to the upload trio at those fns.
+  2. **`fn=0x01` sub-actions adjacent to the state query** — `0x4A`, `0x4C`, `0x4D`, `0x4E` are all
+     IMPLEMENTED and answer, but **none carries a name or slot data**: `0x4A`/`0x4E` are identical for
+     every slot including empty ones, `0x4D` is identical across slots (33 bytes), and `0x4C` varies per
+     slot but contains no readable text and its meaning is undecoded. Mapped in
+     `CAB_SLOT_FN_SUBACTIONS`.
+  **So: no slot-data read was found, which is very likely by design** — extractable user IR data is
+  exactly what protects commercial IR vendors. Consequence: **reorder cannot be done by read+write**
+  (we cannot read a slot's samples), and a user-slot NAME is not obtainable from any per-slot reply
+  probed. Both need the device's own op, and the fixture for that is a capture of FM3-Edit renaming or
+  reordering a user cab.
+  **Instrument:** `scripts/snapshot-cab-bank.ts` (save/diff) is the guard for any future slot probe, and
+  it compares only the region's **stable 9-byte prefix** — the tail drifts on its own (the same empty
+  slots read `…00 1e 04 03 38…` in the morning and `…00 0d 26 70…` hours later), and a naive full-region
+  diff reports 600+ "changes" that are nothing but that drift, hiding any real one inside the noise.
+  `scripts/probe-cab-subs.ts` and `scripts/probe-cab-data-read.ts` are the probes themselves.
 
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":
