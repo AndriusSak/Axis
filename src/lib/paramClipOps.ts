@@ -35,8 +35,8 @@ export interface ParamValueClip {
 }
 
 /** Snapshot a single served param's value. Returns null when the param carries no device paramId
- *  (it cannot be written back — never guessed) OR its value is unresolved (null norm/value — the
- *  non-positional GLOBAL read), so a fabricated 0 is never captured. `continuous` picks which field. */
+ *  (it cannot be written back — never guessed) OR its value is unresolved (null norm/value — a GLOBAL
+ *  pid the body does not carry), so a fabricated 0 is never captured. `continuous` picks which field. */
 export function captureParamValue(
   p: { id?: number; name: string; value: number | null; norm?: number | null },
   block: string,

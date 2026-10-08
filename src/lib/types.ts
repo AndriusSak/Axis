@@ -17,8 +17,8 @@ export interface ParamDef {
 }
 
 /** A named parameter value read back from the device (GET /block/{name}/params).
- *  `value`/`norm` are `null` when the device could not resolve the value (ForgeFX's non-positional
- *  GLOBAL bulk read) — an UNKNOWN reading, NEVER a fabricated 0 (indistinguishable from a real zero).
+ *  `value`/`norm` are `null` when the device could not resolve the value (ForgeFX's a-GLOBAL-pid-the-
+ *  body-does-not-carry case) — an UNKNOWN reading, NEVER a fabricated 0 (indistinguishable from a real zero).
  *  `unresolved` carries the server's reason and is present exactly when the value is null. */
 export interface NamedParam {
   /** Device-true paramId — disambiguates duplicate display labels (e.g. amp's two "Depth"s). */

@@ -48,7 +48,7 @@ describe('captureChannel', () => {
 
   it('never captures an unresolved value as 0 (a param with no served norm is dropped)', () => {
     // The old behaviour folded a missing norm to a fabricated 0. A param the device could not resolve
-    // (null/absent norm — the non-positional GLOBAL read) must be SKIPPED, not stored as 0.
+    // (null/absent norm — a GLOBAL pid the body does not carry) must be SKIPPED, not stored as 0.
     const clip = captureChannel('X', 'B', [{ id: 5, name: 'Q', value: null, norm: null }], []);
     expect(clip.knobs).toEqual([]);
     const clip2 = captureChannel('X', 'B', [{ id: 5, name: 'Q', value: 3 }], []);

@@ -123,18 +123,23 @@ One line per recorded decision. ADRs live in `docs/decisions/`.
   `a04c9c6`); the pinned test asserts the fixed behaviour.
 - **GLOBAL writes ARE accepted and verifiable (Q1 — answered 2026-10-08).** A GLOBAL write lands and is
   confirmed through the eid-1 `fn=0x1F` bulk body — an **independent** read path, not the write's own
-  echo: `0.40` → `body[7115]` raw `26214` = 40.0%, restore → `45874` = 70.0%. This closes the
-  "write side unverified" caveat (PROVENANCE round 18) and the same-path caveat in §3.7's spirit. Reads
-  stay as ADR-0004 describes: 14,880 records, indexed by pid, raw `65534` = 100%.
+  echo: `0.40` → `body[7115]` raw `26214` = 40.0%, restore → `45874` = 70.0%. The closure evidence came
+  from `ForgeFX/server/scripts/verify-global-write.ts` (it reads the body as its oracle), **not** from
+  `ForgeFX/server/scripts/probe-device.ts`: that probe's Q1 still reads through the `0x1a` route (a
+  *normalized* value) and checks itself on that same path, so it only proves the write landed, not that
+  the original was captured. **The probe's Q1 still needs its oracle switched to the independent bulk
+  read.** Reads stay as ADR-0004 describes: 14,880 records, indexed by pid, raw `65534` = 100%.
 - **Write units are PER-OPCODE, not per-param or per-family** — measured on the unit 2026-10-08 by
   sending raw floats straight to the codec (no driver, no script convention in the way) and reading the
   body: the **continuous** opcode takes the client's **normalized 0..1** (`0.25` → 25.0%), the
-  **discrete** opcode takes **percent 0..100** (`0.40` → 40.0%). Axis's knobs send `continuous: true`
-  with a 0..1 value (`editor.svelte.ts`), so the client is correct as-is and **no conversion belongs in
-  the driver**. Guarded offline by `ForgeFX/server/test/drivers/setparam-units.test.ts` (6 cases; the
-  frame the driver sends is compared to the codec's own encoding), whose negative control fails when a
-  scale is re-introduced. **Always pass `continuous` explicitly** — omitting it silently selects the
-  other opcode's unit.
+  **discrete** opcode takes **percent 0..100** for a 0..100 param (`40` → 40.0%; `0.40` → 0.4%). Axis's
+  knobs send `continuous: true` with a 0..1 value (`editor.svelte.ts`), so the client is correct as-is and
+  **no conversion belongs in the driver**. Guarded offline by
+  `ForgeFX/server/test/drivers/setparam-units.test.ts` (6 cases; the frame the driver sends is compared to
+  the codec's own encoding), so its negative control fails when a scale is re-introduced **in the driver**
+  — but a scale added inside the CODEC passes unnoticed, because the suite compares the driver's frame
+  against the codec's own encoding. **Always pass `continuous` explicitly** — omitting it silently selects
+  the other opcode's unit.
 - **An unchanged read is not evidence of a change, and a fire-and-forget write reports `{ok:true}`
   unconditionally.** A write to a port that answers nothing still "succeeds", so a value that did not
   move is evidence *against* the write, not for it. Verify through an independent path and against a
