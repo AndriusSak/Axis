@@ -28,6 +28,9 @@ import type {
   PerformPage,
   PerformSlotPatch,
   PerformSlotWriteResult,
+  PerPresetSwitchPatch,
+  PerPresetSwitchWriteResult,
+  PerPresetSwitches,
   DecodedBlock,
   VersionInfo,
   CloudVersion,
@@ -394,6 +397,18 @@ export const forgefx = {
    */
   setPerformSlot: (slot: number, patch: PerformSlotPatch) =>
     req<PerformSlotWriteResult>(`/preset/perform/${slot}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  /** Per-preset SWITCH definitions of the CURRENT preset (§3.8) — `null` when the body has no block.
+   *  501→null on a device that can't read it. Only PP#1's row is `measured`; the rest are `inferred`. */
+  perPresetSwitches: () => capOptional(req<PerPresetSwitches | null>(`/preset/switches`)),
+  /**
+   * Write ONE per-preset switch (§3.8). Only index 1 is accepted — that is the only switch whose byte
+   * offsets have been measured on the wire, and the server answers 400 for any other index rather than
+   * writing to an unmeasured offset. Sent to the unit's EDIT BUFFER: nothing is saved.
+   *
+   * `ok` is a read-back verdict, so `ok:false` is a normal outcome to display (see `reason`).
+   */
+  setPerPresetSwitch: (index: number, patch: PerPresetSwitchPatch) =>
+    req<PerPresetSwitchWriteResult>(`/preset/switches/${index}`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** Current FC switch state via the sub-0x01 structured config-selector read. tap/hold each carry a
    *  `present` flag (the device returned a record matching the requested config/side) and the raw 78-byte
    *  response body. config/side are device-confirmed; interior field bytes are not yet decoded. */

@@ -545,5 +545,39 @@ position (the layout is one row, so Reverb would have been ≈ 10). Do not re-de
 
 **Open:** two rows unlabelled, bounded to indices 8–16 (`Delay 2 · Drive · Enhance · FB Rtn`; "FB Snd" is a
 guess). Closing needs 2 more targets: Delay 2, then FB Rtn 2 — cosmetic only, since any target of interest
-resolves with one edit and one dump. **Nothing is wired to a route or the UI yet** — the write side rides
-`patchPerformSlot`'s proven machinery.
+resolves with one edit and one dump.
+
+**The roster shortcut is CLOSED — do not re-open it.** Two candidate enumerations exist in the repo
+(`effectRoster()` with `blockInstances`, and `FM3_EFFECT_ID_TABLE`) and both reproduce **1 of 13** anchors:
+each gets `Amp 1 = 0` and then mis-places the rest by 2–4 slots, because the anchors demand Amp to contribute
+ONE entry (`Amp 1 = 0`, `Cab 1 = 1`) and no table here gives the FM3's Amp block one instance. The measured
+ORDER does fit alphabetical-with-instances-expanded, but the per-block COUNTS are not in any table we hold, so
+the index cannot be computed — only measured. (Both models were tried as PREDICTIONS and both failed, which is
+the only reason to believe the negative.)
+
+**WIRED (2026-10-08), and the geometry is now better evidenced.** `DeviceDriver.perPresetSwitches()` /
+`setPerPresetSwitch()` back `GET /preset/switches` and `PUT /preset/switches/:index` (shared handlers, BOTH
+route tables, on `DEVICE_WRITES` and on `NOT_DRY_RUNNABLE`), with an Axis panel (`PerPresetSwitchesPanel`).
+The write is bounded to **PP#1** on purpose: that is the only index whose byte offsets were observed, so any
+other index answers 400 rather than writing to an unmeasured offset.
+
+**A two-fixture differential confirmed the offsets by prediction.** The same preset was captured twice — the
+committed `preset-perform/preset-410.bin` (no switch configured) and, later, with PP#1 and PP#2 configured —
+and the decompressed bodies differ at **marker+4 (0→4 = PP#1's Bypass code), marker+6 (0→3 = PP#2's
+Scene: Select code) and marker+148 (0→20 = PP#1's target, index 20 = "Filter 4", matching the wire anchor)**.
+So the action codes are a contiguous u16 array (two entries confirmed, not one) and marker+148 is PP#1's
+target byte. The decoder now reports how far each field's evidence reaches
+(`evidence.actionCodesMeasured = 2`, `targetBytesMeasured = 1`) instead of implying the whole block is known.
+The check is a script, not a note: `scripts/check-switch-offsets.ts` states the predictions and fails if a
+predicted byte does not move.
+
+**One open observation, recorded rather than smoothed over:** the byte at **marker+160** changed (0→1)
+between the two captures and nothing in the model explains it — it is one byte past the 12 assumed target
+bytes, so a 13th entry, a neighbouring field, or unrelated content (the same diff also moved a perform-page
+label, so the captures are not a controlled experiment). It touches none of the offsets the decoder reads.
+`PP_SWITCH_COUNT = 12` therefore remains an explicit ASSUMPTION.
+
+**A MEANING caveat that fell out of the live fixture:** PP#2's action is Scene: Select, and its target byte
+read 0 — for a scene action that byte is most likely a SCENE number, not an FX-slot index, so the anchor
+table must NOT be applied across action types. The row is `inferred` anyway, and the panel shows the raw
+index; treat "target = FX-slot index" as true for the bypass-style action measured, unestablished elsewhere.

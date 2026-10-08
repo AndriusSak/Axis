@@ -526,6 +526,55 @@ export interface PerformSlotWriteResult {
   readback: PerformSlot | null;
 }
 
+/**
+ * One PER-PRESET SWITCH definition (§3.8), decoded from the preset body by ForgeFX `GET /preset/switches`.
+ *
+ * CONFIDENCE IS PER ROW AND IT MATTERS: only PP#1's byte offsets have been observed on the wire, so PP#1
+ * comes back `measured` and every other row `inferred`. Do not present an inferred row as a reading.
+ */
+export interface PerPresetSwitch {
+  /** 1-based ("PP#1"), as the switch picker numbers them. */
+  index: number;
+  /** Raw 16-bit action code. */
+  actionCode: number;
+  /** The action's name, or null when the code is one nobody has measured (show the raw byte then). */
+  action: string | null;
+  /** Raw target byte — an index into the FM3's alphabetical FX-slot enumeration. */
+  targetIndex: number;
+  /** The FX-slot name for that index, or null when the index is unlabelled (never a guess). */
+  targetLabel: string | null;
+  confidence: 'measured' | 'inferred';
+}
+
+/** The per-preset switch block (ForgeFX `GET /preset/switches`, READ-ONLY). */
+export interface PerPresetSwitches {
+  /** Offset of the block marker in the decompressed body (diagnostic — it MOVES between presets). */
+  at: number;
+  /** True when any byte of the block is non-zero. */
+  populated: boolean;
+  switches: PerPresetSwitch[];
+  /** Which rows this decode can vouch for. */
+  geometry: 'measured-pp1-only';
+  /** How far each field's evidence actually reaches, counted from PP#1 (see the codec). */
+  evidence: { actionCodesMeasured: number; targetBytesMeasured: number };
+}
+
+/** The fields a per-preset switch write may set (ForgeFX `PUT /preset/switches/:index`). */
+export interface PerPresetSwitchPatch {
+  actionCode?: number;
+  targetIndex?: number;
+}
+
+/** The server's answer to a per-preset switch write — `ok` is a READ-BACK of the edit buffer. */
+export interface PerPresetSwitchWriteResult {
+  ok: boolean;
+  index: number;
+  /** 'no-block' | 'unsupported-index' | 'retarget-failed' | 'readback-mismatch'. */
+  reason?: string;
+  requested: PerPresetSwitchPatch;
+  readback: PerPresetSwitch | null;
+}
+
 /** A unique effect block in a preset (for the library/browser). */
 export interface PresetSummaryBlock {
   effectId: number;
