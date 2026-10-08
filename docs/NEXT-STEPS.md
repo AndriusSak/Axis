@@ -79,10 +79,21 @@ Each item names its blocker and what closing it would require.
   acceptance** — and, worse, a non-refusal reply is not evidence the value you sent is the value in force.
   **What closing the refusal path itself would still require:** a write the device genuinely rejects
   (probably not reachable from the param-write opcode), or the editor's own refusal handling captured.
-- **§3.7 Cab 2 Mute/Solo write** — the probe measured it ("matches expectation") but on the **same
-  read path** as the original, so it proves the write landed, not that the original was captured.
-  Closing requires an independent read (front panel).
-- **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck.
+- **§3.7 Cab 2 Mute/Solo write — CLOSED (2026-10-08) with TWO independent witnesses.** The gap was that the
+  probe read the original and the write-back on the SAME path, so it could prove the write landed but not that
+  it had read the unit's real state. Both gaps are now covered, neither by that path:
+  1. **The human eye.** The wire read said Cab 2 Mute/Solo = `1` (MUTE); Andy looked at the unit and reported
+     it on MUTE — the read and the front panel agree, so the original was captured correctly. Then the write
+     was run slowly (`scripts/watch-cab-mute.ts --cycles 1 --hold 8`): the unit showed the change and he
+     confirmed it ("I saw it change"), and it was left back at MUTE as it started.
+  2. **The device's own UNSOLICITED burst.** As the value moved, the unit PUSHED a `0x74/0x75/0x75/0x76`
+     burst naming the cab block (eid 62, 424 items) — a different mechanism from the bulk read, so the write
+     reaching the cab block is corroborated on a second path.
+     HONEST LIMIT: the burst decoder attributed **no moved param** inside that burst, so the burst corroborates
+     "the cab block reacted", NOT "pid 25 moved". The named witness for the param itself is the human.
+- **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck. **Andy reports it worked the
+  last time he used it on the unit** (his observation, 2026-10-08) — recorded as his eyewitness rather than
+  re-tested; a wire-level capture has still never been taken for it.
 - **§2.5 user-cab IR upload — SOLVED (captured + load-tested 2026-10-08).** The `.syx` export IS the
   wire stream: a USBPcap capture of FM3-Edit 1.07.16 loading an IR onto fw 13.0 shows `0x7A` + 8×`0x7B`
   (byte-identical to the file) + `0x7C`, each answered `0x64 <fn> 00 <fn&0x0f>`. The **only** difference

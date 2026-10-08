@@ -272,6 +272,12 @@
   let irFile = $state<File | null>(null);
   let irRename = $state('');
   let irSlot = $state<number>(1);
+  // MOVE: an optional source slot to ERASE after a verified upload. This is how a user cab is moved — a
+  // capture of FM3-Edit's "move to a different slot" is exactly two container uploads (the IR re-uploaded to
+  // the destination, the source written with a container named "<EMPTY>"). No device-side move op exists, so
+  // a move needs the IR's BYTES, which is why this needs the file picked here: Axis cannot read a slot's
+  // samples, so it cannot check that the source held this same IR. 0 = a plain upload.
+  let irMoveFrom = $state<number>(0);
   let irBusy = $state(false);
   let irMsg = $state('');
   let irMsgOk = $state(true);
@@ -335,6 +341,27 @@
       irMsg = r.ok
         ? `Acknowledged: “${r.name}” → user slot ${slot} (${r.frames} frames; start + ${r.acks.data}/${r.acks.expectedData} data + end acked). ${verify}`
         : `Sent, but NOT acknowledged: ${r.acks.data}/${r.acks.expectedData} data frames acked, start=${r.acks.start} end=${r.acks.end}. Treat that as a failed upload.`;
+
+      // MOVE, second half: erase the source — and only when the upload was actually verified as landed on
+      // the destination. Erasing after an unverified upload would DELETE the only copy the user has.
+      const from = Number(irMoveFrom);
+      if (from > 0) {
+        if (!(r.ok && after?.populated === true)) {
+          irMsgOk = false;
+          irMsg += ` NOT erased: source slot ${from} is left alone because the destination was not verified as populated. Erasing now could destroy the only copy.`;
+        } else if (from === slot) {
+          irMsgOk = false;
+          irMsg += ` Source slot ${from} is the destination — nothing to erase.`;
+        } else {
+          const c = await forgefx.clearCabSlot({ user: from }).catch(() => null);
+          if (c?.ok) {
+            irMsg += ` Moved: source slot ${from} is now ERASED (“${c.reason ?? 'ok'}”) — the unit reported it empty after the blank container was accepted.`;
+          } else {
+            irMsgOk = false;
+            irMsg += ` NOT erased: source slot ${from} — ${c?.reason ?? 'the clear did not confirm'}. The IR now exists in BOTH slots; erase slot ${from} from the USER list when you have checked it.`;
+          }
+        }
+      }
       irFile = null;
     } catch (err) {
       irMsgOk = false;
@@ -397,6 +424,10 @@
             <label class="slotfield" title="User cab slots 1–512. The scratchpad bank is NOT an upload destination on this unit, and this OVERWRITES the slot you name.">
               → user slot
               <input class="slotnum" type="number" min="1" max="512" bind:value={irSlot} disabled={irBusy} />
+            </label>
+            <label class="slotfield" title="MOVE: after the upload is VERIFIED as landed, the source slot is erased with the blank container — the same two steps FM3-Edit performs when you move a cab to a different slot (measured from a capture: the IR re-uploaded to the destination, the source written with a container named &quot;&lt;EMPTY&gt;&quot;). There is no device-side move op. Axis cannot read a slot's samples, so it cannot check that the source held THIS file — only erase it. Leave 0 for a plain upload.">
+              move from
+              <input class="slotnum" type="number" min="0" max="512" bind:value={irMoveFrom} disabled={irBusy} />
             </label>
             <input
               class="rename"
