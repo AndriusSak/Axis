@@ -85,7 +85,7 @@ export function captureEntry(input: CaptureInput): BlockLibraryEntry {
   const params: StoredParam[] = [];
   for (const p of input.named) {
     // Skip a param with no device paramId (unwritable) and any the device could not resolve (null
-    // norm — non-positional GLOBAL): capturing a fabricated 0 would store a value the device never read.
+    // norm — a GLOBAL pid the body does not carry): capturing a fabricated 0 would store a value the device never read.
     if (p.id == null || p.norm == null || RESERVED.has(p.name.toLowerCase())) continue;
     params.push({ id: p.id, name: p.name, kind: 'knob', value: p.norm });
   }

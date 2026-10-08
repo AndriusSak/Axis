@@ -644,8 +644,8 @@
   // ── value plumbing (live refs resolved by id each call) ──
   const knob = (id: number) => knobById.get(id);
   const enm = (id: number) => enumById.get(id);
-  // A served param whose value the device could NOT resolve (the server's `unresolved` marker — the
-  // non-positional GLOBAL bulk read) must render as an EXPLICIT unknown control, never a knob parked
+  // A served param whose value the device could NOT resolve (the server's `unresolved` marker — a GLOBAL
+  // pid the body does not carry) must render as an EXPLICIT unknown control, never a knob parked
   // at 0 (a real zero is indistinguishable from a fabricated one). The test keys on the server marker
   // and on a missing position/norm — NEVER on "value and norm both null", which a stray device-edit
   // norm can defeat. These predicates gate every widget branch.
@@ -1352,7 +1352,7 @@
   {/if}
 </div>
 
-<!-- An unresolved param (server null value/norm — the non-positional GLOBAL read) renders an explicit,
+<!-- An unresolved param (server null value/norm — a GLOBAL pid the body does not carry) renders an explicit,
      INERT unknown tile. NEVER a knob parked at 0: a fabricated zero is indistinguishable from a real
      one, the exact defect the null contract exists to end. The `reason` is the server's own string. -->
 {#snippet unknownCtl(label: string, reason?: string)}

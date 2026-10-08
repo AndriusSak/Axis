@@ -641,7 +641,7 @@ class EditorStore {
    *  screen (P2.1 leftover; the continuous `setPinnedParam` above stays fire-and-forget BY DESIGN). */
   setPinnedEnum = async (effectId: number, e: EnumParam, value: number) => {
     if (this.selected?.effectId === effectId) { this.setEnum(e, value); return; }
-    // Unresolved ordinal (non-positional GLOBAL) — no honest `from`; leave it (its control renders inert).
+    // Unresolved ordinal (a GLOBAL pid the body does not carry) — no honest `from`; leave it (its control renders inert).
     if (e.value == null) return;
     const from = e.value;
     const token = beginWrite(e, from); // mint this write's ordering token before the optimistic set
@@ -1274,7 +1274,7 @@ class EditorStore {
         break;
       }
       case 'param': {
-        // An UNRESOLVED param (server `unresolved` marker — the non-positional GLOBAL read) must never
+        // An UNRESOLVED param (server `unresolved` marker — a GLOBAL pid the body does not carry) must never
         // be upgraded to a live knob by a stray device-edit norm: the fabricated position would render a
         // live knob and pass the write guard, letting the user write from a fake baseline (P11). Ignore
         // the event entirely for it (the meter sync below would likewise fabricate a reading).
@@ -1656,7 +1656,7 @@ class EditorStore {
 
   // ── param writes (optimistic + debounced continuous) ──
   setParam = (p: NamedParam, v: number) => {
-    // An unresolved param (server null value/norm — non-positional GLOBAL) has no honest undo target:
+    // An unresolved param (server null value/norm — a GLOBAL pid the body does not carry) has no honest undo target:
     // writing from a fabricated 0 would recreate, on the client, the exact defect the server fix ended.
     if (p.norm == null) return;
     const from = p.norm; // pre-optimistic value — the undo target (first call of a drag wins)
@@ -1695,7 +1695,7 @@ class EditorStore {
     // Guard BEFORE the optimistic write: an early return here sends nothing, records no history and
     // reverts nothing, so it must not leave an unsent value on screen (Opus A/B 2026-10-07).
     if (!c || (!c.pack && !this.paramsWithoutPack)) return;
-    if (e.value == null) return; // unresolved ordinal (non-positional GLOBAL) — never step from a fabricated 0
+    if (e.value == null) return; // unresolved ordinal (a GLOBAL pid the body does not carry) — never step from a fabricated 0
     const from = e.value;
     const token = beginWrite(e, from); // mint this write's ordering token before the optimistic set
     e.value = value; // optimistic
@@ -2356,7 +2356,7 @@ class EditorStore {
     const results: WriteSettlement[] = [];
     if (clip.type) results.push(await this.#writeSettlement(forgefx.setType(eid, clip.type.value)));
     // Skip any captured value the device could not resolve (null norm/ordinal) — writing a fabricated
-    // 0 would recreate the very defect the null contract exists to eliminate (non-positional GLOBAL).
+    // 0 would recreate the very defect the null contract exists to eliminate (a GLOBAL pid the body does not carry).
     for (const p of clip.named) if (p.id != null && p.norm != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, p.id, p.norm, true)));
     for (const e of clip.enums) if (e.value != null) results.push(await this.#writeSettlement(forgefx.setParam(eid, e.id, e.value, false)));
     if (clip.channel) results.push(await this.#writeSettlement(forgefx.setChannel(eid, clip.channel)));

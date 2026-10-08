@@ -460,7 +460,9 @@ export const forgefx = {
     }),
   /** Raw param values for an effect (FC 199 / Modifier 3), keyed by paramId. */
   rawBlock: (eid: number) => req<{ eid: number; values: Record<string, number> }>(`/preset/blocks/${eid}/raw`),
-  /** Read specific paramIds via per-pid GET (FC current state). Returns {pid: value}. */
+  /** Read specific paramIds via the sub-0x1a per-pid range read (returns a NORMALIZED 0..1 value).
+   *  The plain per-pid GET (fn 0x01 sub 01 00) is dead on this firmware — it answers a canned template
+   *  (see ForgeFX ADR-0005), so callers must not expect a raw 16-bit count here. Returns {pid: value}. */
   readParams: (eid: number, pids: number[]) =>
     req<Record<string, number>>(`/preset/blocks/${eid}/read`, { method: 'POST', body: JSON.stringify({ pids }) }),
   /** Cab IR names per bank (Factory 1/2, Legacy, Scratchpad) — for the cab IR picker. */

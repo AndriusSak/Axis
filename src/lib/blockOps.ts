@@ -51,7 +51,7 @@ export interface ParamWrite {
 
 /** Snapshot the given channel's params for a later paste. Only params carrying a device paramId AND a
  *  device-RESOLVED value are captured — a param without an id cannot be written back, and a param the
- *  device could not resolve (null norm/value, non-positional GLOBAL) must not be captured as a
+ *  device could not resolve (null norm/value, a GLOBAL pid the body does not carry) must not be captured as a
  *  fabricated 0. */
 export function captureChannel(
   block: string,

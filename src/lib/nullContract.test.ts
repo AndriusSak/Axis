@@ -8,8 +8,8 @@ import { captureParamValue } from './paramClipOps';
 import { captureEntry } from './blockLibrary';
 import type { NamedParam, EnumParam } from './types';
 
-// P10 — the null param contract. ForgeFX now serves a param it could not resolve (the non-positional
-// GLOBAL bulk read) as `value: null` + `norm: null` + a reason, never a fabricated 0 (`7d1f800`).
+// P10 — the null param contract. ForgeFX now serves a param it could not resolve (a GLOBAL pid the
+// assembled body does not carry) as `value: null` + `norm: null` + a reason, never a fabricated 0 (`7d1f800`).
 // Axis was widened to match; these tests pin the CLIENT half: an unknown value renders as the em-dash
 // `—` and every pure module / capture path REFUSES to coerce it back to 0 (the exact defect class the
 // server fix ended, which would otherwise re-appear on the other side of the wire).

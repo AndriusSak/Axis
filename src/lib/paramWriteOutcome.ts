@@ -141,7 +141,7 @@ export function resetWriteSequencer(): void {
 }
 
 /** Minimal view of the discrete param the write targets — only the mutable `value` is touched.
- *  `value` may be `null` (the server could not resolve the ordinal — non-positional GLOBAL); an
+ *  `value` may be `null` (the server could not resolve the ordinal — a GLOBAL pid the body does not carry); an
  *  unknown on-screen value is never equal to the value this write sent, so a late refusal will not
  *  clobber it (the revert is skipped), and there is no fabricated 0 to restore. */
 export interface EnumWriteTarget { name: string; value: number | null }

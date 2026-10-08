@@ -3,7 +3,8 @@
 //
 // ── Unknown (null) values ──────────────────────────────────────────────────────────────────────────
 // ForgeFX can report a param it could not resolve as `value: null` + `norm: null` + an `unresolved`
-// reason (the non-positional GLOBAL bulk read — see server/src/drivers/gen3.ts #bulkUnresolvedReason).
+// reason (a GLOBAL pid the assembled fn-0x1F body does not carry — the body is pid-indexed, not
+// "non-positional"; see server/src/drivers/gen3.ts blockParams / its `unresolvedReason`).
 // That is UNKNOWN, not 0: a real device zero is indistinguishable from a fabricated one, so a null
 // must NEVER be read as 0. Every formatter here renders unknown as the em-dash `—` and `paramValue`
 // returns `null` (not a number), so no arithmetic on an unknown value can silently become 0 or NaN.
