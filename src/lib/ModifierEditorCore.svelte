@@ -12,6 +12,7 @@
   import { editor } from './editor.svelte';
   import { findModifierForTarget, modifiersInUse } from './modifierAssignments';
   import { decodeModifierCurve, curveReadbackCount, formatCurveField } from './modifierCurve';
+  import { decideWriteOutcome, type WriteSettlement } from './paramWriteOutcome';
   import type { ModModel, PresetModifier } from './types';
 
   const mob = $derived(editor.isMobile);
@@ -202,12 +203,32 @@
   const srcOn = $derived(m.source > 0);
 
   // ── write any modifier field to the device, encoded by its kind (from the model) ──
+  //
+  // The FM3's write units are PER-OPCODE: a knob (kind 'norm' OR 'bipolar') takes the CONTINUOUS opcode
+  // with the normalized 0..1 position; a discrete field ('ordinal'/'ref') takes the DISCRETE opcode with
+  // an integer. The read side above maps BOTH 'norm' and 'bipolar' as wire/WIRE_MAX*100 (a 0..100 UI with
+  // 50 = center), so the inverse write for a bipolar knob is the SAME continuous path as a norm knob —
+  // `ui/100` — NOT `(ui-50)/50` on the DISCRETE path, which the server 400s for every non-integer (so
+  // only the 50/100 detents, 0 and 1, ever wrote). Nothing is swallowed: a discrete write is
+  // reject-watched (HTTP-200 `{ok:false}`) and a transport error throws — both are surfaced through the
+  // shared `decideWriteOutcome` wording, exactly like the other write paths (see paramWriteOutcome.ts).
+  async function settleWrite(p: Promise<{ ok: boolean }>, name: string): Promise<void> {
+    let outcome: WriteSettlement = { status: 'error' }; // a throw → the write was never confirmed
+    try {
+      const r = await p;
+      outcome = r?.ok ? { status: 'ok' } : { status: 'rejected' };
+    } catch {
+      /* keep 'error' */
+    }
+    const d = decideWriteOutcome(outcome, name);
+    if (d.toast) editor.showToast(d.toast.text, d.toast.accent);
+  }
   function writeField(key: string, ui: number) {
     const f = mm?.fields?.[key];
     if (!f) return; // model not loaded → keep it local-only
-    if (f.kind === 'ordinal' || f.kind === 'ref') forgefx.setParam(eid, f.pid, Math.round(ui), false).catch(() => {});
-    else if (f.kind === 'bipolar') forgefx.setParam(eid, f.pid, (clamp(ui) - 50) / 50, false).catch(() => {});
-    else forgefx.setParam(eid, f.pid, clamp(ui) / 100, true).catch(() => {});
+    const name = f.role ?? key;
+    if (f.kind === 'ordinal' || f.kind === 'ref') void settleWrite(forgefx.setParam(eid, f.pid, Math.round(ui), false), name);
+    else void settleWrite(forgefx.setParam(eid, f.pid, clamp(ui) / 100, true), name);
   }
 
   // ── knob drag (vertical), mirrors the design's onModKnobDown ──
@@ -315,7 +336,7 @@
         .finally(() => (binding = false));
     } else {
       const f = mm?.fields?.source;
-      if (f) forgefx.setParam(eid, f.pid, ordinal, false).catch(() => {});
+      if (f) void settleWrite(forgefx.setParam(eid, f.pid, ordinal, false), f.role ?? 'Source');
     }
   }
 

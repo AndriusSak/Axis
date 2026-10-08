@@ -29,6 +29,7 @@ import {
   parseConvertedDoc,
   buildApplyPlan,
   blockEffectId,
+  deriveScratchParam,
   type ScratchState
 } from './convertScratch';
 
@@ -307,7 +308,7 @@ describe('buildApplyPlan', () => {
     // drive1 is in the tray (unplaced) so never applied.
     const p = preset({
       blocks: [
-        { key: 'amp1', family: 'amp', instance: 1, typeValue: 12, params: [{ nativeName: 'Gain', value: 5, paramId: 3 } as never], position: { row: 0, col: 2 }, effectId: 106 } as never,
+        { key: 'amp1', family: 'amp', instance: 1, typeValue: 12, params: [{ nativeName: 'Gain', value: 5, min: 0, max: 10, paramId: 3 } as never], position: { row: 0, col: 2 }, effectId: 106 } as never,
         { key: 'cab1', family: 'cab', instance: 1, typeValue: 3, params: [], position: { row: 0, col: 3 }, effectId: 112 } as never,
         { key: 'no-eid', family: 'drive', instance: 1, typeValue: 1, params: [{ nativeName: 'Drive', value: 7 }], position: { row: 1, col: 0 } },
         { key: 'drive1', family: 'drive', instance: 2, typeValue: 1, params: [], position: null }
@@ -322,7 +323,55 @@ describe('buildApplyPlan', () => {
     expect(plan.unresolvedBlocks).toBe(1); // 'no-eid'
     expect(plan.unresolvedParams).toBe(0);
     const setParam = plan.ops.find((o) => o.kind === 'set-param');
-    expect(setParam).toMatchObject({ effectId: 106, paramId: 3, value: 5 });
+    // VALUE 5 over a 0..10 range → the write payload is the NORMALIZED 0.5 on the continuous opcode,
+    // NEVER the display value 5 (which the driver clamps to 1.0 = 100%).
+    expect(setParam).toMatchObject({ effectId: 106, paramId: 3, value: 0.5, continuous: true });
+  });
+
+  it('sends floats as continuous:true with the normalized position, not the display value', () => {
+    // A display value ≥ 1 sent continuously lands at 100% (raw 0.25 → 25.0%). The plan must carry the
+    // norm (0.25), and an EXPLICIT continuous:true flag.
+    const p = preset({
+      blocks: [{ key: 'amp1', family: 'amp', instance: 1, typeValue: 12, params: [{ nativeName: 'Gain', value: 2.5, min: 0, max: 10, paramId: 3 } as never], position: { row: 0, col: 0 }, effectId: 106 } as never]
+    });
+    const plan = buildApplyPlan(seedScratch(p, [], 'fm3'));
+    const op = plan.ops.find((o) => o.kind === 'set-param')!;
+    expect(op).toMatchObject({ kind: 'set-param', continuous: true, value: 0.25 });
+    if (op.kind === 'set-param') expect(op.value).toBeLessThanOrEqual(1);
+  });
+
+  it('sends an enum as continuous:false with the integer ordinal (the discrete opcode)', () => {
+    // An enum written through the CONTINUOUS opcode is a knob fraction; it must go discrete with its
+    // ordinal (the server 400s a non-integer on the discrete path).
+    const p = preset({
+      blocks: [{ key: 'amp1', family: 'amp', instance: 1, typeValue: 12, params: [{ nativeName: 'Mode', value: 2, enumOptions: ['A', 'B', 'C'], paramId: 7 } as never], position: { row: 0, col: 0 }, effectId: 106 } as never]
+    });
+    const plan = buildApplyPlan(seedScratch(p, [], 'fm3'));
+    const op = plan.ops.find((o) => o.kind === 'set-param')!;
+    expect(op).toMatchObject({ kind: 'set-param', continuous: false, value: 2 });
+    if (op.kind === 'set-param') expect(Number.isInteger(op.value)).toBe(true);
+  });
+
+  it('carries an EXPLICIT continuous flag on every set-param op (never an omitted-flag default)', () => {
+    const p = preset({
+      blocks: [
+        { key: 'amp1', family: 'amp', instance: 1, typeValue: 1, params: [{ nativeName: 'Gain', value: 5, min: 0, max: 10, paramId: 3 } as never, { nativeName: 'Mode', value: 1, enumOptions: ['A', 'B'], paramId: 4 } as never], position: { row: 0, col: 0 }, effectId: 106 } as never
+      ]
+    });
+    const ops = buildApplyPlan(seedScratch(p, [], 'fm3')).ops.filter((o) => o.kind === 'set-param');
+    expect(ops).toHaveLength(2);
+    expect(ops.every((o) => o.kind === 'set-param' && typeof o.continuous === 'boolean')).toBe(true);
+  });
+
+  it('refuses to write an uncalibrated float rather than send a display value as a knob', () => {
+    // No served range + no normalized position → there is no honest 0..1 payload. The old code sent the
+    // display value 40 continuously (clamped to 100%); the plan now skips it and counts it unresolved.
+    const p = preset({
+      blocks: [{ key: 'amp1', family: 'amp', instance: 1, typeValue: 12, params: [{ nativeName: 'Gain', value: 40, paramId: 3 } as never], position: { row: 0, col: 0 }, effectId: 106 } as never]
+    });
+    const plan = buildApplyPlan(seedScratch(p, [], 'fm3'));
+    expect(plan.ops.some((o) => o.kind === 'set-param')).toBe(false);
+    expect(plan.unresolvedParams).toBe(1);
   });
 
   it('counts params without a paramId as unresolved', () => {
@@ -337,6 +386,66 @@ describe('buildApplyPlan', () => {
   it('blockEffectId reads the loose IR extra key', () => {
     expect(blockEffectId({ key: 'a', family: 'amp', instance: 1, params: [], position: null, effectId: 42 } as never)).toBe(42);
     expect(blockEffectId({ key: 'a', family: 'amp', instance: 1, params: [], position: null })).toBeUndefined();
+  });
+});
+
+// ── scratch param write-path metadata (kind + norm) ───────────────────────────────────────────────
+describe('deriveScratchParam + write metadata', () => {
+  it('classifies a param carrying enumOptions as a discrete enum', () => {
+    const p = deriveScratchParam({ nativeName: 'Mode', value: 2, enumOptions: ['A', 'B', 'C'] });
+    expect(p.kind).toBe('enum');
+    expect(p.norm).toBeUndefined(); // enums write the ordinal, not a position
+  });
+
+  it('takes the normalized position from the IR `normalized` extra', () => {
+    const p = deriveScratchParam({ nativeName: 'Gain', value: 5, min: 0, max: 10, normalized: 0.25 } as never);
+    expect(p.kind).toBe('float');
+    expect(p.norm).toBe(0.25);
+  });
+
+  it('computes the norm from the display value + range when no `normalized` is carried', () => {
+    const p = deriveScratchParam({ nativeName: 'Gain', value: 2.5, min: 0, max: 10 } as never);
+    expect(p.kind).toBe('float');
+    expect(p.norm).toBeCloseTo(0.25, 6);
+  });
+
+  it('leaves norm undefined for an uncalibrated float (no range, no normalized)', () => {
+    const p = deriveScratchParam({ nativeName: 'Gain', value: 40, paramId: 3 } as never);
+    expect(p.kind).toBe('float');
+    expect(p.norm).toBeUndefined(); // the plan must refuse this rather than guess
+    expect((p as { paramId?: number }).paramId).toBe(3); // existing extras are preserved
+  });
+
+  it('setBlockParam carries an explicit { norm, kind } patch (the convert-editor path)', () => {
+    let s = seed();
+    s = setBlockParam(s, 'amp1', 0, 8.8, { norm: 0.88, kind: 'float' });
+    const p = s.blocks.find((b) => b.key === 'amp1')!.params[0];
+    expect(p.value).toBe(8.8);
+    expect(p.norm).toBe(0.88);
+    expect(p.kind).toBe('float');
+  });
+
+  it('setBlockParam recomputes norm from the new value + range when no patch is given (paste path)', () => {
+    const p = preset({
+      blocks: [{ key: 'amp1', family: 'amp', instance: 1, params: [{ nativeName: 'Gain', value: 5, min: 0, max: 10, paramId: 3 } as never], position: { row: 0, col: 0 } }]
+    });
+    let s = seedScratch(p, [], 'fm3');
+    s = setBlockParam(s, 'amp1', 0, 7.5);
+    const param = s.blocks.find((b) => b.key === 'amp1')!.params[0];
+    expect(param.value).toBe(7.5);
+    expect(param.norm).toBeCloseTo(0.75, 6); // stale norm can never survive a plain value write
+  });
+
+  it('setBlockParam never adds a norm to an enum param', () => {
+    const p = preset({
+      blocks: [{ key: 'amp1', family: 'amp', instance: 1, params: [{ nativeName: 'Mode', value: 1, min: 0, max: 2, enumOptions: ['A', 'B', 'C'], paramId: 7 } as never], position: { row: 0, col: 0 } }]
+    });
+    let s = seedScratch(p, [], 'fm3');
+    s = setBlockParam(s, 'amp1', 0, 2);
+    const param = s.blocks.find((b) => b.key === 'amp1')!.params[0];
+    expect(param.kind).toBe('enum');
+    expect(param.norm).toBeUndefined();
+    expect(param.value).toBe(2);
   });
 });
 

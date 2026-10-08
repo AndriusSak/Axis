@@ -9,6 +9,7 @@
 // Framework-free + fully unit-tested (convertScratch.test.ts). The `.svelte.ts` store stays a thin shell.
 
 import { z } from 'zod';
+import { normFromValue } from './format';
 import type {
   ConversionEvent,
   ConverterBlock,
@@ -73,13 +74,34 @@ export function normalizePosition(
 
 // ── scratch model ─────────────────────────────────────────────────────────────────────────────────
 
+/** Which device write path a param needs. The FM3's write units are PER-OPCODE: a float knob takes the
+ *  CONTINUOUS opcode with a normalized 0..1 position; a discrete enum/model takes the DISCRETE opcode
+ *  with an integer ordinal. Sending a display value on the continuous path clamps ≥1 to 100%, and
+ *  sending a knob fraction on the discrete path is a 400 — so the apply plan must know which is which. */
+export type ParamKind = 'float' | 'enum';
+
+/** A converted param carried through the scratch buffer, ADDITIVELY extended with the write-path
+ *  metadata the apply plan must not guess at runtime: `norm` (the normalized 0..1 knob position — the
+ *  payload of the CONTINUOUS device write) and `kind` (float knob vs discrete enum ordinal). Derived
+ *  from the converter IR at seed ({@link deriveScratchParam}) and kept current on every offline edit
+ *  (the convert editor has the served param, so it always knows the kind). Extra fields are additive:
+ *  every existing `ConverterParam` field (`value`, `paramId`, `min`/`max`/`log`, `enumOptions`, …) is
+ *  untouched. */
+export interface ScratchParam extends ConverterParam {
+  /** Normalized 0..1 knob position, when known. Undefined = no honest position → the plan refuses to
+   *  write it rather than send a display value as a knob fraction. */
+  norm?: number;
+  /** Which write opcode this param needs. */
+  kind?: ParamKind;
+}
+
 export interface ScratchBlock {
   key: string;
   family: string;
   instance: number;
   typeName?: string;
   typeValue?: number;
-  params: ConverterParam[];
+  params: ScratchParam[];
   /** null while the block is unplaced (in the tray). */
   position: { row: number; col: number } | null;
   channels?: number;
@@ -139,6 +161,29 @@ export interface ScratchState {
 
 // ── seeding ──────────────────────────────────────────────────────────────────────────────────────
 
+/** The converter's ordered enum labels, when present and clean (index = ordinal) — mirrors
+ *  `convertParams.enumOptionsOf`, the same predicate the offline editor uses to render a dropdown. */
+function enumOptionsOf(o: Record<string, unknown>): string[] | undefined {
+  const opts = o['enumOptions'];
+  return Array.isArray(opts) && opts.length > 0 && opts.every((x) => typeof x === 'string') ? (opts as string[]) : undefined;
+}
+
+/** Derive a scratch param's write-path metadata (kind + norm) from the converter IR extras. The IR
+ *  carries `enumOptions` for a real dropdown, `normalized` for a known knob position, and `min`/`max`/
+ *  `log` for a display range — nothing is invented here. `norm` stays undefined when no honest position
+ *  is known (an uncalibrated float the apply plan will refuse to write rather than send a display value
+ *  as a knob fraction). */
+export function deriveScratchParam(p: ConverterParam): ScratchParam {
+  const o = p as unknown as Record<string, unknown>;
+  if (enumOptionsOf(o)) return { ...p, kind: 'enum' };
+  const num = (k: string): number | undefined => (typeof o[k] === 'number' && Number.isFinite(o[k] as number) ? (o[k] as number) : undefined);
+  const min = num('min');
+  const max = num('max');
+  const log = o['log'] === true;
+  const norm = num('normalized') ?? (min != null && max != null ? normFromValue(p.value, { min, max, log }) : undefined);
+  return { ...p, kind: 'float', ...(norm != null ? { norm } : {}) };
+}
+
 /** Build a scratch buffer from a conversion result + the resolved target device id. */
 export function seedScratch(
   target: ConverterPreset,
@@ -156,7 +201,7 @@ export function seedScratch(
     instance: b.instance,
     typeName: b.typeName,
     typeValue: b.typeValue,
-    params: b.params.map((p) => ({ ...p })),
+    params: b.params.map((p) => deriveScratchParam(p)),
     position: normalizePosition(b.position, def.kind),
     channels: b.channels
   }));
@@ -421,12 +466,36 @@ export function unplaceBlock(state: ScratchState, blockKey: string): ScratchStat
 }
 
 /** Set one param's value on a block (offline), addressed by its index in the block's `params` array —
- *  the convert surface maps a NamedParam id 1:1 to this index. No-op on an out-of-range index. */
-export function setBlockParam(state: ScratchState, blockKey: string, paramIndex: number, value: number): ScratchState {
+ *  the convert surface maps a NamedParam id 1:1 to this index. No-op on an out-of-range index.
+ *
+ *  `patch` ADDITIVELY carries the write-path metadata the apply plan needs: the convert editor (which
+ *  has the served param) passes `{ norm, kind }` explicitly. When `norm` is absent, it is recomputed
+ *  from the new display `value` + the param's own range so a plain write (e.g. the paste path) can never
+ *  leave a STALE normalized position behind — the apply plan would otherwise send the old norm. A float
+ *  with no honest range keeps its previous norm (undefined stays undefined: no fabricated position). */
+export function setBlockParam(
+  state: ScratchState,
+  blockKey: string,
+  paramIndex: number,
+  value: number,
+  patch: { norm?: number; kind?: ParamKind } = {}
+): ScratchState {
   return patchBlocks(state, (b) => {
     if (b.key !== blockKey) return b;
     if (paramIndex < 0 || paramIndex >= b.params.length) return b;
-    const params = b.params.map((p, i) => (i === paramIndex ? { ...p, value } : p));
+    const params = b.params.map((p, i) => {
+      if (i !== paramIndex) return p;
+      const next: ScratchParam = { ...p, value };
+      if (patch.kind) next.kind = patch.kind;
+      if (patch.norm != null) next.norm = patch.norm;
+      else if ((p.kind ?? 'float') === 'float') {
+        const o = p as unknown as Record<string, unknown>;
+        const min = typeof o['min'] === 'number' ? (o['min'] as number) : undefined;
+        const max = typeof o['max'] === 'number' ? (o['max'] as number) : undefined;
+        if (min != null && max != null) next.norm = normFromValue(value, { min, max, log: o['log'] === true });
+      }
+      return next;
+    });
     return { ...b, params };
   });
 }
@@ -580,11 +649,16 @@ export function buildLibraryDoc(
 
 /** One executable device op. Ordered place → set-type → set-param (a block must exist before its type
  *  is set, and its type before its params). Only emitted when the numeric device address is resolvable
- *  from the IR — see {@link buildApplyPlan}. */
+ *  from the IR — see {@link buildApplyPlan}.
+ *
+ *  A `set-param` op is UNIT-CORRECT: `value` is the exact write payload and `continuous` selects the
+ *  opcode. A float is `{ value: norm, continuous: true }` (the normalized 0..1 position); an enum is
+ *  `{ value: ordinal, continuous: false }` (an integer the discrete path accepts). The op NEVER carries
+ *  a display value on the continuous path (which would clamp ≥1 to 100%). */
 export type ApplyOp =
   | { kind: 'place'; blockKey: string; effectId: number; row: number; col: number }
   | { kind: 'set-type'; blockKey: string; effectId: number; value: number }
-  | { kind: 'set-param'; blockKey: string; effectId: number; paramId: number; value: number };
+  | { kind: 'set-param'; blockKey: string; effectId: number; paramId: number; value: number; continuous: boolean };
 
 export interface ApplyPlan {
   ops: ApplyOp[];
@@ -636,7 +710,22 @@ export function buildApplyPlan(state: ScratchState): ApplyPlan {
         unresolvedParams++;
         continue;
       }
-      params.push({ kind: 'set-param', blockKey: b.key, effectId: eid, paramId: pid, value: p.value });
+      // The kind decides the OPCODE. Prefer the stored kind (set at seed + maintained on edit); fall
+      // back to the IR's own enum marker so a param that bypassed those paths is still classified, never
+      // guessed from the value.
+      const kind = p.kind ?? (enumOptionsOf(p as unknown as Record<string, unknown>) ? 'enum' : 'float');
+      if (kind === 'enum') {
+        // DISCRETE write: the ordinal is the exact integer payload (the server 400s a non-integer).
+        params.push({ kind: 'set-param', blockKey: b.key, effectId: eid, paramId: pid, value: Math.round(p.value), continuous: false });
+      } else {
+        // CONTINUOUS write: the device takes the NORMALIZED 0..1 position, never the display value.
+        // No honest position (uncalibrated IR) → refuse rather than send a display value as a knob.
+        if (p.norm == null) {
+          unresolvedParams++;
+          continue;
+        }
+        params.push({ kind: 'set-param', blockKey: b.key, effectId: eid, paramId: pid, value: p.norm, continuous: true });
+      }
     }
   }
 

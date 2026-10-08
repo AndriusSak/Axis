@@ -647,12 +647,16 @@ class ConvertEditor {
         ? paramValueAtNorm(v, { value: p.value, min: p.min, max: p.max, unit: p.unit, log: p.log })
         : v;
     p.value = stored;
-    convertScratch.setParam(key, p.id, stored);
+    // Carry BOTH the display value AND the write-path metadata: the normalized position (what the
+    // CONTINUOUS opcode takes) + the explicit float kind. The apply plan must never send this display
+    // value as a knob fraction (that clamped every value ≥ 1 to 100%).
+    convertScratch.setParam(key, p.id, stored, { norm: v, kind: 'float' });
   };
   setEnum = (e: EnumParam, value: number) => {
     e.value = value;
     const key = convertScratch.focusKey;
-    if (key) convertScratch.setParam(key, e.id, value);
+    // An enum is a DISCRETE write: the ordinal is the payload (the plan sends it continuous:false).
+    if (key) convertScratch.setParam(key, e.id, value, { kind: 'enum' });
   };
   /** Selected parameter (the ↑/↓ nudge target). Stored for parity with the live surface; the offline
    *  converter has no global arrow-nudge wiring of its own, so this is just selection bookkeeping. */
