@@ -68,8 +68,9 @@ import it directly — no context or props threading.
   extend the existing `case` and reuse the `#eventReload` debounce — do not add
   parallel timers.
 - **Unresolved-value rule (hard).** A parameter value can be **`null`** — ForgeFX reports it when it
-  cannot resolve the value (e.g. a non-positional GLOBAL param it refuses to fabricate). Never coerce it
-  to `0`: that recreates the fabricated-value defect on the client side. `NamedParam.value` /
+  cannot resolve the value (e.g. a GLOBAL pid the body genuinely does not carry — the eid-1 body is
+  pid-indexed and 14,880 records long, so a *missing* record means unknown, never "non-positional").
+  Never coerce it to `0`: that recreates the fabricated-value defect on the client side. `NamedParam.value` /
   `EnumParam.value` / `norm` are `number | null`, formatters render `—`, an unresolved control renders the
   inert `unknownCtl` tile with the server's reason, and no knob/slider/fader arithmetic may turn null into
   `NaN` (guard before the maths, don't default at the maths).
