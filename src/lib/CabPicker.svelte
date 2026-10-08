@@ -3,7 +3,8 @@
   import { catFor } from './catalog';
   import { loadCabIrsCachedFirst } from './cabIrsCache';
   import { forgefx } from './forgefx';
-  import type { CabState } from './types';
+  import { planLibraryMove, libraryCanMove, CAB_LIBRARY_NOTE } from './cabMove';
+  import type { CabState, CabLibraryListEntry } from './types';
 
   const editor = getEditorSurface();
 
@@ -71,6 +72,15 @@
       })
       .catch(() => (cs = null))
       .finally(() => (loading = false));
+    // §2.7 — the IR byte library, best-effort: a failed read must not block the picker (the move
+    // then falls back to the file with a named reason, not a silent failure).
+    forgefx
+      .cabLibrary()
+      .then((l) => {
+        irLib = l.entries;
+        irLibScope = l.scope;
+      })
+      .catch(() => {});
     setTimeout(() => inputEl?.focus(), 0);
   });
 
@@ -281,6 +291,13 @@
   let irBusy = $state(false);
   let irMsg = $state('');
   let irMsgOk = $state(true);
+  // §2.7 — the server-side IR byte library, loaded best-effort when the picker opens. Only IRs
+  // uploaded THROUGH Axis are here (scope is shown verbatim); a move from an unlisted slot still
+  // works by picking the file, it just is not silent about why.
+  let irLib = $state<CabLibraryListEntry[]>([]);
+  let irLibScope = $state('');
+  let irLibMode = $state(false);
+  const canMoveFromLib = $derived(libraryCanMove(irLib, Number(irMoveFrom)));
 
   function onPickIr(e: Event) {
     const f = (e.target as HTMLInputElement).files?.[0] ?? null;
@@ -291,17 +308,41 @@
   }
 
   async function sendIr() {
-    if (!irFile) return;
     const slot = Number(irSlot);
     if (!Number.isInteger(slot) || slot < 1 || slot > 512) {
       irMsgOk = false;
       irMsg = 'Destination must be a user cab slot 1–512. The scratchpad bank is not an upload target on this unit.';
       return;
     }
+    const from = Number(irMoveFrom);
     irBusy = true;
     irMsg = '';
     try {
-      const bytes = new Uint8Array(await irFile.arrayBuffer());
+      // §2.7 — the move's bytes come from the picked FILE, or — when no file is picked and a source
+      // slot is named — from the server-side IR library (preferred for a move, since the IR is already
+      // on the unit and the file may be long gone). When the source is not in the library, say so and
+      // fall back to the file: never fail silently.
+      let bytes: Uint8Array;
+      let usingLib: CabLibraryListEntry | null = null;
+      if (irFile) {
+        bytes = new Uint8Array(await irFile.arrayBuffer());
+      } else {
+        const plan = planLibraryMove(irLib, from, slot);
+        if (!plan.ok) {
+          irMsgOk = false;
+          irMsg = plan.reason;
+          return;
+        }
+        usingLib = plan.entry;
+        const stored = await forgefx.cabLibraryBytes(plan.entry.id).catch(() => null);
+        if (!stored) {
+          irMsgOk = false;
+          irMsg = `The stored bytes for slot ${from} could not be read — pick the IR file instead.`;
+          return;
+        }
+        bytes = new Uint8Array(stored);
+      }
+      const srcNote = usingLib ? `Source: the IR stored by Axis for slot ${from} (“${usingLib.name}”). ` : '';
       const wanted = irRename.trim();
       // Read the destination BEFORE the send, so "did it land" has a baseline. Best-effort: a read that
       // fails must not block the upload, it only weakens the confirmation.
@@ -338,13 +379,12 @@
           verify = `the unit gave no readable state for slot ${slot} (${after.note ?? 'unparsed reply'}) — verify on the unit.`;
         }
       }
-      irMsg = r.ok
+      irMsg = srcNote + (r.ok
         ? `Acknowledged: “${r.name}” → user slot ${slot} (${r.frames} frames; start + ${r.acks.data}/${r.acks.expectedData} data + end acked). ${verify}`
-        : `Sent, but NOT acknowledged: ${r.acks.data}/${r.acks.expectedData} data frames acked, start=${r.acks.start} end=${r.acks.end}. Treat that as a failed upload.`;
+        : `Sent, but NOT acknowledged: ${r.acks.data}/${r.acks.expectedData} data frames acked, start=${r.acks.start} end=${r.acks.end}. Treat that as a failed upload.`);
 
       // MOVE, second half: erase the source — and only when the upload was actually verified as landed on
       // the destination. Erasing after an unverified upload would DELETE the only copy the user has.
-      const from = Number(irMoveFrom);
       if (from > 0) {
         if (!(r.ok && after?.populated === true)) {
           irMsgOk = false;
@@ -412,12 +452,37 @@
         {/if}
         <button class="cat import" title="Upload a user-cab IR .syx to the unit" onclick={() => irInput?.click()} disabled={irBusy}>＋ Import IR…</button>
         <input bind:this={irInput} type="file" accept=".syx" class="hidden-file" onchange={onPickIr} />
+        <button class="cat move" title={`Move an IR Axis has already stored — no file needed. ${CAB_LIBRARY_NOTE}`} onclick={() => { irLibMode = !irLibMode; irMsg = ''; }} disabled={irBusy}>⇄ Move stored IR…</button>
         {#if curSlot}
           <span class="cur" title="Current selection">{mode === 'dyna' ? curSlot.dyna.label : curSlot.irName}</span>
         {/if}
       </div>
 
-      {#if irFile || irMsg}
+      {#if irLibMode && !irFile}
+        <div class="irimport" class:bad={!irMsgOk}>
+          <span class="note lisrcope" title={irLibScope || CAB_LIBRARY_NOTE}>
+            {irLibScope || CAB_LIBRARY_NOTE}
+          </span>
+          <label class="slotfield" title="The 1..512 user slot to MOVE INTO. This OVERWRITES the destination slot.">
+            → user slot
+            <input class="slotnum" type="number" min="1" max="512" bind:value={irSlot} disabled={irBusy} />
+          </label>
+          <label class="slotfield" title="The user slot to move FROM. If that slot's IR is in the Axis library, its stored bytes are re-uploaded and the slot is then erased — no file needed. If it is not, pick the IR file instead (the unit cannot read a slot's samples).">
+            move from
+            <input class="slotnum" type="number" min="1" max="512" bind:value={irMoveFrom} disabled={irBusy} />
+          </label>
+          {#if Number(irMoveFrom) > 0 && canMoveFromLib}
+            <span class="note oknote">slot {irMoveFrom} is in the Axis library — it can be moved without a file.</span>
+          {:else if Number(irMoveFrom) > 0}
+            <span class="note">slot {irMoveFrom} is NOT in the Axis library (it was not uploaded through Axis) — use ＋ Import IR… and pick the file.</span>
+          {/if}
+          <button class="go" onclick={sendIr} disabled={irBusy || Number(irMoveFrom) === 0}>{irBusy ? 'Moving…' : 'Move'}</button>
+          <button class="cancel" onclick={() => { irLibMode = false; irMsg = ''; }} disabled={irBusy}>Cancel</button>
+          {#if irMsg}<span class="note">{irMsg}</span>{/if}
+        </div>
+      {/if}
+
+      {#if irFile || (irMsg && !irLibMode)}
         <div class="irimport" class:bad={!irMsgOk}>
           {#if irFile}
             <span class="fname mono" title={irFile.name}>{irFile.name}</span>

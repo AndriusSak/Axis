@@ -640,6 +640,43 @@ export interface CabIrUploadResult {
   };
 }
 
+/**
+ * One entry in the server-side cab-IR BYTE LIBRARY (§2.7) — the bytes of an IR uploaded THROUGH this
+ * stack, persisted so it can later be moved/restored/re-uploaded without re-picking the file.
+ *
+ * SCOPE: the library holds ONLY IRs uploaded through Axis — the firmware has no slot-samples read, so
+ * IRs that were already on the unit are NOT captured. Never present this as "your cab library".
+ */
+export interface CabLibraryEntry {
+  id: string;
+  /** The name AS SENT in the container (a rename is part of the bytes). */
+  name: string;
+  /** Destination page (0x10–0x13 = the 512 user banks). */
+  page: number;
+  /** Destination index within the page (0–127). */
+  index: number;
+  /** 1..512 user slot when the upload named one, else null. */
+  user: number | null;
+  length: number;
+  sha256: string;
+  savedAt: number;
+  source: 'upload';
+}
+
+/** An entry as listed — `available` is false when its stored blob is missing. */
+export interface CabLibraryListEntry extends CabLibraryEntry {
+  available: boolean;
+}
+
+/** GET /cab/library — the library listing + the honest scope line + the growth cap. */
+export interface CabLibraryListResult {
+  entries: CabLibraryListEntry[];
+  total: number;
+  skipped: number;
+  cap: number;
+  scope: string;
+}
+
 /** Cab block state for the IR picker (GET /preset/blocks/:eid/cab). */
 export interface CabState {
   modeParam: number;

@@ -41,7 +41,9 @@ import type {
   ConvertExportResponse,
   ConverterPreset,
   CabSlotStateResult,
-  CabSlotClearResult
+  CabSlotClearResult,
+  CabLibraryListResult,
+  CabLibraryListEntry
 } from './types';
 import { rangeQuery, type RangeTrace } from './rangeTrace';
 
@@ -543,6 +545,26 @@ export const forgefx = {
     }
     return req<CabSlotClearResult>(`/cab/slots/clear?${qs}`, { method: 'POST' });
   },
+
+  /**
+   * §2.7 — the server-side cab-IR BYTE LIBRARY: the IRs this stack has uploaded, kept so they can be
+   * moved/restored/re-uploaded without the user re-picking the file. READ-ONLY.
+   *
+   * SCOPE: only IRs uploaded THROUGH Axis are here. The firmware cannot read a slot's samples, so IRs
+   * that were already on the unit are NOT captured — surface `scope` verbatim, never "your library".
+   */
+  cabLibrary: () => req<CabLibraryListResult>('/cab/library'),
+  /** The stored .syx bytes of one library entry (GET /cab/library/:id/bytes). */
+  cabLibraryBytes: (id: string) =>
+    isDirect()
+      ? transportBinary(`/cab/library/${encodeURIComponent(id)}/bytes`, 'GET').then((r) => asArrayBuffer(r.body))
+      : fetch(`${BASE}/cab/library/${encodeURIComponent(id)}/bytes`, { signal: AbortSignal.timeout(12000) }).then((r) => {
+          if (!r.ok) throw new ForgeError(r.status, `cab library bytes → ${r.status}`);
+          return r.arrayBuffer();
+        }),
+  /** The newest AVAILABLE library entry stored for a 1..512 user slot, or null. */
+  cabLibraryEntryFor: (user: number): Promise<CabLibraryListEntry | null> =>
+    forgefx.cabLibrary().then((l) => l.entries.find((e) => e.user === user && e.available) ?? null),
 
   /** Current cab block state (mode / per-slot bank + IR + dyna type) for the picker. */
   cabState: (eid: number) => req<CabState>(`/preset/blocks/${eid}/cab`),

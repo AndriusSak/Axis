@@ -217,6 +217,30 @@ Each item names its blocker and what closing it would require.
   diff reports 600+ "changes" that are nothing but that drift, hiding any real one inside the noise.
   `scripts/probe-cab-subs.ts` and `scripts/probe-cab-data-read.ts` are the probes themselves.
 
+- **§2.7 server-side cab-IR BYTE LIBRARY — the bytes of IRs uploaded THROUGH Axis, persisted so they can
+  be moved / restored / re-uploaded without re-finding the file (2026-10-08).** A user-cab **move** is a
+  device-side no-op: FM3-Edit performs it as two container uploads (the IR re-uploaded to the
+  destination, the source blanked — §2.5d), so it needs the IR's **bytes**. Today those bytes exist only
+  in the file the user picked, so once an IR is on the unit the stack cannot move it without the user
+  re-finding that file.
+  **Storage:** no database, no new dependency. On a verified upload (`ok` — every frame acked AND the
+  close answered `0x00`) the driver's `uploadCabIr` result triggers `saveCabIr`, which writes one
+  metadata doc per entry into the store collection `cabLibrary` (an index — `store/cabLibrary.json` on
+  Node) and the bytes as a **content-addressed blob** `cab-<sha256>` in the same blob dir the preset
+  versions use (identical bytes stored once). It survives a restart and skips + counts a malformed /
+  partial entry rather than crashing a read; an entry whose blob is missing lists `available:false` and
+  its bytes route 404s. A **discarded** upload (`ok:false`) is NOT stored — a move must not resurrect an
+  IR the unit rejected. **Cap: 200 entries** (`CAB_LIBRARY_MAX`), oldest evicted, blob GC'd when
+  unreferenced.
+  **SCOPE — the failure mode this avoids:** there is no slot-DATA read (§2.5f), so the library holds
+  **only IRs uploaded through Axis**. IRs that were already on the unit (e.g. a preloaded "Res Psycho"
+  set) are **not** captured. Every surface says so verbatim (`CAB_LIBRARY_SCOPE`) — never "your cab
+  library". **Shipped:** `ForgeFX/server/src/runtime/cabLibrary.ts`, `GET /cab/library` +
+  `GET /cab/library/:id/bytes` on **both** route surfaces (plain GET reads — not in the write gate, not
+  in the remote-refusal list), and Axis's IR strip gains a **"⇄ Move stored IR…"** panel that prefers the
+  stored bytes (no file needed) and, when the source slot is not in the library, says so and falls back
+  to ＋ Import IR… — never fails silently (`src/lib/cabMove.ts`).
+
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":
   1. the offline cache builds `cabIrs` from **FACTORY 1/2 + LEGACY only** — `CAB_BANK_IDS` deliberately
