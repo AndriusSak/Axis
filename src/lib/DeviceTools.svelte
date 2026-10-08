@@ -6,6 +6,7 @@
   import { forgefx } from './forgefx';
   import { describeSpan, classifyRow, isMismatch, summarize, type RangeTrace } from './rangeTrace';
   import type { SyxDecodeResult } from './types';
+  import PerformPagePanel from './PerformPagePanel.svelte';
 
   // Loose display view over the gen-3 modifier-model DTO.
   type ModView = {
@@ -275,6 +276,8 @@
           {/if}
         </section>
       {/if}
+
+      <PerformPagePanel />
 
       <section>
         <h3>Range trace — why a control is missing</h3>

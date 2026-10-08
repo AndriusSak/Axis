@@ -464,6 +464,39 @@ export interface PresetModifier {
   slot: number | null;
 }
 
+/**
+ * One slot of a preset's PER-PRESET PERFORMANCE PAGE (§2.2), decoded from the decompressed body by the
+ * codec and served READ-ONLY by ForgeFX `GET /preset/perform`.
+ *
+ * A slot with `effectId === 0` is UNASSIGNED — and its `paramLabel` still holds STALE text from
+ * whatever occupied the slot before (measured: "ate" = the tail of "Rate"). Render the labels ONLY
+ * when `effectId !== 0`; otherwise show the slot as unassigned.
+ */
+export interface PerformSlot {
+  /** 1-based, as the editor numbers the ten slots. */
+  slot: number;
+  /** The effect id the slot points at, or 0 when unassigned. */
+  effectId: number;
+  /** The param id within that effect, or 0 when unassigned. */
+  paramId: number;
+  /** Effect label from the body's first label block ("AMP", "DLY1", "REV") — '' when absent/not text. */
+  effectLabel: string;
+  /** Param label from the second label block ("Master Volume", "Feedback"). Truncated at the 32-byte
+   *  slot for long names, and meaningless when the slot is unassigned (stale text). */
+  paramLabel: string;
+  /** Extra text from the remainder of the slot's second-block window — reported, never asserted. */
+  paramLabel2: string;
+}
+
+/** A preset's per-preset Performance Page (ForgeFX `GET /preset/perform`, READ-ONLY). */
+export interface PerformPage {
+  /** Offset of the effect-id table in the decompressed body (diagnostic). */
+  at: number;
+  slots: PerformSlot[];
+  /** How many of the ten slots are assigned. */
+  assigned: number;
+}
+
 /** A unique effect block in a preset (for the library/browser). */
 export interface PresetSummaryBlock {
   effectId: number;

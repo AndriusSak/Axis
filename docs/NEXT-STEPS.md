@@ -305,9 +305,12 @@ Each item names its blocker and what closing it would require.
   device-bound restore stream. Caveats that remain, all measured: a label longer than 32 bytes is truncated
   ("Proximity Frequ"); an unassigned slot keeps STALE text from whatever occupied it before, so a label means
   nothing unless the eid is non-zero.
-  **Still to do, not claimed:** nothing shows this in Axis yet — there is no route and no UI. The write test
+  **READ is now shown in Axis (2026-10-08):** the read-only route `GET /preset/perform` (shared handler
+  `performPageH` in `runtime/handlers.ts`, registered on BOTH surfaces) and the Device-Tools panel
+  `PerformPagePanel.svelte` (via `forgefx.performPage()`). Unassigned slots (effectId 0) render as
+  "unassigned" — their stale label text is blanked by `performPageView.ts`. The write test
   targeted the EDIT BUFFER deliberately (never a stored slot), so writing a *saved* preset slot is proven
-  only as far as the edit buffer is.
+  only as far as the edit buffer is; there is still no in-app WRITE UI for the page.
 - **§3.8 per-preset FC definitions** — blocked on the same body decode as §2.2.
 - **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
   Do not build.

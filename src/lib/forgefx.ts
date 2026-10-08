@@ -25,6 +25,7 @@ import type {
   ModModel,
   PresetModifier,
   PresetSummary,
+  PerformPage,
   DecodedBlock,
   VersionInfo,
   CloudVersion,
@@ -373,6 +374,10 @@ export const forgefx = {
    *  path) so the editor simply shows no existing-assignment info. Curve values come from the slot's
    *  raw block (rawBlock(modModel.effectId + slot - 1)). */
   presetModifiers: () => capOptional(req<{ modifiers: PresetModifier[] }>(`/preset/modifiers`)),
+  /** Per-preset Performance Page of the CURRENT edit buffer (READ-ONLY, §2.2) — ten assigned
+   *  controls with their effect/param ids + labels. `null` when the preset has no page; 501→null on a
+   *  device that can't read it. A slot with effectId 0 is UNASSIGNED (its labels are stale). */
+  performPage: () => capOptional(req<PerformPage | null>(`/preset/perform`)),
   /** Current FC switch state via the sub-0x01 structured config-selector read. tap/hold each carry a
    *  `present` flag (the device returned a record matching the requested config/side) and the raw 78-byte
    *  response body. config/side are device-confirmed; interior field bytes are not yet decoded. */
