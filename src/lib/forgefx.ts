@@ -469,26 +469,26 @@ export const forgefx = {
   /** Cab IR names per bank (Factory 1/2, Legacy, Scratchpad) — for the cab IR picker. */
   cabIrs: (opts: { refresh?: boolean } = {}) => req<Record<string, string[]>>(`/cab/irs${opts.refresh ? '?refresh=1' : ''}`),
   /**
-   * Upload a user-cab IR `.syx` container to the unit (§2.5). The bytes are replayed verbatim unless
-   * `name` is given (then the 32 name slots are rewritten, flag bits preserved).
+   * Upload a user-cab IR `.syx` container to the unit (§2.5). The frames are the editor's own stream;
+   * only the 0x7A destination field is written.
    *
-   * ⚠ MEASURED-REFUSED: replaying a real FM3-Edit IR export on fw 13 drew a `0x64` refusal on EVERY
-   * frame (fn=0x7A → result 0x16, fn=0x7B → result 0x10 bad message length), so the container is not
-   * accepted as-is and the device's real IR-upload opcodes are still uncaptured. The server therefore
-   * refuses the request unless `allowUnverified` is set — and even then `ok` means SENT, not stored:
-   * there is no cab-name read-back on this firmware, so only the slot name on the unit is confirmation.
+   * `user` (1..512) is REQUIRED in practice: the export container carries a "no destination" sentinel
+   * and the unit REFUSES it — measured, along with every scratchpad target (the scratchpad bank is not
+   * an upload destination at all). A user slot is a REAL write: it overwrites that cabinet IR.
    *
-   * `target` is the UNVERIFIED retarget experiment (the only specimen carries the `7F 7F`
-   * "no destination" sentinel) — omit it and the destination is whatever cab slot the unit has
-   * selected, which is the device's own documented workflow.
+   * `name` rewrites the 32 name slots and is gated server-side (`force=1`) because the close frame's
+   * value is carried verbatim and whether it covers the name is untested. `ok` is ack-backed — report
+   * "acknowledged", never "installed".
    */
-  uploadCabIr: (bytes: ArrayBuffer | Uint8Array, opts: { name?: string; target?: number; order?: 'msb' | 'lsb'; allowUnverified?: boolean } = {}) => {
+  uploadCabIr: (bytes: ArrayBuffer | Uint8Array, opts: { user?: number; scratchpad?: number; page?: number; index?: number; name?: string; allowUnverified?: boolean } = {}) => {
     const qs = new URLSearchParams();
     if (opts.allowUnverified) qs.set('force', '1');
     if (opts.name != null && opts.name !== '') qs.set('name', opts.name);
-    if (opts.target != null) {
-      qs.set('target', String(opts.target));
-      if (opts.order) qs.set('order', opts.order);
+    if (opts.user != null) qs.set('user', String(opts.user));
+    else if (opts.scratchpad != null) qs.set('scratchpad', String(opts.scratchpad));
+    else if (opts.page != null && opts.index != null) {
+      qs.set('page', String(opts.page));
+      qs.set('index', String(opts.index));
     }
     const url = `/cab/ir/upload${qs.toString() ? `?${qs}` : ''}`;
     const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);

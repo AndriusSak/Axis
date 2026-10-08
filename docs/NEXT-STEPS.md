@@ -56,42 +56,22 @@ Each item names its blocker and what closing it would require.
   read path** as the original, so it proves the write landed, not that the original was captured.
   Closing requires an independent read (front panel).
 - **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck.
-- **§2.5 user-cab IR upload — the wire path is MEASURED-REFUSED; the real opcodes are uncaptured.**
-  Built and load-tested 2026-10-08 on a real FM3-Edit export (`U1.001_LT_TV_Mix_7.syx`, 10,345 B,
-  model `0x11`, all 10 checksums valid). What the container IS, measured: `1 × fn=0x7A` + `8 × fn=0x7B`
-  + `1 × fn=0x7C`; each data frame is a 2-byte prefix plus 256 five-byte chunks (32-bit value as 5
-  LSB-first septets); chunks 0–7 of the first data frame are the **32-char name** ("LT TV Mix 7", bit 7
-  of a slot is a flag of unverified meaning); the remaining **2040 chunks are sample slots whose encoding
-  is NOT decoded** (not plausible PCM/float32 under any alignment tried). The `0x7C` payload is a
-  5-septet value no candidate algorithm reproduced. `forgefx-midi/devices/gen3/cabIrSyx.ts` parses,
-  replays verbatim, renames (flags preserved) and can retarget `0x7A`; `POST /cab/ir/upload` +
-  the CabPicker import strip are wired; `scripts/upload-cab-ir.ts` is the load-test instrument
-  (dry-run by default, listens to the inbound stream).
-  **The negative:** sending the frames verbatim drew a `0x64` on **every frame** — `fn=0x7A` → result
-  `0x16`, all eight `fn=0x7B` → result **`0x10` (bad message length)**, `fn=0x7C` likewise. So the
-  export container is **not accepted as-is**, and the gen-2 `0x7A/0x7B/0x7C` IR-download family
-  (the wiki documents it for the **Axe-Fx II** only) is **not what the FM3 listens for**.
-  **The guessing space is now closed (probed 2026-10-08, `scripts/probe-opcode-map.ts`):** a sweep of
-  every function byte with an EMPTY payload shows only **8 fns return real data** (0x01, 0x08, 0x0d,
-  0x0e, 0x13, 0x14, 0x47, 0x64 — exactly the documented gen-3 commands; 0x04/0x6d/0x6e/0x6f are silent,
-  the rest answer a `0x64`). The result **code is a function of the fn byte alone and does not change
-  with the payload** — 0x7A returns its code for all 12 start-frame shapes tried, 0x7B returns "bad
-  message length" for every length from 2 to 1282 bytes, and cab-number-addressed probes (0x75/0x78 and
-  the neighbourhood, 1-byte + both 14-bit orders × cab 1/1024) never produce a data reply. So the device
-  rejects those frames *before* reading their contents: **no payload-shape experiment can find the real
-  IR opcode**, and the result-code LABELS (AxeEdit III's string table) must not be read as meaning — an
-  empty payload makes 0x78, a demonstrable preset-chunk opcode, report "invalid cab number".
-  The driver therefore **fails closed** (`uploadCabIr` refuses unless `allowUnverified`; route:
-  `?force=1`) — a caller cannot push refused frames at a unit and read `{ok:true}` as success.
-  **Closing requires a CAPTURE of FM3-Edit / Fractal-Bot actually loading an IR onto the unit** (and,
-  for the missing name oracle, of the editor's cab-list refresh) — the real opcodes and frame lengths
-  exist only in that stream. Do not re-derive them from the gen-2 wiki page.
-  Two side facts that stand: **`fn=0x12` GET_CAB_NAME is refused by fw 13** (so no cab-name read oracle —
-  confirmation is a human looking at the slot), and the device's own workflow stores to the cab slot the
-  unit has **selected**, so a test must aim the Cab block first (`--select-scratchpad N` in the
-  instrument, which puts the selection back afterwards). A `.syx` measuring
-  1×`0x77`+16×`0x78`+1×`0x79` = 49,336 B is a **preset**, not an IR — that mistake has already been made
-  once.
+- **§2.5 user-cab IR upload — SOLVED (captured + load-tested 2026-10-08).** The `.syx` export IS the
+  wire stream: a USBPcap capture of FM3-Edit 1.07.16 loading an IR onto fw 13.0 shows `0x7A` + 8×`0x7B`
+  (byte-identical to the file) + `0x7C`, each answered `0x64 <fn> 00 <fn&0x0f>`. The **only** difference
+  from the export is the start frame's first two bytes: the file carries `7F 7F` ("no destination") and
+  the editor writes a real `[index, page]` — page `0x10`–`0x13` = the 512 user banks, `0x20` =
+  scratchpad. Load test: sending the file's frames with a written destination drew the **same acks the
+  editor gets** (start + 8 data + end), so `uploadCabIr` now requires a destination, **refuses the
+  scratchpad** (measured-refused in every probe, as is the `7F 7F` sentinel), and reports `ok` from the
+  acks rather than from "the frames were handed over".
+  **Still open:** (a) a **rename** has never been run on hardware — the name lives in the first data
+  frame while the `0x7C` value is carried verbatim, so the driver gates it behind `allowUnverified`;
+  (b) there is still **no cab-name read-back**: `fn=0x12` is refused, and the editor's catalogue read
+  (`fn=0x01 sub=0x4B`, once per slot, same `[index, page]` pair) returns 60 bytes whose encoding is
+  **not decoded** (no plain-ASCII or simple transform matches a known name) — so confirmation stays a
+  human looking at the slot. Do not re-derive any of this from the gen-2 wiki page.
+
 
 **Blocked on a capture / fixture (offline-possible once provided)**
 

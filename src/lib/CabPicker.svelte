@@ -149,21 +149,21 @@
   }
 
   // ── user-cab IR import (§2.5) ──────────────────────────────────────────────────────────────────
-  // The server replays the .syx container's frames to the unit. Two things this UI must NOT imply:
-  //  • the destination is NOT in the file (the measured container carries the `7F 7F` "no
-  //    destination" sentinel) — the unit stores to the cab slot IT has selected, which is the
-  //    device's own documented workflow, so the current Bank/IR slot is named in the strip;
-  //  • `ok` means the frames were SENT. There is no cab-name read-back on this firmware, so the
-  //    slot's name on the unit is the confirmation — and the list below cannot show it, because
-  //    user-slot names are not readable over the wire.
+  // The upload replays the .syx container's own frames and writes ONE field: the 0x7A destination.
+  // Two things this UI must say plainly, both measured:
+  //  • the destination is REQUIRED — the export carries a "no destination" sentinel and the unit
+  //    refuses it, and it refuses every scratchpad target too. Only user slots 1..512 are accepted,
+  //    and writing one OVERWRITES that cabinet IR;
+  //  • the result is the device's own frame-by-frame acknowledgement. That is the same evidence
+  //    FM3-Edit relies on, but this firmware cannot read a slot's name back, so it means
+  //    "acknowledged" — never "installed".
   let irInput = $state<HTMLInputElement | null>(null);
   let irFile = $state<File | null>(null);
   let irRename = $state('');
+  let irSlot = $state<number>(1);
   let irBusy = $state(false);
   let irMsg = $state('');
   let irMsgOk = $state(true);
-  /** The upload path is measured-REFUSED on fw 13; sending needs an explicit opt-in (see the strip). */
-  let irForce = $state(false);
 
   function onPickIr(e: Event) {
     const f = (e.target as HTMLInputElement).files?.[0] ?? null;
@@ -175,13 +175,27 @@
 
   async function sendIr() {
     if (!irFile) return;
+    const slot = Number(irSlot);
+    if (!Number.isInteger(slot) || slot < 1 || slot > 512) {
+      irMsgOk = false;
+      irMsg = 'Destination must be a user cab slot 1–512. The scratchpad bank is not an upload target on this unit.';
+      return;
+    }
     irBusy = true;
     irMsg = '';
     try {
       const bytes = new Uint8Array(await irFile.arrayBuffer());
-      const r = await forgefx.uploadCabIr(bytes, { name: irRename.trim() || undefined, allowUnverified: irForce });
-      irMsgOk = true;
-      irMsg = `Sent “${r.name}” — ${r.frames} frames / ${r.bytes} bytes. This wire path is measured-REFUSED on fw 13 and Axis cannot read user-slot names back at all: check the slot name on the unit before believing it landed.`;
+      const wanted = irRename.trim();
+      const r = await forgefx.uploadCabIr(bytes, {
+        user: slot,
+        name: wanted || undefined,
+        // a rename is the only path the server gates: the close frame's value is carried verbatim
+        allowUnverified: wanted !== '',
+      });
+      irMsgOk = r.ok;
+      irMsg = r.ok
+        ? `Acknowledged: “${r.name}” → user slot ${slot} (${r.frames} frames; start + ${r.acks.data}/${r.acks.expectedData} data + end acked). Check the slot on the unit — this firmware cannot read names back.`
+        : `Sent, but NOT acknowledged: ${r.acks.data}/${r.acks.expectedData} data frames acked, start=${r.acks.start} end=${r.acks.end}. Treat that as a failed upload.`;
       irFile = null;
     } catch (err) {
       irMsgOk = false;
@@ -241,11 +255,11 @@
         <div class="irimport" class:bad={!irMsgOk}>
           {#if irFile}
             <span class="fname mono" title={irFile.name}>{irFile.name}</span>
-            <input class="rename" bind:value={irRename} maxlength="32" placeholder="rename (optional, 32 chars)" />
-            <span class="dest mono" title="The unit stores to the cab slot it has selected — the container itself carries no destination">→ selected slot {slot + 1} · {bank}</span>
-            <label class="force" title="Measured on fw 13: the unit refuses a verbatim replay of an FM3-Edit IR export — every frame drew a 0x64 (fn=0x7A → 0x16, fn=0x7B → 0x10 bad message length). Ticking this sends anyway, to measure the refusal.">
-              <input type="checkbox" bind:checked={irForce} /> unverified
+            <label class="slotfield" title="User cab slots 1–512. The scratchpad bank is NOT an upload destination on this unit, and this OVERWRITES the slot you name.">
+              → user slot
+              <input class="slotnum" type="number" min="1" max="512" bind:value={irSlot} disabled={irBusy} />
             </label>
+            <input class="rename" bind:value={irRename} maxlength="32" placeholder="rename (optional, 32 chars)" />
             <button class="go" onclick={sendIr} disabled={irBusy}>{irBusy ? 'Sending…' : 'Send to unit'}</button>
             <button class="cancel" onclick={() => { irFile = null; irMsg = ''; }} disabled={irBusy}>Cancel</button>
           {:else}
@@ -617,23 +631,28 @@
     padding: 5px 9px;
     outline: none;
   }
-  .irimport .dest,
   .irimport .note {
     color: var(--textmuted);
     font-size: 11px;
   }
-  .irimport .force {
+  .irimport .slotfield {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 5px;
     flex: none;
     font-size: 11px;
-    color: var(--amber, #d9a34a);
-    cursor: pointer;
-    user-select: none;
+    color: var(--textmuted);
+    white-space: nowrap;
   }
-  .irimport .force input {
-    margin: 0;
+  .irimport .slotnum {
+    width: 58px;
+    background: var(--surface);
+    border: 1px solid var(--surface-3);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 12px;
+    padding: 4px 6px;
+    outline: none;
   }
   .irimport .note {
     flex: 1;

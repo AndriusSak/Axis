@@ -520,9 +520,10 @@ export interface CabSlot {
 /**
  * Result of a user-cab IR upload (POST /cab/ir/upload).
  *
- * `ok` means the frames were SENT — not that the unit stored them: the upload is a paced send and
- * this firmware has no cab-name read-back (`fn=0x12` is refused), so the only confirmation is the
- * slot name on the unit itself. Never surface this as "IR installed".
+ * `ok` is ACK-BACKED: the server listens during the paced send and reports the device's frame-by-frame
+ * acknowledgements (the same reply shapes FM3-Edit's own upload draws). `ok` means every expected frame
+ * was acknowledged — NOT that the IR is installed or sounds right; nothing on this firmware reads a
+ * slot's name back. Say "acknowledged".
  */
 export interface CabIrUploadResult {
   ok: boolean;
@@ -535,8 +536,19 @@ export interface CabIrUploadResult {
   /** Sample slots carried (2040 on the measured FM3 geometry). */
   sampleSlots: number;
   renamed: boolean;
-  /** Present only for the UNVERIFIED target experiment (`?target=`). */
-  retargeted?: { target: number; order: 'msb' | 'lsb' };
+  /** The destination written into the 0x7A start frame: `[index, page]`; page 0x10–0x13 = user banks. */
+  dest: { page: number; index: number };
+  /** Frame-by-frame acknowledgements from the unit. */
+  acks: {
+    start: boolean;
+    data: number;
+    expectedData: number;
+    end: boolean;
+    complete: boolean;
+    /** Raw `[echoed fn, code]` pairs. Do NOT read these through a label table — the labels in this
+     *  codebase are an assumed mapping and contradict the device (accepted frames carry code 0x00). */
+    codes: { fn: number; code: number }[];
+  };
 }
 
 /** Cab block state for the IR picker (GET /preset/blocks/:eid/cab). */
