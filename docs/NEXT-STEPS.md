@@ -72,10 +72,25 @@ Each item names its blocker and what closing it would require.
   not corrupt, which is the property that was in doubt.)
   **Still open:** (a) a **rename** has never been run on hardware — the name lives in the first data
   frame while the `0x7C` value is carried verbatim, so the driver gates it behind `allowUnverified`;
-  (b) there is still **no cab-name read-back**: `fn=0x12` is refused, and the editor's catalogue read
-  (`fn=0x01 sub=0x4B`, once per slot, same `[index, page]` pair) returns 60 bytes whose encoding is
-  **not decoded** (no plain-ASCII or simple transform matches a known name) — so confirmation stays a
-  human looking at the slot. Do not re-derive any of this from the gen-2 wiki page.
+  (b) there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state read-back** —
+  see below. Do not re-derive any of this from the gen-2 wiki page.
+
+- **§2.5b per-slot cab state — the read-back that exists, measured from the editor's own refresh and
+  confirmed live (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
+  upload's start frame (byte 12 = index, byte 13 = page; `0x10`–`0x13` user banks, `0x20` scratchpad);
+  the editor issues it for all 528 slots (512 user + 16 scratchpad) and each draws a 60-byte `01 4B`
+  reply. Decoded from that reply: **payload byte 6 is `0x01` for a POPULATED slot and `0x7F` for an empty
+  one**, and payload bytes 15–29 are a **content-derived region** — the two slots holding the same IR
+  (U0001 and U0012) share it byte for byte, while all 500 empty user slots and all 16 empty scratchpad
+  slots share one identical payload. Confirmed on the live unit with
+  `scripts/probe-cab-slot-state.ts`: U0001–U0012 `0x01`, U0013+ and the scratchpad `0x7F`, 0 silent.
+  **What this does and does not give:** it can confirm *a named slot is populated and matches the
+  fingerprint of the source slot* — the fail-closed confirmation the load test was missing — but it is
+  **not a name oracle**: no 4-per-5-septet, 8-per-7 or plain-7-bit decoding at any offset yields the known
+  name, the region's algorithm is unknown, and bytes 28–29 moved between the capture and the live read
+  (volatile — do not treat them as content). Report **"populated"**, never "holds `<name>`". Natural next
+  increment: a read-only `queryCabSlot` driver method + route that returns the raw flag/region and the
+  measured populated/empty reading.
 
 
 **Blocked on a capture / fixture (offline-possible once provided)**
