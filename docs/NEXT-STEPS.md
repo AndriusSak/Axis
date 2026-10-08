@@ -72,6 +72,13 @@ Each item names its blocker and what closing it would require.
 
 **Blocked on a decision**
 
+- **A scale-1 OFFSET enum would display its selected option one off, if it were ever served (latent —
+  measured 2026-10-08).** `GLOBAL/7389` (options `["1 SECOND","2 SECONDS",…]`) has body raw `2` while the
+  panel shows **"2 SECONDS"**: the stored value is the DISPLAY value, not a 0-based index. The client builds
+  its option list ordinal-indexed and shows the label at that index, so a served `2` would render the *third*
+  option. It is unserved today (76 GLOBAL params are served; 7389 is not), so nothing misbehaves. **Closing
+  requires deciding the serving contract for offset selectors** (serve the display value and index labels by
+  `value − displayMin`) — a `src/` change, no capture needed, panel is the oracle.
 - **Repeated-query-key surface divergence.** `?eid=1&eid=2` → Fastify **400** but the browser
   router **200**, on `/preset/monitors/live`, `/preset/looper` and `/fc/state`; pinned by the
   `route-parity` test (app 400 / router 200 per route). Closing requires unifying the query
@@ -97,6 +104,18 @@ Each item names its blocker and what closing it would require.
 ## Decisions index
 
 One line per recorded decision. ADRs live in `docs/decisions/`.
+
+- **A front-panel edit to a GLOBAL param IS reflected, while the Setup screen is open — measured 2026-10-08,
+  and NOT a defect.** The edit watch re-reads the **open block**; the Setup rail item is `{ eid: 1,
+  slug: 'global' }` (`ToolRail.svelte`), so opening that screen calls `blockParams(1)` and that call is what
+  arms eid 1 (`gen3.ts` `#watchedEid`). Armed, turning Mini Display/Ring Brightness emitted
+  `{"type":"param","effectId":1,"paramId":7115,"norm":0.64…}` twice as the knob moved — traffic P16's stride
+  fix is what makes that diff possible at all. **Do NOT add a blind GLOBAL poll:** the eid-1 body is 14,880
+  records, so polling it every tick costs far more than arming it on demand. (An earlier revision of a note
+  here called this a gap; that reading came from a test that never armed eid 1 — the instrument was wrong.)
+- **SSE clients must ARM a session.** A bare `GET /events` receives `: connected` and heartbeats and nothing
+  else; the edit watch and telemetry start once any route has touched the device (`GET
+  /preset/blocks/:eid/params` is enough). A test that skips that step reports a false "nothing is emitted".
 
 - `docs/decisions/0000-template.md` — the ADR template (not a decision).
 - `docs/decisions/0001-claude-code-setup.md` — Claude Code setup for Axis: shared guardrails for
