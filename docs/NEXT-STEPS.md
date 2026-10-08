@@ -44,14 +44,41 @@ before touching the device, not after.
 
 Each item names its blocker and what closing it would require.
 
+**INCIDENT (2026-10-08) — read `ForgeFX/docs/incident-2026-10-08.md` before probing this unit**
+
+- Blind probing of the **firmware-update function family** (`fn=0x7D/0x7E/0x7F/0x79`) left the FM3 in its
+  bootloader showing *"Updating Firmware / Transfer Error / Please reboot the device and try again"*; it
+  recovered on a power cycle. The triggering frame is **not established** (no frame tap had been captured).
+  Consequences in force: a **hard guard** refuses firmware-family frames from every probe script unless
+  `--allow-firmware-family` is passed, every hardware probe now writes a **frame tap**, and no unmeasured
+  function byte may be sent to a unit holding a library.
+
+**Open — surfaced by the capture analyser (2026-10-08)**
+
+- **Three `fn=0x01` sub-actions the editor uses constantly are UNMAPPED** — `0x03` (the dominant one: 2786
+  frames in the upload capture, 582 in the refresh), `0x1b`, `0x2e`. They appear in every capture of FM3-Edit
+  talking to the unit and none of them is decoded; `0x03` carries what looks like a per-eid byte
+  (`... 01 03 01 3a ...`, `3a` = amp) and polls at a high rate. They are NOT cab-slot sub-actions. Not
+  interpreted — listed as unmapped by `scripts/analyze-cab-capture.ts`, which is how they were found.
+
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
-- **The `0x64` latency question is mis-framed (Q5).** The probe's deliberate invalid write (bogus
-  eid 16382) produces **no `0x64` at all** — the FM3 *silently ignores* an unknown eid rather than
-  refusing it — so the late-rejection window cannot be measured this way. **Closing requires a
-  write that actually provokes a refusal.** The finding that matters and stands: **absence of a
-  refusal is not acceptance** — a silently-ignored write and an accepted write look identical to a
-  client waiting for a refusal.
+- **The `0x64` write-refusal latency question (Q5) — MEASURED 2026-10-08, and the framing was wrong twice
+  over.** The probe now runs **two arms**, and both were run on the unit (3 times, consistent):
+  1. **an unknown effect id** (bogus eid 16382) — NOT refused: the device answers with a reply frame
+     **1–2 ms** after the write, and that reply is **not an echo of what was sent** (asked for value
+     0, the reply carries different value bytes). So it is neither a refusal nor an acceptance;
+  2. **a REAL param with an OUT-OF-RANGE value** (Cab 2 Mute/Solo, a 3-option enum, written 900) — also
+     NOT refused: it replies in **12–14 ms**, and the read-back shows the unit **stored 2** — the value
+     was **silently CLAMPED and applied**, replacing what was sent.
+  **So neither arm provokes a `0x64`, and the FM3's answer to a bad write is SUBSTITUTION, not rejection.**
+  The 250 ms write-confirm window is **not marginal**: every reply arrived in **1–14 ms** — but note that
+  250–266 ms is what a `request()` *reports*, because the transport resolves on a **quiet gap** and does
+  not timestamp frames; the probe now times arrivals itself (via `onFrame`), which is the only reason the
+  real number is known. The item's own lesson stands and is now sharper: **absence of a refusal is not
+  acceptance** — and, worse, a non-refusal reply is not evidence the value you sent is the value in force.
+  **What closing the refusal path itself would still require:** a write the device genuinely rejects
+  (probably not reachable from the param-write opcode), or the editor's own refusal handling captured.
 - **§3.7 Cab 2 Mute/Solo write** — the probe measured it ("matches expectation") but on the **same
   read path** as the original, so it proves the write landed, not that the original was captured.
   Closing requires an independent read (front panel).
@@ -152,15 +179,23 @@ Each item names its blocker and what closing it would require.
 
 - **§2.5f is there a slot-DATA read (or a user-slot name)? — PROBED 2026-10-08, boundary now measured.**
   Two families were swept, read-shaped and bounded, guarded by a full before/after bank snapshot:
-  1. **`fn=0x7D/0x7E/0x7F/0x79` with the `[index, page]` pair** (the neighbours of the upload trio
-     `0x7A/0x7B/0x7C`, in both measured payload shapes) — **every one REFUSED with `0x64`**. There is no
-     read counterpart to the upload trio at those fns.
+  1. ~~**`fn=0x7D/0x7E/0x7F/0x79` with the `[index, page]` pair** — every one REFUSED with `0x64`~~ —
+     **WITHDRAWN as evidence about cabs (2026-10-08).** Those function bytes are the **FIRMWARE-UPDATE
+     family**, not cab opcodes: their refusals carry **image codes** (`0x11` image size incorrect, `0x14`
+     buffer overrun), and probing them blind left the unit in its bootloader demanding a reboot (see the
+     incident note below and `ForgeFX/docs/incident-2026-10-08.md`). They refuse a *cab-shaped* payload
+     because it is not a firmware image — which says nothing about cabs either way. **No conclusion about a
+     cab slot-data read may rest on this arm.**
   2. **`fn=0x01` sub-actions adjacent to the state query** — `0x4A`, `0x4C`, `0x4D`, `0x4E` are all
      IMPLEMENTED and answer, but **none carries a name or slot data**: `0x4A`/`0x4E` are identical for
      every slot including empty ones, `0x4D` is identical across slots (33 bytes), and `0x4C` varies per
      slot but contains no readable text and its meaning is undecoded. Mapped in
      `CAB_SLOT_FN_SUBACTIONS`.
-  **So: no slot-data read was found, which is very likely by design** — extractable user IR data is
+  **So the surviving evidence for "no slot-data read" is arm 2 alone** — and it is weaker than it was
+  written: the editor's cab list is served entirely by `fn=0x01 sub=0x4B` (measured in the refresh capture:
+  1056 queries, no other read), so either the 15-byte region decodes to the name or FM3-Edit keeps its own
+  record. Until one of those is settled, "no slot-data read exists" stays a **probable** reading, not a
+  measured one. The claim that stood on arm 1 is retracted. **Probable, and very likely by design** — extractable user IR data is
   exactly what protects commercial IR vendors. Consequence: **reorder cannot be done by read+write**
   (we cannot read a slot's samples), and a user-slot NAME is not obtainable from any per-slot reply
   probed. Both need the device's own op, and the fixture for that is a capture of FM3-Edit renaming or
