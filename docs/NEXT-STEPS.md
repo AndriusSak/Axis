@@ -287,11 +287,27 @@ Each item names its blocker and what closing it would require.
 
 **Blocked on a capture / fixture (offline-possible once provided)**
 
-- **§2.2 per-preset Performance Pages** — the per-preset page is stored *in the preset*
-  (FM3-Edit 1.03.00 notes; FM3 manual pp.124–126), but the byte layout is **not evidenced in this
-  repo**. Closing needs the forgefx-midi preset-body decoder (`src/devices/gen3/presetBody.ts`)
-  **and** a fixture whose perform config is known. The global page (Perform-Gbl) lives in Global
-  Settings and needs the system read/write path.
+- **§2.2 per-preset Performance Pages — SOLVED, READ *and* WRITE, verified on the unit (2026-10-08).**
+  Layout (measured from a fixture pair — factory 406 vs the owner's copy 409 — by diffing the DECOMPRESSED
+  bodies; the raw dump diff is useless, the body is compressed):
+  ```
+  10 × u16 EFFECT ids  →  10 × u16 PARAM ids  →  32-byte-stride EFFECT labels  →  32-byte-stride PARAM labels
+  ```
+  `parsePerformPage` decodes it and `patchPerformSlot` writes it (tables AND labels in one write, because a
+  round trip that patched the tables alone left a STALE label — structurally valid, showing the wrong name).
+  Verified against a six-control fixture the owner built for the purpose (preset 410): Amp master volume,
+  Delay feedback, Reverb pre-delay, Reverb bypass, Cab proximity frequency, Drive tone decode to eids
+  58/70/66/66/62/118 with pids 11/10/9/22/41/2 — and pid 22 = REVERB_BYPASS is confirmed independently by
+  the profile. Seven golden cases pin the parser to that preset's own bytes.
+  **THE WRITE DIRECTION IS REAL:** a host-written, host-RECOMPRESSED dump was sent to the EDIT BUFFER and the
+  unit took it — the patched page read back from the device, twice (the second run restored the original).
+  This retires the long-standing caveat that a serialised dump was file-backup bytes rather than a verified
+  device-bound restore stream. Caveats that remain, all measured: a label longer than 32 bytes is truncated
+  ("Proximity Frequ"); an unassigned slot keeps STALE text from whatever occupied it before, so a label means
+  nothing unless the eid is non-zero.
+  **Still to do, not claimed:** nothing shows this in Axis yet — there is no route and no UI. The write test
+  targeted the EDIT BUFFER deliberately (never a stored slot), so writing a *saved* preset slot is proven
+  only as far as the edit buffer is.
 - **§3.8 per-preset FC definitions** — blocked on the same body decode as §2.2.
 - **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
   Do not build.
