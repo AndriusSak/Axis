@@ -9,9 +9,10 @@ lives in the commit history. The live *feature backlog* is
 
 ## What is verified right now
 
-The **authority is the latest `verify-stack-*.out` under `~/repos/stack/review-2026-10-07/`**
-(most recent: `verify-stack-p11b.out`). Regenerate it with `~/repos/stack/verify-stack.sh` on the
-merged tree. **Do not copy test totals, suite counts or e2e numbers into this file** — read them
+The **authority is the newest `verify-stack-*.out` under `~/repos/stack/review-2026-10-07/`** — read
+it with `ls -t ~/repos/stack/review-2026-10-07/verify-stack-*.out | head -1`, **not** from a filename
+written here (that line went stale once already). Regenerate it with `~/repos/stack/verify-stack.sh`
+on the merged tree. **Do not copy test totals, suite counts or e2e numbers into this file** — read them
 from that file of record; hand-copied counts go stale by construction.
 
 ```bash
@@ -34,20 +35,17 @@ build → `svelte-kit sync`): the sibling package `exports` point at gitignored 
 
 The repo has **no git remote** configured — `main` is the local tip; nothing is pushed.
 
+`verify-stack.sh` builds `forgefx-midi` **first**, so a codec change merged from `src/` reaches
+ForgeFX's import of the built `dist/` only via that build. Starting the server (or a probe) straight
+after a merge, without the gate, dies with *"does not provide an export named …"* — run the gate
+before touching the device, not after.
+
 ## Open items
 
 Each item names its blocker and what closing it would require.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
-- **GLOBAL writes are unproven (hardware question Q1).** The FM3 **reads** GLOBAL from the eid-1
-  (`fn=0x1F`) bulk body, measured on the device 2026-10-07 to be **14,880 records indexed by pid**
-  (`body[7115]` = `Mini Display/Ring Brightness`, raw `65534` = 100%). GLOBAL values are therefore
-  **no longer served as unresolved/inert** — the earlier "served UNKNOWN" refusal (ADR-0003) rested on
-  a refuted stride/positional premise and is being reverted (ADR-0004). What remains unproven is
-  whether the FM3 *accepts* a GLOBAL **write**. **Closing requires an independent write-confirmation** —
-  a different sub-action, or the front panel — because a read-back that merely echoes our own write is
-  not verification (P8). Device facts: `docs/decisions/0004-global-bulk-indexed-by-pid.md`.
 - **The `0x64` latency question is mis-framed (Q5).** The probe's deliberate invalid write (bogus
   eid 16382) produces **no `0x64` at all** — the FM3 *silently ignores* an unknown eid rather than
   refusing it — so the late-rejection window cannot be measured this way. **Closing requires a
@@ -78,27 +76,6 @@ Each item names its blocker and what closing it would require.
   router **200**, on `/preset/monitors/live`, `/preset/looper` and `/fc/state`; pinned by the
   `route-parity` test (app 400 / router 200 per route). Closing requires unifying the query
   parsers — a `src/` change, not a docs one.
-
-**Blocked on nothing (a `src/` / provenance fix, not editable in a docs-only pass)**
-
-- **`editor.svelte.ts:2761` tempo/tuner comment defect.** The comment above `setBpm` cites
-  `gen3.ts:1551` for `setTempo` — but `:1551` is `setBypass` (`setTempo` is `:1610`) — and calls
-  `setTuner` unconditional, while `registryCore.ts:814` returns `{ok:false}` when the device has
-  no tuner capability; the same "`{ok:true}`-unconditionally" wording is in
-  `paramWriteOutcome.ts:195`. **Closing: cite the symbols and drop "unconditional".** The
-  conclusion (neither is reject-watched on gen3) still holds for the FM3.
-- **The LED incident's `0.0000` cause is now MEASURED — the old "broken GLOBAL bulk read" attribution
-  is refuted.** The bulk body holds 14,880 records and **is** pid-indexed (so `base+7115` was in range,
-  never past the block). The `0.0000` came from the **per-pid GET** (`fn 0x01 sub 01 00`): on this
-  firmware its reply is a **canned template** whose decode yields `2.085e-41` — a denormal that
-  **displays as `0.0000`** — which the probe read as the "original" brightness and wrote back as a
-  restore, darkening the rings. Code comments (`gen3.ts:265`, `gen3.ts:753`) and `PROVENANCE.md:490-491`
-  still carry the refuted attribution, as does the ForgeFX ADR
-  `ForgeFX/docs/decisions/0004-global-bulk-read-unknown.md` (outside this repo). Closing: correct those
-  files in the next `src/`/provenance round.
-- **GLOBAL controls inert — REVERTED; the position was refuted by measurement.** ADR-0003 is superseded
-  by ADR-0004: the eid-1 bulk body is pid-indexed and `base+7115` is in range, so GLOBAL is not
-  deliberately unreadable/unwritable. Do not re-assert the old position.
 
 **Blocked on a new endpoint (out of scope for the offline rounds)**
 
@@ -144,6 +121,24 @@ One line per recorded decision. ADRs live in `docs/decisions/`.
 - **Write-confirmation window = 250 ms** (both windows; `987dfb7`), not the earlier 120 ms.
 - **The ABA staleness edge is closed** by the module-level write-settlement sequencer (P11,
   `a04c9c6`); the pinned test asserts the fixed behaviour.
+- **GLOBAL writes ARE accepted and verifiable (Q1 — answered 2026-10-08).** A GLOBAL write lands and is
+  confirmed through the eid-1 `fn=0x1F` bulk body — an **independent** read path, not the write's own
+  echo: `0.40` → `body[7115]` raw `26214` = 40.0%, restore → `45874` = 70.0%. This closes the
+  "write side unverified" caveat (PROVENANCE round 18) and the same-path caveat in §3.7's spirit. Reads
+  stay as ADR-0004 describes: 14,880 records, indexed by pid, raw `65534` = 100%.
+- **Write units are PER-OPCODE, not per-param or per-family** — measured on the unit 2026-10-08 by
+  sending raw floats straight to the codec (no driver, no script convention in the way) and reading the
+  body: the **continuous** opcode takes the client's **normalized 0..1** (`0.25` → 25.0%), the
+  **discrete** opcode takes **percent 0..100** (`0.40` → 40.0%). Axis's knobs send `continuous: true`
+  with a 0..1 value (`editor.svelte.ts`), so the client is correct as-is and **no conversion belongs in
+  the driver**. Guarded offline by `ForgeFX/server/test/drivers/setparam-units.test.ts` (6 cases; the
+  frame the driver sends is compared to the codec's own encoding), whose negative control fails when a
+  scale is re-introduced. **Always pass `continuous` explicitly** — omitting it silently selects the
+  other opcode's unit.
+- **An unchanged read is not evidence of a change, and a fire-and-forget write reports `{ok:true}`
+  unconditionally.** A write to a port that answers nothing still "succeeds", so a value that did not
+  move is evidence *against* the write, not for it. Verify through an independent path and against a
+  value you did not start from. (This is how the P14 unit "fix" was believed to work for an hour.)
 
 ## Do NOT chase (checked and rejected by the review)
 
@@ -157,6 +152,10 @@ claims already found to be non-issues.
   write-confirmation window is exposed — and that is **250 ms** since `987dfb7`, not 120 ms.
 - **`GLOBAL_REMOTE_MUTE` as a rendering gap**: 0 layout refs in the FM3 layout — unserved, but
   also unreferenced.
+- **"GLOBAL Setup params are deliberately unreadable/unwritable" (ADR-0003) — REFUTED, do not
+  re-assert.** Its stride/positional premise was refuted by the 2026-10-07 device measurement; ADR-0003
+  is superseded by ADR-0004 (the eid-1 body is pid-indexed and `base+7115` is in range), and GLOBAL
+  writes are verified (see the Decisions index).
 - **P1.3's original "mixed real/zero snapshot" mechanism**: not reachable. The defect was the
   swallowed failure plus the silent short-burst zeroing, both now fixed.
 - **Q3 — the FM3 never sends a scaled enum wire value** (`PHASER_ORDER` raw 1 vs displayMax 10).
@@ -166,6 +165,13 @@ claims already found to be non-issues.
   The P1.3 torn-read guard (`values.length >= itemCount` ⇒ complete) is **safe as written**.
 - **`PFC4` (a 4th FC port)**: **no.** It exists only in the Axe-Fx III layouts; the FM3 has FC
   ports 1–3.
+- **"GLOBAL writes are ~100× too small" — FALSE. Do not re-open, and do not "fix" it again.** The
+  reading came from a diagnostic calling `setParam` **without the required `continuous` argument**, so
+  it silently took the *discrete* (percent) opcode and set 0.4%. Units are per-opcode (see the Decisions
+  index); the client was never wrong. A change built on this premise (P14) converted norm → display on
+  the continuous path, clamped every knob write to 100%, and was **reverted** (ForgeFX `1b380d3`,
+  forgefx-midi `6ae3636`); ADR-0006 is superseded by measurement. The guard test now fails if the
+  conversion returns.
 - **The workbench layout rework is shipped and must not be re-opened** — the shell, dockable
   panels, page/panel registry, responsive sweeps, per-profile presets, floating widgets, layout
   undo/redo and import/export all landed (the workbench is the default shell). Do not resurrect

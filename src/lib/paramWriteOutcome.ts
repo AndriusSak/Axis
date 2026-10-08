@@ -280,10 +280,10 @@ export function settleWriteSet(results: WriteSettlement[], copy: WriteSetCopy): 
 // The same optimistic-write defect class as P1.1/P2.1, on a plain scalar held on a runes FIELD
 // rather than a param object: `setBpm` sets `this.bpm = n` (tempo) and `toggleTuner` sets
 // `this.tuner = { active: next }` BEFORE the round-trip. On gen3 these two are NOT reject-watched —
-// `setTempo` (gen3.ts `sendQueued`) and `setTuner` (registryCore.ts) return `{ok:true}`
-// unconditionally — so on this device the settle helpers below only ever see `ok` or a thrown
-// transport error, never a device `{ok:false}` (see the corrected notes on `setBpm`/`selectScene` in
-// editor.svelte.ts). They still route through the settlement for a uniform contract, and to handle a
+// `setTempo` (gen3.ts `sendQueued`) is never reject-watched, and `setTuner` (registryCore.ts)
+// answers `{ok:false}` ONLY for a device that lacks tuner capability — never on a device refusal —
+// so on this device the settle helpers below only ever see `ok` or a thrown transport error, never a
+// device `{ok:false}` (see the corrected notes on `setBpm`/`selectScene` in editor.svelte.ts). They still route through the settlement for a uniform contract, and to handle a
 // throw. `setBpm` had NO revert at all (a failed tempo stayed displayed), and `toggleTuner` reverted
 // only in its `.catch` — a throw — so a throw on the tempo/tuner path stayed displayed. Neither
 // surfaced anything.
