@@ -171,10 +171,6 @@ Each item names its blocker and what closing it would require.
   option. It is unserved today (76 GLOBAL params are served; 7389 is not), so nothing misbehaves. **Closing
   requires deciding the serving contract for offset selectors** (serve the display value and index labels by
   `value − displayMin`) — a `src/` change, no capture needed, panel is the oracle.
-- **Repeated-query-key surface divergence.** `?eid=1&eid=2` → Fastify **400** but the browser
-  router **200**, on `/preset/monitors/live`, `/preset/looper` and `/fc/state`; pinned by the
-  `route-parity` test (app 400 / router 200 per route). Closing requires unifying the query
-  parsers — a `src/` change, not a docs one.
 
 **Blocked on a new endpoint (out of scope for the offline rounds)**
 
