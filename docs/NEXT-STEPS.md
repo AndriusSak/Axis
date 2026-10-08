@@ -508,3 +508,26 @@ and find the last commit that held it with `git log --oneline -- docs/<file>`.
 - Design-parity specs (binding visual reference): `docs/workbench-dc-parity/`.
 - E2E harness + selectors: `e2e/README.md`.
 - Layer guides for agents: `src/lib/CLAUDE.md`, `src/lib/axis-workbench/CLAUDE.md`.
+
+### §3.8 per-preset switch definitions — BLOCK AND TARGET DECODED (2026-10-08)
+
+Body offsets (decompressed preset): marker `0x05F5 / 0x0001` at ~11412, **one 16-bit action code per switch**
+at ~11424 (`0x04` = Effect: Bypass, `0x03` = Scene: Select — INFERRED from two configured switches, not
+measured across all functions), and the **PP#1 target byte at 11568**.
+
+The target is an **index into the FM3's alphabetically ordered FX-slot enumeration, instances expanded**
+(the list the switch-assignment picker shows: Amp 1, Cab 1, Chorus 1, Chorus 2, Comp 1, …).
+
+Measured on the unit — 14 anchors, each one edit plus one read-only dump:
+`Amp 1=0 · Cab 1=1 · Chorus 1=2 · Chorus 2=3 · Delay 1=7 · Filter 4=20 · Gate 1=25 · GEQ 1=27 · In 1=29 ·
+Looper=31 · Megatap 1=32 · MultDly 1=38 · Reverb 1=51`
+
+NOT the eid, NOT the block-list order, NOT the chain order, NOT a grid cell, NOT a type id (a Chorus 1 →
+Chorus 2 edit returned 2 → 3, so it is per-instance). Two earlier models were refuted by their own
+predictions — an alphabetical list with a short inventory (predicted Reverb 15, measured 51) and a grid
+position (the layout is one row, so Reverb would have been ≈ 10). Do not re-derive either.
+
+**Open:** two rows unlabelled, bounded to indices 8–16 (`Delay 2 · Drive · Enhance · FB Rtn`; "FB Snd" is a
+guess). Closing needs 2 more targets: Delay 2, then FB Rtn 2 — cosmetic only, since any target of interest
+resolves with one edit and one dump. **Nothing is wired to a route or the UI yet** — the write side rides
+`patchPerformSlot`'s proven machinery.
