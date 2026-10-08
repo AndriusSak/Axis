@@ -90,6 +90,10 @@
   // of an empty list, the USER bank is built from what CAN be read — the unit's own per-slot state
   // (`GET /cab/slots`, read-only): occupied or empty, per slot, with no invented names.
   let userSlots = $state<Map<number, boolean | null> | null>(null);
+  // User-slot NAMES, decoded from the unit's own per-slot reply (measured 2026-10-08). Only populated
+  // slots get one — an empty slot's field holds the device's literal "<EMPTY>" plus stale bytes, so a name
+  // from an empty slot is never shown.
+  let userNames = $state<Map<number, string>>(new Map());
   let userLoading = $state(false);
   let userErr = $state('');
   let userTried = $state(false); // a FAILED read must not make the effect retry forever
@@ -117,8 +121,14 @@
         const rows = await forgefx.cabSlots({ page, from: 0, to: 127 }).catch(() => null);
         if (rows) {
           const m = new Map(userSlots ?? []);
-          for (const row of rows) m.set((page - 0x10) * 128 + row.index + 1, row.populated);
+          const nm = new Map(userNames);
+          for (const row of rows) {
+            const slot = (page - 0x10) * 128 + row.index + 1;
+            m.set(slot, row.populated);
+            if (row.name && row.populated === true) nm.set(slot, row.name);
+          }
           userSlots = m;
+          userNames = nm;
         }
       }
     } catch (e) {
@@ -140,11 +150,17 @@
     userLoading = true;
     userErr = '';
     const m = new Map<number, boolean | null>();
+    const nm = new Map<number, string>();
     try {
       for (const page of USER_PAGES) {
         const rows = await forgefx.cabSlots({ page, from: 0, to: 127 });
-        for (const r of rows) m.set((page - 0x10) * 128 + r.index + 1, r.populated);
+        for (const r of rows) {
+          const slot = (page - 0x10) * 128 + r.index + 1;
+          m.set(slot, r.populated);
+          if (r.name && r.populated === true) nm.set(slot, r.name);
+        }
         userSlots = new Map(m);
+        userNames = new Map(nm);
       }
     } catch (e) {
       userErr = (e as Error).message;
@@ -163,13 +179,22 @@
   const allRows = $derived.by<Row[]>(() => {
     if (mode === 'dyna') return (cs?.dynaOptions ?? []).map((o) => ({ id: `dyna:dyna:${o.label}`, name: o.label, sub: `Dyna #${o.value}`, index: o.value, value: o.value }));
     if (bank === 'USER') {
-      // No names are readable on this firmware — show occupancy, and say so in the row itself.
+      // The slot's name is decoded from the unit's own reply — the editor reads the same field, which is
+      // why FM3-Edit can show a name for a cab the stack uploaded over the wire.
       const m = userSlots;
+      const names = userNames;
       return Array.from({ length: 512 }, (_, i) => {
         const slot = i + 1;
         const occ = m?.get(slot);
         const state = occ === true ? 'occupied' : occ === false ? 'empty' : occ === null ? 'no state' : '…';
-        return { id: `legacy:USER:${slot}`, name: `USER #${slot}`, sub: `${state} · name not readable on this firmware`, index: i, value: i };
+        const decoded = names.get(slot);
+        return {
+          id: `legacy:USER:${slot}`,
+          name: decoded ? `${decoded}` : `USER #${slot}`,
+          sub: decoded ? `occupied · USER #${slot}` : `${state} · USER #${slot}`,
+          index: i,
+          value: i
+        };
       });
     }
     const list = irs[bank] ?? [];

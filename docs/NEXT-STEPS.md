@@ -228,16 +228,50 @@ Each item names its blocker and what closing it would require.
   Consequences, all measured:
   1. **A user-cab name IS readable over the wire**, by some path this stack has not found yet. Axis therefore
      *can* eventually show real names; it is a missing read, not a device limitation.
-  2. **The `0x4B` region is NOT the name and cannot be decoded into one.** With two known plaintexts
-     (`LT TV Mix 7` → 13 bytes, `LYKOS-NAMETEST` → 14 bytes) the region shows **14 distinct values for a name
-     with E, S and T each repeated twice** — no per-character encoding survives repeated letters, so any
-     substitution/packing is ruled out. It is a hash-like **fingerprint**: it can confirm a rename, never
-     carry a name. (Also rules out the editor reading names out of that reply.)
-  3. So the read is **somewhere else**, and the refresh capture does not contain it (it is 100% `fn=0x01`
-     with subs `0x01/0x03/0x1b/0x2e/0x4b` — and `0x03`, `0x1b`, `0x2e` remain UNMAPPED). The sharpest next
-     fixture is a capture taken **while the editor is displaying that name** — see
-     `ForgeFX/docs/capture-recipes.md` R1; `U0030` still holds the name so the capture can be taken with the
-     name on screen. Until it lands, Axis shows occupancy, never an invented name.
+  2. **The `0x4B` region IS the name — SOLVED, and shipped (2026-10-08, same day).** The field carries the
+     slot's 32-character name **re-packed for the wire**: each character as an 8-bit value, concatenated
+     **MSB-first** into one bit stream, and re-split into **7-bit septets** (SysEx payload bytes must be
+     ≤ 0x7F), **NUL-terminated**. 32×8 = 256 bits → 37 septets, which is exactly the payload from byte 15 to
+     its end (52 − 15 = 37) — the geometry closes. `decodeCabSlotName` recovers it exactly, verified against
+     three independent names: `U0001`/`U0012` = `LT TV Mix 7` (owner-confirmed), `U0030` = `LYKOS-NAMETEST`
+     (written over the wire by the stack), and `U0002`–`U0011` = `Res Psycho 1`…`Res Psycho X` (nobody on this
+     host had supplied those, so the decode is not circular).
+     **THIS REPLACES a wrong interim conclusion.** It was argued twice that the region could not be a name —
+     "the encoding is undecoded, it is a fingerprint", then "a hash-like fingerprint, proved by the fact that
+     a name with E/S/T repeated twice each shows 14 distinct region bytes". That proof was invalid: a
+     **bit-level repack destroys per-character byte alignment**, so repeated letters have no reason to
+     repeat. A wrong inference, presented as proof, is the thing to remember here.
+     The earlier editor question is answered by the same field: the editor's cab list is served entirely by
+     `sub=0x4B` (1088 queries at connect — every slot), so it reads the names exactly as this decoder does.
+     One more measured detail: an **EMPTY** slot is not blank in that field — the unit puts the literal text
+     `<EMPTY>` there, followed by stale bytes that vary between slots and sessions. Only a `populated` slot's
+     name means anything, and the decoder stops at the terminator.
+  3. **Shipped for this:** `decodeCabSlotName` (+ golden cases on the device's own bytes, including the
+     `<EMPTY>` case), the name on `CabSlotStateResult` through the driver and `GET /cab/slots`, and the Axis
+     cab picker now showing **real names** for USER slots instead of "name not readable on this firmware".
+  4. **§2.5g REORDER — SOLVED, and it needs no new opcode (2026-10-08).** A capture of FM3-Edit's
+     *"move to a different slot"* contains **two ordinary container uploads and nothing else** that explains
+     it: the IR re-uploaded to the DESTINATION (`U0015` ← container named `LT TV Mix 7`, close `4d 12 08 5d
+     03`, consistent with its content) and **the SOURCE erased** (`U0012` ← a container whose name is
+     `"<EMPTY>"`). Both were reassembled from the capture and parsed with the shipped codec.
+     **Consequences, all measured:**
+     - **Reorder = upload to the destination + erase the source.** Both halves are already shipped
+       (`uploadCabIr`, the blank-container delete, each verified by the unit's own read-back), so a move is
+       implementable for any IR whose BYTES we have — no device-side move op exists to look for;
+     - **no slot-data read is involved.** The editor had the IR's bytes from its own library. That is exactly
+       why it can move a cab whose samples nobody can read, and why we cannot: the missing piece is the
+       bytes, not the opcode. `Res Psycho`-style cabs stay unmovable from here until a slot-data read exists
+       (still: none found);
+     - it also **explains the `"<EMPTY>"` text** in an empty slot's name field — that is the editor's erase
+       marker, stored by the unit, and it is why the name decoder must stop at the terminator;
+     - one frame remains **UNEXPLAINED and unprobed**: `fn=0x19` payload `0b 10 16` (once, during the move).
+       Recorded as a candidate "cab list changed" notice. It is NOT needed for the move, and it will not be
+       sent blind — that is how the unit ended up in its bootloader earlier today.
+  5. **What is still capture-gated has shrunk to the three unmapped subs** — and to the three UNMAPPED sub-actions the editor
+     the editor uses constantly (`0x03`, `0x1b`, `0x2e`; the last returns a 590-byte dump with 12 distinct
+     payloads, which is table-shaped) and to the new `fn=0x19`. None of them is needed for names or for
+     reorder any more. `U0030` still holds `LYKOS-NAMETEST` and
+     should be erased when convenient (blank-container delete, read-back verified).
 
 
 **Blocked on a capture / fixture (offline-possible once provided)**
