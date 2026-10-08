@@ -488,13 +488,42 @@ export interface PerformSlot {
   paramLabel2: string;
 }
 
-/** A preset's per-preset Performance Page (ForgeFX `GET /preset/perform`, READ-ONLY). */
+/** A preset's per-preset Performance Page (ForgeFX `GET /preset/perform`, READ-ONLY) — the WRITE side
+ *  is `PUT /preset/perform/:slot` (see `PerformSlotWriteResult`). */
 export interface PerformPage {
   /** Offset of the effect-id table in the decompressed body (diagnostic). */
   at: number;
   slots: PerformSlot[];
   /** How many of the ten slots are assigned. */
   assigned: number;
+}
+
+/** The fields a Perform-Page slot write may set (ForgeFX `PUT /preset/perform/:slot`). Any subset —
+ *  an omitted field keeps the slot's current value. Labels are written into a fixed 32-byte window, so
+ *  a longer string is TRUNCATED. */
+export interface PerformSlotPatch {
+  effectId?: number;
+  paramId?: number;
+  effectLabel?: string;
+  paramLabel?: string;
+}
+
+/**
+ * The server's answer to a Perform-Page slot write.
+ *
+ * `ok` is a READ-BACK of the unit's edit buffer — never merely the absence of a rejection: a write the
+ * unit silently ignored answers `{ok:false, reason:'readback-mismatch'}` with `readback` holding what
+ * the slot ACTUALLY says, so the UI can show the truth instead of a success it did not get.
+ *
+ * The target is the unit's EDIT BUFFER: nothing is saved, and reloading the preset discards the write.
+ */
+export interface PerformSlotWriteResult {
+  ok: boolean;
+  slot: number;
+  /** Why it was not confirmed: 'no-page' | 'slot-out-of-range' | 'retarget-failed' | 'readback-mismatch'. */
+  reason?: string;
+  requested: PerformSlotPatch;
+  readback: PerformSlot | null;
 }
 
 /** A unique effect block in a preset (for the library/browser). */

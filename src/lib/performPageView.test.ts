@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assignedCount, performPageRows } from './performPageView';
+import { assignedCount, patchFromFields, performPageRows, writeVerdict } from './performPageView';
 import type { PerformPage, PerformSlot } from './types';
 
 const slot = (n: number, effectId: number, paramId: number, effectLabel: string, paramLabel: string): PerformSlot => ({
@@ -56,5 +56,45 @@ describe('performPageView', () => {
   it('reports the assigned count from the page (else counts the rows)', () => {
     expect(assignedCount(PAGE)).toBe(6);
     expect(assignedCount({ ...PAGE, assigned: undefined as unknown as number })).toBe(6);
+  });
+});
+
+describe('patchFromFields (the write payload)', () => {
+  const empty = { effectId: '', paramId: '', effectLabel: '', paramLabel: '' };
+
+  it('sends nothing when every field is empty (never an empty patch)', () => {
+    expect(patchFromFields(empty)).toBeNull();
+    expect(patchFromFields({ ...empty, effectLabel: '   ' })).toBeNull();
+  });
+
+  it('carries ids and labels that were actually filled in', () => {
+    expect(patchFromFields({ ...empty, effectId: '62', paramId: '41', effectLabel: 'CAB', paramLabel: 'Proximity Frequ' }))
+      .toEqual({ effectId: 62, paramId: 41, effectLabel: 'CAB', paramLabel: 'Proximity Frequ' });
+  });
+
+  it('treats an empty text input as "leave it alone", not as "write an empty label"', () => {
+    // ids only — the server then leaves the (possibly stale) labels untouched, which the panel reports
+    expect(patchFromFields({ ...empty, effectId: '62', paramId: '41' })).toEqual({ effectId: 62, paramId: 41 });
+    // labels only
+    expect(patchFromFields({ ...empty, paramLabel: 'Tone' })).toEqual({ paramLabel: 'Tone' });
+  });
+
+  it('DROPS a non-numeric or out-of-range id rather than sending it (the server would 400)', () => {
+    expect(patchFromFields({ ...empty, effectId: 'abc' })).toBeNull();
+    expect(patchFromFields({ ...empty, effectId: '62.5' })).toBeNull();
+    expect(patchFromFields({ ...empty, effectId: '-1' })).toBeNull();
+    expect(patchFromFields({ ...empty, paramId: '16384' })).toBeNull(); // 14-bit ceiling
+    expect(patchFromFields({ ...empty, paramId: '16383' })).toEqual({ paramId: 16383 });
+  });
+});
+
+describe('writeVerdict (honest summary of a read-back verdict)', () => {
+  it('says the write is NOT saved when it was confirmed', () => {
+    expect(writeVerdict({ ok: true })).toContain('not saved');
+  });
+
+  it('names the reason when the unit did not confirm it', () => {
+    expect(writeVerdict({ ok: false, reason: 'readback-mismatch' })).toContain('readback-mismatch');
+    expect(writeVerdict({ ok: false })).toContain('NOT confirmed');
   });
 });

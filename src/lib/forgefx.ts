@@ -26,6 +26,8 @@ import type {
   PresetModifier,
   PresetSummary,
   PerformPage,
+  PerformSlotPatch,
+  PerformSlotWriteResult,
   DecodedBlock,
   VersionInfo,
   CloudVersion,
@@ -380,6 +382,18 @@ export const forgefx = {
    *  controls with their effect/param ids + labels. `null` when the preset has no page; 501→null on a
    *  device that can't read it. A slot with effectId 0 is UNASSIGNED (its labels are stale). */
   performPage: () => capOptional(req<PerformPage | null>(`/preset/perform`)),
+  /**
+   * Write ONE slot of the CURRENT preset's Performance Page (§2.2) — ids AND labels TOGETHER (patching
+   * one and not the other leaves the slot showing the old target's name). The server patches the
+   * recompressed preset dump and sends it to the unit's EDIT BUFFER: NOTHING IS SAVED and reloading the
+   * preset discards it.
+   *
+   * The answer is a READ-BACK verdict, so `ok:false` is a normal outcome (the unit ignored or refused
+   * the dump) — show `reason` and `readback`, never an assumed success. HTTP errors are only ever
+   * validation (400), a device without the write path (501) or a server-side failure (503).
+   */
+  setPerformSlot: (slot: number, patch: PerformSlotPatch) =>
+    req<PerformSlotWriteResult>(`/preset/perform/${slot}`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** Current FC switch state via the sub-0x01 structured config-selector read. tap/hold each carry a
    *  `present` flag (the device returned a record matching the requested config/side) and the raw 78-byte
    *  response body. config/side are device-confirmed; interior field bytes are not yet decoded. */

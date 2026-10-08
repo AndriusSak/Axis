@@ -1,20 +1,38 @@
 <script lang="ts">
-  // Per-preset PERFORMANCE PAGE (§2.2) — a READ-ONLY view of the ten controls assigned to the CURRENT
-  // preset's device Performance page, decoded server-side from the edit buffer
-  // (`forgefx.performPage()` → GET /preset/perform). Fetched lazily on the Read button, never on mount,
-  // so opening Device Tools fires no device traffic.
+  // Per-preset PERFORMANCE PAGE (§2.2) — the ten controls assigned to the CURRENT preset's device
+  // Performance page, decoded server-side from the edit buffer (`forgefx.performPage()` →
+  // GET /preset/perform). Fetched lazily on the Read button, never on mount, so opening Device Tools
+  // fires no device traffic.
+  //
+  // WRITE: a slot can be re-pointed at another effect/param (ids AND labels together — patching one
+  // and not the other leaves the slot showing the old target's name). The server sends the recompressed
+  // preset to the unit's EDIT BUFFER, so NOTHING IS SAVED and reloading the preset discards it. The
+  // answer is a READ-BACK verdict, not an ack: `ok:false` is a normal outcome and is reported as such.
   //
   // HONESTY: an unassigned slot (effectId 0) still carries STALE leftover label text from whatever
   // last occupied it, so `performPageView` blanks it and we render "unassigned" — never the dead string.
+  // The editor therefore starts BLANK for an unassigned slot rather than prefilling stale text.
   import { forgefx } from './forgefx';
-  import { assignedCount, performPageRows, type PerformRow } from './performPageView';
+  import {
+    assignedCount, patchFromFields, performPageRows, writeVerdict,
+    type PerformRow, type PerformSlotFields
+  } from './performPageView';
   import type { PerformPage } from './types';
+
+  const EMPTY: PerformSlotFields = { effectId: '', paramId: '', effectLabel: '', paramLabel: '' };
 
   let page = $state<PerformPage | null>(null);
   let rows = $state<PerformRow[]>([]);
   let loading = $state(false);
   let loaded = $state(false);
   let error = $state('');
+
+  // ── write side ──
+  let editSlot = $state<number | null>(null);
+  let fields = $state<PerformSlotFields>({ ...EMPTY });
+  let writing = $state(false);
+  let verdict = $state('');
+  let verdictOk = $state(false);
 
   async function load() {
     loading = true;
@@ -30,15 +48,62 @@
       loading = false;
     }
   }
+
+  /** The Read button: a fresh read is also where an in-progress edit and the last verdict are dropped. */
+  function readPage() {
+    editSlot = null;
+    verdict = '';
+    void load();
+  }
+
+  function startEdit(r: PerformRow) {
+    verdict = '';
+    verdictOk = false;
+    editSlot = r.slot;
+    fields = {
+      effectId: r.assigned ? String(r.effectId) : '', // an unassigned slot's ids are 0, not "the old target"
+      paramId: r.assigned ? String(r.paramId) : '',
+      effectLabel: r.effectLabel,
+      paramLabel: r.paramLabel
+    };
+  }
+
+  function cancelEdit() {
+    editSlot = null;
+  }
+
+  async function write() {
+    if (editSlot === null) return;
+    const patch = patchFromFields(fields);
+    if (!patch) {
+      verdictOk = false;
+      verdict = 'Nothing to write — fill in at least one field.';
+      return;
+    }
+    writing = true;
+    try {
+      const res = await forgefx.setPerformSlot(editSlot, patch);
+      await load(); // show what the unit NOW holds; the verdict below says whether it matches
+      verdictOk = res.ok;
+      verdict = writeVerdict(res);
+      editSlot = null;
+    } catch (e) {
+      verdictOk = false;
+      verdict = (e as Error).message;
+    } finally {
+      writing = false;
+    }
+  }
 </script>
 
 <section>
   <h3>Per-preset Performance Page</h3>
   <div class="line">
-    <span>Read-only — the ten controls assigned to the current preset's Performance page (decoded from the edit buffer)</span>
-    <button onclick={load} disabled={loading}>{loading ? 'Reading…' : 'Read page'}</button>
+    <span>The ten controls assigned to the current preset's Performance page (decoded from the edit buffer)</span>
+    <button onclick={readPage} disabled={loading}>{loading ? 'Reading…' : 'Read page'}</button>
   </div>
   {#if error}<p class="note err">{error}</p>{/if}
+  {#if verdict}<p class="note" class:err={!verdictOk}>{verdict}</p>{/if}
   {#if loaded}
     {#if !rows.length}
       <p class="note">No performance page found in this preset.</p>
@@ -49,6 +114,7 @@
           <span class="slot mono">slot</span>
           <span class="nm">effect · param</span>
           <span class="ids mono">eid / pid</span>
+          <span class="act"></span>
         </div>
         {#each rows as r (r.slot)}
           <div class="prow" class:off={!r.assigned}>
@@ -61,7 +127,23 @@
               {/if}
             </span>
             <span class="ids mono">{r.assigned ? `${r.effectId} / ${r.paramId}` : '—'}</span>
+            <span class="act">
+              <button class="mini" onclick={() => startEdit(r)} disabled={writing || editSlot === r.slot}>Edit</button>
+            </span>
           </div>
+          {#if editSlot === r.slot}
+            <div class="edit">
+              <label>effect id<input bind:value={fields.effectId} inputmode="numeric" placeholder="e.g. 62" /></label>
+              <label>param id<input bind:value={fields.paramId} inputmode="numeric" placeholder="e.g. 41" /></label>
+              <label>effect label<input bind:value={fields.effectLabel} placeholder="CAB" /></label>
+              <label>param label<input bind:value={fields.paramLabel} placeholder="Proximity Frequ" /></label>
+              <div class="actions">
+                <button class="mini go" onclick={write} disabled={writing}>{writing ? 'Writing…' : 'Write to unit'}</button>
+                <button class="mini" onclick={cancelEdit} disabled={writing}>Cancel</button>
+                <span class="warn">Writes the unit's EDIT BUFFER — not saved; reloading the preset discards it.</span>
+              </div>
+            </div>
+          {/if}
         {/each}
       </div>
     {/if}
@@ -83,10 +165,12 @@
     cursor: pointer;
   }
   button:disabled { opacity: 0.5; cursor: default; }
+  button.mini { padding: 3px 8px; font-size: 11px; }
+  button.go { border-color: #4b7; }
   .note { margin: 6px 0; font-size: 12px; opacity: 0.8; }
   .note.err { color: #ff6b6b; }
   .list { display: flex; flex-direction: column; gap: 2px; }
-  .prow { display: grid; grid-template-columns: 42px 1fr 96px; align-items: center; gap: 8px;
+  .prow { display: grid; grid-template-columns: 42px 1fr 96px 52px; align-items: center; gap: 8px;
     padding: 4px 6px; border-radius: 6px; font-size: 12px; }
   .prow.head { opacity: 0.55; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; }
   .prow.off { opacity: 0.5; }
@@ -94,5 +178,14 @@
   .nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .un { font-style: italic; opacity: 0.75; }
   .ids { text-align: right; opacity: 0.85; }
+  .act { text-align: right; }
   .mono { font-family: var(--font-mono, ui-monospace, monospace); }
+  .edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 2px 0 8px 48px;
+    padding: 8px; border: 1px solid var(--line, #33343a); border-radius: 7px; }
+  .edit label { display: flex; flex-direction: column; gap: 3px; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
+  .edit label input { width: 108px; font-size: 12px; padding: 4px 6px; border-radius: 5px;
+    border: 1px solid var(--line, #33343a); background: var(--panel2, #24252b); color: inherit; }
+  .edit .actions { display: flex; align-items: center; gap: 8px; flex: 1 1 100%; }
+  .warn { font-size: 11px; opacity: 0.7; }
 </style>

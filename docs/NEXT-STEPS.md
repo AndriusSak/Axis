@@ -332,10 +332,26 @@ Each item names its blocker and what closing it would require.
   **READ is now shown in Axis (2026-10-08):** the read-only route `GET /preset/perform` (shared handler
   `performPageH` in `runtime/handlers.ts`, registered on BOTH surfaces) and the Device-Tools panel
   `PerformPagePanel.svelte` (via `forgefx.performPage()`). Unassigned slots (effectId 0) render as
-  "unassigned" — their stale label text is blanked by `performPageView.ts`. The write test
-  targeted the EDIT BUFFER deliberately (never a stored slot), so writing a *saved* preset slot is proven
-  only as far as the edit buffer is; there is still no in-app WRITE UI for the page.
-- **§3.8 per-preset FC definitions** — blocked on the same body decode as §2.2.
+  "unassigned" — their stale label text is blanked by `performPageView.ts`.
+  **The WRITE side is wired end to end (2026-10-08).** `PUT /preset/perform/:slot` (shared handler
+  `performSlotH`, registered on BOTH surfaces) exposes `DeviceDriver.setPerformSlot`, which is the proven
+  path as a method: dump the edit buffer → `patchPerformSlot` (ids AND labels together) → recompress +
+  rebuild + retarget to 0x3FFF → re-send frame-by-frame → **re-dump**. `ok` is the READ-BACK verdict, never
+  the absence of a rejection: a dump the unit silently ignores answers `{ok:false, reason:'readback-mismatch'}`
+  with the slot as it actually reads. The route is a DEVICE WRITE (read-only server → 403) and is
+  deliberately NOT `?dryRun`-previewable, because its frames come from a device READ — a dry-run request is
+  refused 400 `dry-run-unsupported` instead of being answered with a guaranteed decode failure, and a
+  preview can never fall through to a live write. `PerformPagePanel.svelte` gained a per-slot editor: an
+  EMPTY input means "leave this field alone" (never "write an empty label"), a non-numeric id is dropped
+  rather than sent, all-empty refuses to send, and after the write the panel re-reads the page and reports
+  the verdict — including "not saved; reloading the preset discards it", because the target is the EDIT
+  BUFFER. Suite: `drivers/perform-slot-write` (9 cases, incl. a stateful mock whose edit buffer ADOPTS what
+  is written to it — a mock that always echoes the patch would make every write look accepted).
+  Writing a *saved* preset slot is still proven only as far as the edit buffer is.
+- **§3.8 per-preset FC/switch definitions — DECODED, not yet wired.** The block layout and the per-switch
+  target field are measured (see §3.8 at the end of this file); what remains is a route + UI — and the same
+  recompress/reframe/retarget path the perform-page WRITE now proves is what a switch write would ride. The
+  last two table rows are still unlabelled (cosmetic; bounded to indices 8-16).
 - **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
   Do not build.
 
