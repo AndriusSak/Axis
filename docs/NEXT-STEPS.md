@@ -218,11 +218,26 @@ Each item names its blocker and what closing it would require.
      a live walk by design"). They exist only in the device's `.cache` byte dump.
   Neither capture contains the name in ANY simple encoding (ascii / 5-septet / 8-per-7, all offsets), the
   per-slot `0x4B` reply is state not text, and the device's own formatted value for a user-cab reference
-  is `"#11"` — an index, not a name. **Conclusion:** the name lives inside the slot's DATA (the same
-  32-char field the `.syx` container carries) and no captured path reads it back, so FM3-Edit most
-  plausibly displays names from its **own local record** of what it uploaded. Open: whether a slot-data
-  read exists at all — a capture of FM3-Edit's cab picker with names on a machine that has never uploaded
-  them would settle it. Until then Axis shows occupancy, never an invented name.
+  is `"#11"` — an index, not a name.
+
+  **CORRECTED 2026-10-08 (the earlier conclusion below was WRONG, and the test that disproved it took 60
+  seconds).** A silent, correctly-checksummed container named **`LYKOS-NAMETEST`** was written to `U0030`
+  **over the wire** — FM3-Edit had never seen the file, never uploaded it, and had no record of it. Andy
+  opened FM3-Edit and it displayed **`LYKOS-NAMETEST`**. So **the editor reads the name FROM THE UNIT.** The
+  previous conclusion — "FM3-Edit most plausibly displays names from its own local record" — is retracted.
+  Consequences, all measured:
+  1. **A user-cab name IS readable over the wire**, by some path this stack has not found yet. Axis therefore
+     *can* eventually show real names; it is a missing read, not a device limitation.
+  2. **The `0x4B` region is NOT the name and cannot be decoded into one.** With two known plaintexts
+     (`LT TV Mix 7` → 13 bytes, `LYKOS-NAMETEST` → 14 bytes) the region shows **14 distinct values for a name
+     with E, S and T each repeated twice** — no per-character encoding survives repeated letters, so any
+     substitution/packing is ruled out. It is a hash-like **fingerprint**: it can confirm a rename, never
+     carry a name. (Also rules out the editor reading names out of that reply.)
+  3. So the read is **somewhere else**, and the refresh capture does not contain it (it is 100% `fn=0x01`
+     with subs `0x01/0x03/0x1b/0x2e/0x4b` — and `0x03`, `0x1b`, `0x2e` remain UNMAPPED). The sharpest next
+     fixture is a capture taken **while the editor is displaying that name** — see
+     `ForgeFX/docs/capture-recipes.md` R1; `U0030` still holds the name so the capture can be taken with the
+     name on screen. Until it lands, Axis shows occupancy, never an invented name.
 
 
 **Blocked on a capture / fixture (offline-possible once provided)**
