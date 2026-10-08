@@ -6,6 +6,7 @@ import type {
   BlockSummary,
   BlockTypeOption,
   CabState,
+  CabIrUploadResult,
   ConnPick,
   DetectResult,
   PortList,
@@ -467,6 +468,36 @@ export const forgefx = {
     req<Record<string, number>>(`/preset/blocks/${eid}/read`, { method: 'POST', body: JSON.stringify({ pids }) }),
   /** Cab IR names per bank (Factory 1/2, Legacy, Scratchpad) — for the cab IR picker. */
   cabIrs: (opts: { refresh?: boolean } = {}) => req<Record<string, string[]>>(`/cab/irs${opts.refresh ? '?refresh=1' : ''}`),
+  /**
+   * Upload a user-cab IR `.syx` container to the unit (§2.5). The bytes are replayed verbatim unless
+   * `name` is given (then the 32 name slots are rewritten, flag bits preserved).
+   *
+   * ⚠ MEASURED-REFUSED: replaying a real FM3-Edit IR export on fw 13 drew a `0x64` refusal on EVERY
+   * frame (fn=0x7A → result 0x16, fn=0x7B → result 0x10 bad message length), so the container is not
+   * accepted as-is and the device's real IR-upload opcodes are still uncaptured. The server therefore
+   * refuses the request unless `allowUnverified` is set — and even then `ok` means SENT, not stored:
+   * there is no cab-name read-back on this firmware, so only the slot name on the unit is confirmation.
+   *
+   * `target` is the UNVERIFIED retarget experiment (the only specimen carries the `7F 7F`
+   * "no destination" sentinel) — omit it and the destination is whatever cab slot the unit has
+   * selected, which is the device's own documented workflow.
+   */
+  uploadCabIr: (bytes: ArrayBuffer | Uint8Array, opts: { name?: string; target?: number; order?: 'msb' | 'lsb'; allowUnverified?: boolean } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.allowUnverified) qs.set('force', '1');
+    if (opts.name != null && opts.name !== '') qs.set('name', opts.name);
+    if (opts.target != null) {
+      qs.set('target', String(opts.target));
+      if (opts.order) qs.set('order', opts.order);
+    }
+    const url = `/cab/ir/upload${qs.toString() ? `?${qs}` : ''}`;
+    const body = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    return isDirect()
+      ? transportBinary(url, 'POST', body)
+          .then((r) => JSON.parse(typeof r.body === 'string' ? r.body : new TextDecoder().decode(r.body)) as CabIrUploadResult)
+      : fetch(`${BASE}${url}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: body as BodyInit, signal: AbortSignal.timeout(20000) })
+          .then((r) => { if (!r.ok) throw new ForgeError(r.status, `IR upload → ${r.status}`); return r.json() as Promise<CabIrUploadResult>; });
+  },
   /** Current cab block state (mode / per-slot bank + IR + dyna type) for the picker. */
   cabState: (eid: number) => req<CabState>(`/preset/blocks/${eid}/cab`),
   /** Change the block's model/type by ordinal. */

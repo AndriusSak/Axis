@@ -2,6 +2,7 @@
   import { getEditorSurface } from './editorSurface';
   import { catFor } from './catalog';
   import { loadCabIrsCachedFirst } from './cabIrsCache';
+  import { forgefx } from './forgefx';
   import type { CabState } from './types';
 
   const editor = getEditorSurface();
@@ -147,6 +148,49 @@
       .catch(() => {});
   }
 
+  // ── user-cab IR import (§2.5) ──────────────────────────────────────────────────────────────────
+  // The server replays the .syx container's frames to the unit. Two things this UI must NOT imply:
+  //  • the destination is NOT in the file (the measured container carries the `7F 7F` "no
+  //    destination" sentinel) — the unit stores to the cab slot IT has selected, which is the
+  //    device's own documented workflow, so the current Bank/IR slot is named in the strip;
+  //  • `ok` means the frames were SENT. There is no cab-name read-back on this firmware, so the
+  //    slot's name on the unit is the confirmation — and the list below cannot show it, because
+  //    user-slot names are not readable over the wire.
+  let irInput = $state<HTMLInputElement | null>(null);
+  let irFile = $state<File | null>(null);
+  let irRename = $state('');
+  let irBusy = $state(false);
+  let irMsg = $state('');
+  let irMsgOk = $state(true);
+  /** The upload path is measured-REFUSED on fw 13; sending needs an explicit opt-in (see the strip). */
+  let irForce = $state(false);
+
+  function onPickIr(e: Event) {
+    const f = (e.target as HTMLInputElement).files?.[0] ?? null;
+    irFile = f;
+    irRename = '';
+    irMsg = '';
+    (e.target as HTMLInputElement).value = '';
+  }
+
+  async function sendIr() {
+    if (!irFile) return;
+    irBusy = true;
+    irMsg = '';
+    try {
+      const bytes = new Uint8Array(await irFile.arrayBuffer());
+      const r = await forgefx.uploadCabIr(bytes, { name: irRename.trim() || undefined, allowUnverified: irForce });
+      irMsgOk = true;
+      irMsg = `Sent “${r.name}” — ${r.frames} frames / ${r.bytes} bytes. This wire path is measured-REFUSED on fw 13 and Axis cannot read user-slot names back at all: check the slot name on the unit before believing it landed.`;
+      irFile = null;
+    } catch (err) {
+      irMsgOk = false;
+      irMsg = `Not sent: ${(err as Error).message}`;
+    } finally {
+      irBusy = false;
+    }
+  }
+
   function onKey(e: KeyboardEvent) {
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -186,10 +230,30 @@
             {/each}
           </div>
         {/if}
+        <button class="cat import" title="Upload a user-cab IR .syx to the unit" onclick={() => irInput?.click()} disabled={irBusy}>＋ Import IR…</button>
+        <input bind:this={irInput} type="file" accept=".syx" class="hidden-file" onchange={onPickIr} />
         {#if curSlot}
           <span class="cur" title="Current selection">{mode === 'dyna' ? curSlot.dyna.label : curSlot.irName}</span>
         {/if}
       </div>
+
+      {#if irFile || irMsg}
+        <div class="irimport" class:bad={!irMsgOk}>
+          {#if irFile}
+            <span class="fname mono" title={irFile.name}>{irFile.name}</span>
+            <input class="rename" bind:value={irRename} maxlength="32" placeholder="rename (optional, 32 chars)" />
+            <span class="dest mono" title="The unit stores to the cab slot it has selected — the container itself carries no destination">→ selected slot {slot + 1} · {bank}</span>
+            <label class="force" title="Measured on fw 13: the unit refuses a verbatim replay of an FM3-Edit IR export — every frame drew a 0x64 (fn=0x7A → 0x16, fn=0x7B → 0x10 bad message length). Ticking this sends anyway, to measure the refusal.">
+              <input type="checkbox" bind:checked={irForce} /> unverified
+            </label>
+            <button class="go" onclick={sendIr} disabled={irBusy}>{irBusy ? 'Sending…' : 'Send to unit'}</button>
+            <button class="cancel" onclick={() => { irFile = null; irMsg = ''; }} disabled={irBusy}>Cancel</button>
+          {:else}
+            <span class="note">{irMsg}</span>
+            <button class="cancel" onclick={() => (irMsg = '')}>Dismiss</button>
+          {/if}
+        </div>
+      {/if}
 
       {#if mode === 'legacy'}
         <div class="cats scroll">
@@ -510,5 +574,92 @@
     font-size: 10px;
     color: var(--text-faint);
     flex: none;
+  }
+  /* ── user-cab IR import strip (§2.5) ── */
+  .cat.import {
+    border-style: dashed;
+  }
+  .cat.import:hover {
+    border-color: var(--accent-border);
+    color: var(--accent);
+  }
+  .hidden-file {
+    display: none;
+  }
+  .irimport {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 16px;
+    border-bottom: 1px solid var(--surface2);
+    background: var(--panel-2);
+    font-size: 12px;
+    flex: none;
+  }
+  .irimport.bad {
+    background: var(--danger-tint, rgba(220, 90, 90, 0.12));
+  }
+  .irimport .fname {
+    max-width: 30%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--textdim);
+  }
+  .irimport .rename {
+    flex: 1;
+    min-width: 90px;
+    background: var(--surface);
+    border: 1px solid var(--surface-3);
+    border-radius: 7px;
+    color: var(--text);
+    font-size: 12px;
+    padding: 5px 9px;
+    outline: none;
+  }
+  .irimport .dest,
+  .irimport .note {
+    color: var(--textmuted);
+    font-size: 11px;
+  }
+  .irimport .force {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    flex: none;
+    font-size: 11px;
+    color: var(--amber, #d9a34a);
+    cursor: pointer;
+    user-select: none;
+  }
+  .irimport .force input {
+    margin: 0;
+  }
+  .irimport .note {
+    flex: 1;
+  }
+  .irimport .go,
+  .irimport .cancel {
+    flex: none;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 11px;
+    cursor: pointer;
+  }
+  .irimport .go {
+    border: 1px solid var(--accent-border);
+    background: var(--accent-tint);
+    color: var(--accent);
+  }
+  .irimport .cancel {
+    border: 1px solid var(--surface-3);
+    background: transparent;
+    color: var(--textdim);
+  }
+  .irimport .go:disabled,
+  .irimport .cancel:disabled {
+    opacity: 0.55;
+    cursor: default;
   }
 </style>

@@ -56,17 +56,30 @@ Each item names its blocker and what closing it would require.
   read path** as the original, so it proves the write landed, not that the original was captured.
   Closing requires an independent read (front panel).
 - **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck.
-- **§2.5 user-cab IR upload** — the FM3 accepts custom IRs (manual p.118); the multi-frame SyEx
-  upload must be implemented, then load-tested on the device. **Measured 2026-10-08 (FM3 fw 13):** the
-  gen-3 IR-upload opcode is **not documented anywhere public** — the wiki's IR download
-  (`0x7A`/`0x7B`/`0x7C`, 2040 points, 66 messages) is **Axe-Fx II only**, an FM3 IR is 1024 points, and
-  `fn=0x12` GET_CAB_NAME is **refused by this firmware** (single `0x64`, all payload shapes), so there is
-  **no cab-name read oracle over the wire** — the load test's verification is a human observable (front
-  panel / FM3-Edit), unless a dump-side opcode turns up. Closing therefore needs a real **`.syx` IR
-  specimen** (Fractal's own bytes = the wire stream) as the ground truth for the frame layout; measure it
-  with `forgefx-midi/scripts/inspect-syx.ts` before writing any frame builder. Write target for the test:
-  **Scratchpad slot 1** (sanctioned by Andy; the 512 user-cab slots are read-only). A `.syx` that measures
-  1×`0x77`+16×`0x78`+1×`0x79` = 49,336 B is a **preset**, not an IR — that mistake has already been made once.
+- **§2.5 user-cab IR upload — the wire path is MEASURED-REFUSED; the real opcodes are uncaptured.**
+  Built and load-tested 2026-10-08 on a real FM3-Edit export (`U1.001_LT_TV_Mix_7.syx`, 10,345 B,
+  model `0x11`, all 10 checksums valid). What the container IS, measured: `1 × fn=0x7A` + `8 × fn=0x7B`
+  + `1 × fn=0x7C`; each data frame is a 2-byte prefix plus 256 five-byte chunks (32-bit value as 5
+  LSB-first septets); chunks 0–7 of the first data frame are the **32-char name** ("LT TV Mix 7", bit 7
+  of a slot is a flag of unverified meaning); the remaining **2040 chunks are sample slots whose encoding
+  is NOT decoded** (not plausible PCM/float32 under any alignment tried). The `0x7C` payload is a
+  5-septet value no candidate algorithm reproduced. `forgefx-midi/devices/gen3/cabIrSyx.ts` parses,
+  replays verbatim, renames (flags preserved) and can retarget `0x7A`; `POST /cab/ir/upload` +
+  the CabPicker import strip are wired; `scripts/upload-cab-ir.ts` is the load-test instrument
+  (dry-run by default, listens to the inbound stream).
+  **The negative:** sending the frames verbatim drew a `0x64` on **every frame** — `fn=0x7A` → result
+  `0x16`, all eight `fn=0x7B` → result **`0x10` (bad message length)**, `fn=0x7C` likewise. So the
+  export container is **not accepted as-is**, and the gen-2 `0x7A/0x7B/0x7C` IR-download family
+  (the wiki documents it for the **Axe-Fx II** only) is **not what the FM3 listens for**. The driver
+  therefore **fails closed** (`uploadCabIr` refuses unless `allowUnverified`; route: `?force=1`) — a
+  caller cannot push refused frames at a unit and read `{ok:true}` as success. **Closing requires a
+  CAPTURE of FM3-Edit / Fractal-Bot actually loading an IR onto the unit** — the real opcodes and frame
+  lengths exist only in that stream. Do not re-derive them from the gen-2 wiki page. Two side facts that
+  stand: **`fn=0x12` GET_CAB_NAME is refused by fw 13** (so no cab-name read oracle — confirmation is a
+  human looking at the slot), and the device's own workflow stores to the cab slot the unit has
+  **selected**, so a test must aim the Cab block first (`--select-scratchpad N` in the instrument, which
+  puts the selection back afterwards). A `.syx` measuring 1×`0x77`+16×`0x78`+1×`0x79` = 49,336 B is a
+  **preset**, not an IR — that mistake has already been made once.
 
 **Blocked on a capture / fixture (offline-possible once provided)**
 

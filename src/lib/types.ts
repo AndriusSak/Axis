@@ -517,6 +517,28 @@ export interface CabSlot {
   irName: string;
   dyna: { value: number; label: string };
 }
+/**
+ * Result of a user-cab IR upload (POST /cab/ir/upload).
+ *
+ * `ok` means the frames were SENT — not that the unit stored them: the upload is a paced send and
+ * this firmware has no cab-name read-back (`fn=0x12` is refused), so the only confirmation is the
+ * slot name on the unit itself. Never surface this as "IR installed".
+ */
+export interface CabIrUploadResult {
+  ok: boolean;
+  /** The name as sent (the container's own, or the rename that was requested). */
+  name: string;
+  modelId: number;
+  /** Frames / bytes in the stream that went out. */
+  frames: number;
+  bytes: number;
+  /** Sample slots carried (2040 on the measured FM3 geometry). */
+  sampleSlots: number;
+  renamed: boolean;
+  /** Present only for the UNVERIFIED target experiment (`?target=`). */
+  retargeted?: { target: number; order: 'msb' | 'lsb' };
+}
+
 /** Cab block state for the IR picker (GET /preset/blocks/:eid/cab). */
 export interface CabState {
   modeParam: number;
