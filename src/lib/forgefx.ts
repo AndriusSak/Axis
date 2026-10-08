@@ -38,7 +38,8 @@ import type {
   ConverterDeviceId,
   ConvertResponse,
   ConvertExportResponse,
-  ConverterPreset
+  ConverterPreset,
+  CabSlotStateResult
 } from './types';
 import { rangeQuery, type RangeTrace } from './rangeTrace';
 
@@ -498,6 +499,25 @@ export const forgefx = {
       : fetch(`${BASE}${url}`, { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: body as BodyInit, signal: AbortSignal.timeout(20000) })
           .then((r) => { if (!r.ok) throw new ForgeError(r.status, `IR upload → ${r.status}`); return r.json() as Promise<CabIrUploadResult>; });
   },
+  /**
+   * Read back the unit's own per-slot cab STATE — READ-ONLY, one device query per slot.
+   *
+   * This is the independent confirmation an IR upload lacked: `populated` is the unit's flag and
+   * `contentRegion` is a content-derived fingerprint shared byte for byte by slots holding the same IR.
+   * It is NOT a name (the region's encoding is undecoded) — render "populated", never "holds <name>",
+   * and never show `populated: null` as "empty".
+   */
+  cabSlots: (opts: { user?: number; page?: number; from?: number; to?: number } = {}) => {
+    const qs = new URLSearchParams();
+    if (opts.user != null) qs.set('user', String(opts.user));
+    else {
+      if (opts.page != null) qs.set('page', String(opts.page));
+      if (opts.from != null) qs.set('from', String(opts.from));
+      if (opts.to != null) qs.set('to', String(opts.to));
+    }
+    return req<CabSlotStateResult[]>(`/cab/slots${qs.toString() ? `?${qs}` : ''}`);
+  },
+
   /** Current cab block state (mode / per-slot bank + IR + dyna type) for the picker. */
   cabState: (eid: number) => req<CabState>(`/preset/blocks/${eid}/cab`),
   /** Change the block's model/type by ordinal. */

@@ -518,6 +518,29 @@ export interface CabSlot {
   dyna: { value: number; label: string };
 }
 /**
+ * One cab slot's state, read back from the unit (`GET /cab/slots`, the device's own
+ * `fn=0x01 sub=0x4B` query — READ-ONLY).
+ *
+ * This is the independent confirmation an IR upload lacked: `populated` is the unit's own flag, and
+ * `contentRegion` is a content-derived fingerprint that two slots holding the same IR share byte for
+ * byte. It is NOT a name — the region's encoding is undecoded and no simple scheme yields one — so
+ * render "populated", never "holds <name>". `populated: null` means the unit gave no parseable answer
+ * and must never be shown as "empty".
+ */
+export interface CabSlotStateResult {
+  /** Slot index within its page (0-based). */
+  index: number;
+  /** Bank page: 0x10–0x13 user banks, 0x20 scratchpad. */
+  page: number;
+  populated: boolean | null;
+  flag: number | null;
+  /** The content-derived region — identical for slots holding the same IR. Not a name. */
+  contentRegion: number[];
+  /** Why `populated` is null, when it is. */
+  note?: string;
+}
+
+/**
  * Result of a user-cab IR upload (POST /cab/ir/upload).
  *
  * `ok` is ACK-BACKED: the server listens during the paced send and reports the device's frame-by-frame

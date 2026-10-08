@@ -83,9 +83,60 @@
 
   type Row = { id: string; name: string; sub: string; index: number; value: number };
 
+  // ── the USER bank ─────────────────────────────────────────────────────────────────────────────
+  // The device's own bank list has a `USER` entry, but this stack has NO user-bank NAME source: the
+  // bundled cache covers FACTORY 1/2 + LEGACY (+ SCRATCHPAD) only, the cab/IR name tables are not
+  // param-addressable over the wire, and the firmware refuses the documented cab-name read. So instead
+  // of an empty list, the USER bank is built from what CAN be read — the unit's own per-slot state
+  // (`GET /cab/slots`, read-only): occupied or empty, per slot, with no invented names.
+  let userSlots = $state<Map<number, boolean | null> | null>(null);
+  let userLoading = $state(false);
+  let userErr = $state('');
+  let userTried = $state(false); // a FAILED read must not make the effect retry forever
+  const USER_PAGES = [0x10, 0x11, 0x12, 0x13]; // 4 pages × 128 = the 512 user slots
+
+  // SEQUENTIAL on purpose: one serial port, so parallel calls just queue behind each other, and a
+  // 4-way parallel burst would make the last call outlive the client's 12 s request ceiling. One
+  // 128-slot call measured 2.2 s on the unit, so the four calls total ~9 s and each stays safe. The
+  // map is re-published per page so slots fill in as they arrive instead of after a 9 s blank.
+  async function loadUserBank() {
+    if (userLoading || userTried) return;
+    userTried = true;
+    userLoading = true;
+    userErr = '';
+    const m = new Map<number, boolean | null>();
+    try {
+      for (const page of USER_PAGES) {
+        const rows = await forgefx.cabSlots({ page, from: 0, to: 127 });
+        for (const r of rows) m.set((page - 0x10) * 128 + r.index + 1, r.populated);
+        userSlots = new Map(m);
+      }
+    } catch (e) {
+      userErr = (e as Error).message;
+      if (m.size === 0) userSlots = null;
+    } finally {
+      userLoading = false;
+    }
+  }
+
+  // load lazily, the first time the USER bank is shown
+  $effect(() => {
+    if (mode === 'legacy' && bank === 'USER' && !userTried && !userLoading) void loadUserBank();
+  });
+
   // all selectable rows for the current mode/bank
   const allRows = $derived.by<Row[]>(() => {
     if (mode === 'dyna') return (cs?.dynaOptions ?? []).map((o) => ({ id: `dyna:dyna:${o.label}`, name: o.label, sub: `Dyna #${o.value}`, index: o.value, value: o.value }));
+    if (bank === 'USER') {
+      // No names are readable on this firmware — show occupancy, and say so in the row itself.
+      const m = userSlots;
+      return Array.from({ length: 512 }, (_, i) => {
+        const slot = i + 1;
+        const occ = m?.get(slot);
+        const state = occ === true ? 'occupied' : occ === false ? 'empty' : occ === null ? 'no state' : '…';
+        return { id: `legacy:USER:${slot}`, name: `USER #${slot}`, sub: `${state} · name not readable on this firmware`, index: i, value: i };
+      });
+    }
     const list = irs[bank] ?? [];
     return list.map((name, i) => ({ id: `legacy:${bank}:${name}`, name, sub: `${bank} #${i + 1}`, index: i, value: i }));
   });
@@ -186,6 +237,9 @@
     try {
       const bytes = new Uint8Array(await irFile.arrayBuffer());
       const wanted = irRename.trim();
+      // Read the destination BEFORE the send, so "did it land" has a baseline. Best-effort: a read that
+      // fails must not block the upload, it only weakens the confirmation.
+      const before = await forgefx.cabSlots({ user: slot }).then((r) => r[0] ?? null).catch(() => null);
       const r = await forgefx.uploadCabIr(bytes, {
         user: slot,
         name: wanted || undefined,
@@ -193,8 +247,25 @@
         allowUnverified: wanted !== '',
       });
       irMsgOk = r.ok;
+      // The upload's acks are the unit ACCEPTING the frames. The slot state is the unit's OWN answer
+      // about the slot — the independent check the acks cannot give. It is occupancy, not a name.
+      const after = await forgefx.cabSlots({ user: slot }).then((s) => s[0] ?? null).catch(() => null);
+      let verify = 'slot state could not be read back — verify on the unit.';
+      if (after) {
+        if (after.populated === true) {
+          const wasEmpty = before?.populated === false;
+          verify = wasEmpty
+            ? `slot ${slot} reads OCCUPIED now (it was empty before) — the upload landed.`
+            : `slot ${slot} reads occupied (it was already occupied, so this shows occupancy, not content).`;
+        } else if (after.populated === false) {
+          verify = `slot ${slot} still reads EMPTY — treat this upload as FAILED.`;
+          irMsgOk = false;
+        } else {
+          verify = `the unit gave no readable state for slot ${slot} (${after.note ?? 'unparsed reply'}) — verify on the unit.`;
+        }
+      }
       irMsg = r.ok
-        ? `Acknowledged: “${r.name}” → user slot ${slot} (${r.frames} frames; start + ${r.acks.data}/${r.acks.expectedData} data + end acked). Check the slot on the unit — this firmware cannot read names back.`
+        ? `Acknowledged: “${r.name}” → user slot ${slot} (${r.frames} frames; start + ${r.acks.data}/${r.acks.expectedData} data + end acked). ${verify}`
         : `Sent, but NOT acknowledged: ${r.acks.data}/${r.acks.expectedData} data frames acked, start=${r.acks.start} end=${r.acks.end}. Treat that as a failed upload.`;
       irFile = null;
     } catch (err) {
@@ -278,6 +349,19 @@
       {/if}
 
       <div class="list scroll">
+        {#if bank === 'USER' && mode === 'legacy'}
+          <div class="banknote mono">
+            {#if userLoading}
+              reading the unit's user-slot states…
+            {:else if userErr}
+              user-bank state read failed: {userErr}
+              <button class="retry" onclick={() => { userTried = false; userSlots = null; }}>retry</button>
+            {:else}
+              occupancy read from the unit — this firmware cannot read user-slot NAMES back (FM3-Edit
+              shows the names it recorded itself), so slots are listed as occupied/empty.
+            {/if}
+          </div>
+        {/if}
         {#if loading}
           <div class="empty">Loading…</div>
         {:else if view.flat.length === 0}
@@ -588,6 +672,25 @@
     font-size: 10px;
     color: var(--text-faint);
     flex: none;
+  }
+  .banknote .retry {
+    margin-left: 6px;
+    font: inherit;
+    color: var(--text);
+    background: transparent;
+    border: 1px solid var(--surface-3);
+    border-radius: 5px;
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+  /* ── USER bank occupancy note ── */
+  .banknote {
+    padding: 7px 10px 6px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--textmuted);
+    border-bottom: 1px solid var(--surface-3);
+    background: var(--surface-2, rgba(255, 255, 255, 0.02));
   }
   /* ── user-cab IR import strip (§2.5) ── */
   .cat.import {

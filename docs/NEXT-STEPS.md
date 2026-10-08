@@ -75,8 +75,7 @@ Each item names its blocker and what closing it would require.
   (b) there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state read-back** —
   see below. Do not re-derive any of this from the gen-2 wiki page.
 
-- **§2.5b per-slot cab state — the read-back that exists, measured from the editor's own refresh and
-  confirmed live (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
+- **§2.5b per-slot cab state — the read-back that exists, MEASURED and now SHIPPED (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
   upload's start frame (byte 12 = index, byte 13 = page; `0x10`–`0x13` user banks, `0x20` scratchpad);
   the editor issues it for all 528 slots (512 user + 16 scratchpad) and each draws a 60-byte `01 4B`
   reply. Decoded from that reply: **payload byte 6 is `0x01` for a POPULATED slot and `0x7F` for an empty
@@ -91,6 +90,31 @@ Each item names its blocker and what closing it would require.
   (volatile — do not treat them as content). Report **"populated"**, never "holds `<name>`". Natural next
   increment: a read-only `queryCabSlot` driver method + route that returns the raw flag/region and the
   measured populated/empty reading.
+  **Shipped:** the codec (`forgefx-midi/devices/gen3/cabSlotState.ts`), `Gen3Driver.queryCabSlots()`,
+  `GET /cab/slots` on both surfaces (`?user=N` or `?page=&from=&to=`, sweep capped at 128), and Axis's
+  IR-import strip now reads the destination **before and after** the send and reports the unit's own
+  answer ("reads OCCUPIED now, it was empty before") instead of leaving confirmation to a human.
+  **Verified live:** an upload to user slot 13 (which was empty) drew the full ack set AND then read
+  back `populated: true` with a content region **byte-identical to slots 1 and 12**, which hold the same
+  IR — the content test the byte-identical replay could not do. `?page=0x30` answers a clean 400.
+
+- **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
+  measured facts, none of them an oversight to "just fix":
+  1. the offline cache builds `cabIrs` from **FACTORY 1/2 + LEGACY only** — `CAB_BANK_IDS` deliberately
+     excludes `0xfff3+`, the USER/SCRATCHPAD banks, because those are the donor unit's own IR library
+     rather than shippable firmware content;
+  2. the live path, `Gen3Driver#liveCabIrs()`, was an unimplemented **stub returning `{}`**;
+  3. the cab/IR bank name tables are the device's **special table records (ids ≥ 0xff00) and are NOT
+     param-addressable** — probed live: a definition query for `0xfff0` (FACTORY 1) and `0xfff3` (USER)
+     at the CABINET block answers nothing, exactly as `liveWalk`'s coverage note documents ("absent from
+     a live walk by design"). They exist only in the device's `.cache` byte dump.
+  Neither capture contains the name in ANY simple encoding (ascii / 5-septet / 8-per-7, all offsets), the
+  per-slot `0x4B` reply is state not text, and the device's own formatted value for a user-cab reference
+  is `"#11"` — an index, not a name. **Conclusion:** the name lives inside the slot's DATA (the same
+  32-char field the `.syx` container carries) and no captured path reads it back, so FM3-Edit most
+  plausibly displays names from its **own local record** of what it uploaded. Open: whether a slot-data
+  read exists at all — a capture of FM3-Edit's cab picker with names on a machine that has never uploaded
+  them would settle it. Until then Axis shows occupancy, never an invented name.
 
 
 **Blocked on a capture / fixture (offline-possible once provided)**
