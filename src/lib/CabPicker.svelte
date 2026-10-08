@@ -247,6 +247,14 @@
         allowUnverified: wanted !== '',
       });
       irMsgOk = r.ok;
+      // A 0x13 close answer means the unit THREW THE UPLOAD AWAY even though every frame was acked.
+      // Report that first and in full — it is the difference between "sent" and "stored".
+      if (r.discarded) {
+        irMsgOk = false;
+        irMsg = `DISCARDED by the unit — nothing was stored. Every frame was acknowledged, but the close frame answered 0x13: the container's content does not match its own close-frame value (measured: a renamed, zeroed or otherwise EDITED container is thrown away, and an empty slot stays empty). Only a container byte-identical to one the device or FM3-Edit produced is accepted today.`;
+        irFile = null;
+        return;
+      }
       // The upload's acks are the unit ACCEPTING the frames. The slot state is the unit's OWN answer
       // about the slot — the independent check the acks cannot give. It is occupancy, not a name.
       const after = await forgefx.cabSlots({ user: slot }).then((s) => s[0] ?? null).catch(() => null);
@@ -330,7 +338,13 @@
               → user slot
               <input class="slotnum" type="number" min="1" max="512" bind:value={irSlot} disabled={irBusy} />
             </label>
-            <input class="rename" bind:value={irRename} maxlength="32" placeholder="rename (optional, 32 chars)" />
+            <input
+              class="rename"
+              bind:value={irRename}
+              maxlength="32"
+              placeholder="rename — will be DISCARDED (see note)"
+              title="MEASURED 2026-10-08: the unit refuses any container whose content does not match its own close-frame value, and answers the close frame 0x13. A renamed container is discarded — an empty destination stays empty. The close value must be recomputed for a rename, and its encoding is not decoded. Leaving this blank sends the container verbatim, which IS accepted."
+            />
             <button class="go" onclick={sendIr} disabled={irBusy}>{irBusy ? 'Sending…' : 'Send to unit'}</button>
             <button class="cancel" onclick={() => { irFile = null; irMsg = ''; }} disabled={irBusy}>Cancel</button>
           {:else}

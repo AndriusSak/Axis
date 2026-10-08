@@ -549,7 +549,17 @@ export interface CabSlotStateResult {
  * slot's name back. Say "acknowledged".
  */
 export interface CabIrUploadResult {
+  /**
+   * True only when every frame was acknowledged AND the close frame answered `0x00` — the unit's signal
+   * that the container's close value matches its content.
+   */
   ok: boolean;
+  /** The unit answered the close frame `0x13` (content check failed) and DISCARDED the upload. */
+  discarded: boolean;
+  /** The close frame's reply code; `0x00` = accepted, `0x13` = discarded, null = never answered. */
+  closeCode: number | null;
+  /** One line naming what the acks and the close code establish. */
+  reason: string;
   /** The name as sent (the container's own, or the rename that was requested). */
   name: string;
   modelId: number;

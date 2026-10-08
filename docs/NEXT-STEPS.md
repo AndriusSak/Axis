@@ -70,10 +70,30 @@ Each item names its blocker and what closing it would require.
   end-to-end from both sides of the glass, not just from the acks. (A byte-identical re-upload into the
   same slot is a weak content test by construction; what it establishes is that the path stores and does
   not corrupt, which is the property that was in doubt.)
-  **Still open:** (a) a **rename** has never been run on hardware — the name lives in the first data
-  frame while the `0x7C` value is carried verbatim, so the driver gates it behind `allowUnverified`;
+  **Still open:** (a) a **rename** — RUN on hardware and it FAILS, see §2.5e (the unit discards it);
   (b) there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state read-back** —
   see below. Do not re-derive any of this from the gen-2 wiki page.
+
+- **§2.5e the close frame is a CONTENT CHECK, and a mismatch makes the unit DISCARD the upload —
+  MEASURED in four controlled arms (2026-10-08).** Each arm uploaded to an EMPTY user slot, so "was it
+  stored" is observable through the slot-state read-back rather than inferred from acks:
+
+  | arm | container sent | close frame answered | destination slot afterwards |
+  |---|---|---|---|
+  | A | verbatim specimen | `0x00` | **POPULATED** (region == slots 1/12) |
+  | B | name rewritten, close carried verbatim | `0x13` | **still EMPTY** |
+  | C | samples zeroed (and a one-byte-spike variant) | `0x13` | **still EMPTY** |
+  | D | content unchanged, close value mutated | `0x13` | **still EMPTY** |
+
+  So `0x00` = the container's close value MATCHES its content (stored), and `0x13` = mismatch → the whole
+  upload is **DISCARDED and the destination is left untouched**. Every frame is still acknowledged in the
+  `0x13` arms — which is the trap: **reading only the frame acks reports "acknowledged" for an upload the
+  device threw away.** The driver now requires the `0x00` close answer for `ok` and reports
+  `discarded`/`closeCode`/`reason`; Axis's strip says "DISCARDED by the unit — nothing was stored".
+  **Consequences:** a container can only be uploaded BYTE-IDENTICAL to one the device or FM3-Edit
+  produced. A rename, converted samples, or a zeroed "delete" all need the close value **RECOMPUTED**,
+  and its encoding is not decoded — that single unknown now blocks rename, delete-by-zeroing, and any
+  `.wav`/`.ir` import. It is the critical path for the whole cab feature.
 
 - **§2.5b per-slot cab state — the read-back that exists, MEASURED and now SHIPPED (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
   upload's start frame (byte 12 = index, byte 13 = page; `0x10`–`0x13` user banks, `0x20` scratchpad);
@@ -106,10 +126,11 @@ Each item names its blocker and what closing it would require.
   capture of FM3-Edit's Manage Cabs doing a delete, a rename and a reorder** (that single session
   unlocks all three), or a bounded probe of the per-slot sub-actions adjacent to `0x4B` — the probe
   route has unknown blast radius on a device holding a real IR library, so the capture is the safe one.
-  Interim, with what is already shipped: an upload OVERWRITES a slot, so a slot can be made silent by
-  uploading an all-zero container — that is a fake delete (the slot still reads *populated*), and the
-  open question of whether the unit treats a zeroed IR as "no IR" (its state region collapsing to the
-  EMPTY payload) is cheap to test on an empty slot.
+  **Delete-by-zeroing was TESTED and does not work as hoped (§2.5e arm C):** a zeroed container draws
+  `0x13` and is DISCARDED — the slot stays empty because it was never written, not because the unit
+  treats zeros as "no IR". So the interim truth is narrower than it looked: an upload can only ever
+  REPLACE a slot with a container the device already accepts, and it cannot empty one. Delete needs
+  either the real op (the capture) or a recomputed close value — the same blocker as the rename.
 
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":
