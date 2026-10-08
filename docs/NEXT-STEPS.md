@@ -98,6 +98,19 @@ Each item names its blocker and what closing it would require.
   back `populated: true` with a content region **byte-identical to slots 1 and 12**, which hold the same
   IR — the content test the byte-identical replay could not do. `?page=0x30` answers a clean 400.
 
+- **§2.5d cab-slot DELETE / rename / reorder — FM3-Edit has all three; the wire ops are uncaptured.**
+  The parity audit's §2.5 lists FM3-Edit's **Manage Cabs** as *reorder / rename / delete user IRs* — so
+  these are **gaps, not proven-impossible**, and the "no slot-erase op" negative elsewhere in this file
+  is about **PRESET** slots (§3.4 / `presetSlotOps.ts`), which is a different thing and must not be
+  quoted as evidence about cab slots. Closing needs the same fixture that settled the upload: **one
+  capture of FM3-Edit's Manage Cabs doing a delete, a rename and a reorder** (that single session
+  unlocks all three), or a bounded probe of the per-slot sub-actions adjacent to `0x4B` — the probe
+  route has unknown blast radius on a device holding a real IR library, so the capture is the safe one.
+  Interim, with what is already shipped: an upload OVERWRITES a slot, so a slot can be made silent by
+  uploading an all-zero container — that is a fake delete (the slot still reads *populated*), and the
+  open question of whether the unit treats a zeroed IR as "no IR" (its state region collapsing to the
+  EMPTY payload) is cheap to test on an empty slot.
+
 - **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
   measured facts, none of them an oversight to "just fix":
   1. the offline cache builds `cabIrs` from **FACTORY 1/2 + LEGACY only** — `CAB_BANK_IDS` deliberately
@@ -149,7 +162,8 @@ Each item names its blocker and what closing it would require.
 
 **Honestly impossible (no wire op — keep the honest negatives)**
 
-- Slot **Move / Delete everywhere** (no slot-erase op), **Clear Preset** (no clear/init op),
+- **PRESET-slot** Move / Delete everywhere (no preset slot-erase op — §3.4; note this says nothing about
+  **cab** slots, see §2.5d), **Clear Preset** (no clear/init op),
   **Scene MIDI block** (eid 190, zero calibration), **Devices / mirroring**, **MLM warning**
   (stopped as unverifiable), **generic per-block Mute** (no served param — points at Bypass).
   *CS MIDI is NOT in this list* — the P2.5 narrowing showed it is a *layout* gap (its trio
