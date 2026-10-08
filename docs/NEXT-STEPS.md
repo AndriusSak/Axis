@@ -132,14 +132,19 @@ One line per recorded decision. ADRs live in `docs/decisions/`.
 - **Write units are PER-OPCODE, not per-param or per-family** — measured on the unit 2026-10-08 by
   sending raw floats straight to the codec (no driver, no script convention in the way) and reading the
   body: the **continuous** opcode takes the client's **normalized 0..1** (`0.25` → 25.0%), the
-  **discrete** opcode takes **percent 0..100** for a 0..100 param (`40` → 40.0%; `0.40` → 0.4%). Axis's
-  knobs send `continuous: true` with a 0..1 value (`editor.svelte.ts`), so the client is correct as-is and
-  **no conversion belongs in the driver**. Guarded offline by
-  `ForgeFX/server/test/drivers/setparam-units.test.ts` (6 cases; the frame the driver sends is compared to
-  the codec's own encoding), so its negative control fails when a scale is re-introduced **in the driver**
-  — but a scale added inside the CODEC passes unnoticed, because the suite compares the driver's frame
-  against the codec's own encoding. **Always pass `continuous` explicitly** — omitting it silently selects
-  the other opcode's unit.
+  **discrete** opcode takes the parameter's **display value in its own range**. (Reasoning from pid 7115
+  alone, whose range IS 0..100, produced the narrower — and wrong as a general rule — "percent 0..100";
+  measured 2026-10-08 on `GLOBAL/110`, range **25..100**: writing `50` set display **50.0**, raw 21845, where
+  a percentage would have given 62.5. For scale-1 selectors the same holds and is confirmed by the panel:
+  `GLOBAL/7389` body raw `2` ↔ the unit showing "2 SECONDS", whose option list starts `"1 SECOND"`.)
+  Axis's knobs send `continuous: true` with a 0..1 value (`editor.svelte.ts`), so the client is correct
+  as-is and **no conversion belongs in the driver**; scale-1 enum round-trips are correct too (the served
+  value is the display value and Axis writes it straight back). Guarded offline by
+  `ForgeFX/server/test/drivers/setparam-units.test.ts`, which compares the driver's frame against the codec's
+  own encoding **and** decodes the value bytes out of the sent frame against a literal, with a sensitivity
+  control — so a scale re-introduced in the driver OR inside the codec fails. **Always pass `continuous`
+  explicitly** — omitting it silently selects the other opcode's unit, and the scaled-enum case
+  (`PHASER_ORDER`) is still unmeasured (see ADR 0006).
 - **An unchanged read is not evidence of a change, and a fire-and-forget write reports `{ok:true}`
   unconditionally.** A write to a port that answers nothing still "succeeds", so a value that did not
   move is evidence *against* the write, not for it. Verify through an independent path and against a
