@@ -13,7 +13,7 @@ const EMPTY: PerPresetSwitches = {
   at: 11420,
   populated: false,
   geometry: 'per-index-observed-offsets',
-  evidence: { actionCodesMeasured: 2, targetBytesMeasured: 1 },
+  evidence: { actionCodeIndices: [1, 2], targetByteIndices: [1] },
   switches: [
     sw(1, 0, 'unassigned', 0, 'Amp 1', 'measured'),
     sw(2, 0, 'unassigned', null, null, 'partial'),
@@ -119,15 +119,18 @@ describe('switchWriteVerdict', () => {
   });
 });
 
-describe('evidenceNote (the counts come from the decoder, never from prose)', () => {
+describe('evidenceNote (the indices come from the decoder, never a count-as-range)', () => {
   it('is empty without a block', () => {
     expect(evidenceNote(null)).toBe('');
   });
 
-  it('states the evidence per feature, from the page\'s own numbers', () => {
+  it('names the measured indices per field, never a range', () => {
     const note = evidenceNote(EMPTY);
-    expect(note).toContain('action codes of PP#1–PP#2');
+    expect(note).toContain('action codes of PP#1, PP#2');
     expect(note).toContain('target byte of PP#1 only');
+    // A range would only be valid if the observed indices were provably contiguous — they are not in general,
+    // so the sentence names each index instead of asserting a span it cannot back.
+    expect(note).not.toContain('–');
     // Nothing is extrapolated any more — rows without an observed offset read NOTHING, and the note says so
     // rather than promising a value it cannot back.
     expect(note).toContain('shows only what was observed');
@@ -135,7 +138,35 @@ describe('evidenceNote (the counts come from the decoder, never from prose)', ()
   });
 
   it('follows the page when a field is measured for one row only', () => {
-    const page = { ...EMPTY, evidence: { actionCodesMeasured: 1, targetBytesMeasured: 1 } };
+    const page = { ...EMPTY, evidence: { actionCodeIndices: [1], targetByteIndices: [1] } };
     expect(evidenceNote(page)).toContain('the action code of PP#1 only');
+  });
+
+  it('stays TRUE for a NON-CONTIGUOUS set — action codes on 1 and 2 but a target on 1 only', () => {
+    const page = { ...EMPTY, evidence: { actionCodeIndices: [1, 2], targetByteIndices: [1] } };
+    const note = evidenceNote(page);
+    expect(note).toContain('action codes of PP#1, PP#2');
+    expect(note).toContain('target byte of PP#1 only');
+    expect(note).not.toContain('PP#3'); // the old "PP#1–PP#2 range" could not name a gap; this one must not invent one
+  });
+
+  it('never claims an index that was not measured (a synthetic gap: PP#1 and PP#4)', () => {
+    const page = { ...EMPTY, evidence: { actionCodeIndices: [1, 4], targetByteIndices: [4] } };
+    const note = evidenceNote(page);
+    expect(note).toContain('action codes of PP#1, PP#4');
+    expect(note).toContain('target byte of PP#4 only');
+    // The whole point of finding 9: a range from a count would render "PP#1–PP#4" and claim PP#2 and PP#3,
+    // neither of which was measured. Assert the note makes no such claim.
+    expect(note).not.toContain('–');
+    expect(note).not.toContain('PP#2');
+    expect(note).not.toContain('PP#3');
+    expect(note).not.toMatch(/PP#1[-–—]PP#4/);
+  });
+
+  it('reports "no … has been measured" for an empty field rather than a dangling name', () => {
+    const page = { ...EMPTY, evidence: { actionCodeIndices: [], targetByteIndices: [] } };
+    const note = evidenceNote(page);
+    expect(note).toContain('no action code has been measured');
+    expect(note).toContain('no target byte has been measured');
   });
 });

@@ -97,16 +97,27 @@ export function switchWriteVerdict(result: { ok: boolean; reason?: string }): st
   return `NOT confirmed by the unit${result.reason ? ` (${result.reason})` : ''} — the switch still reads as shown.`;
 }
 
+/** Name a set of switch indices for a human: "PP#1", "PP#1, PP#4", "PP#1, PP#2, PP#4". NEVER a range — the
+ *  offset table has no stride, so the observed indices need not be adjacent and a range would over-claim. */
+function ppIndexList(indices: readonly number[]): string {
+  return [...indices].sort((a, b) => a - b).map((i) => `PP#${i}`).join(', ');
+}
+
 /**
- * How far the decode's evidence actually reaches, per field, counted from PP#1 — phrased for a human who has
- * to decide whether to trust a row. The counts come from the decoder, so this text cannot drift away from the
- * evidence the way a hardcoded sentence in a component would.
+ * Which switch indices the decode's evidence actually reaches, per field — phrased for a human who has to
+ * decide whether to trust a row. The indices come from the decoder's own measured-offset table, so this text
+ * cannot drift from the evidence the way a hardcoded sentence in a component would. Naming the indices (not a
+ * count rendered as "PP#1–PP#n") is what keeps the sentence true when the measured indices are NOT contiguous.
  */
 export function evidenceNote(page: PerPresetSwitches | null | undefined): string {
   if (!page) return '';
-  const a = page.evidence.actionCodesMeasured;
-  const t = page.evidence.targetBytesMeasured;
-  const codePart = a === 1 ? 'the action code of PP#1 only' : `the action codes of PP#1–PP#${a}`;
-  const targetPart = t === 1 ? 'the target byte of PP#1 only' : `the target bytes of PP#1–PP#${t}`;
+  const a = [...page.evidence.actionCodeIndices].sort((x, y) => x - y);
+  const t = [...page.evidence.targetByteIndices].sort((x, y) => x - y);
+  const codePart = a.length === 0
+    ? 'no action code has been measured'
+    : `the action code${a.length === 1 ? '' : 's'} of ${ppIndexList(a)}${a.length === 1 ? ' only' : ''}`;
+  const targetPart = t.length === 0
+    ? 'no target byte has been measured'
+    : `the target byte${t.length === 1 ? '' : 's'} of ${ppIndexList(t)}${t.length === 1 ? ' only' : ''}`;
   return `Confirmed against real dumps: ${codePart}, ${targetPart}. Every other row shows only what was observed — rows with no observed offset read as “${UNREAD}”.`;
 }

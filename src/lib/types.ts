@@ -558,8 +558,8 @@ export interface PerPresetSwitches {
   switches: PerPresetSwitch[];
   /** The model in one word: per-index observed offsets, not a stride formula. */
   geometry: 'per-index-observed-offsets';
-  /** How far each field's evidence actually reaches, counted from PP#1 (see the codec). */
-  evidence: { actionCodesMeasured: number; targetBytesMeasured: number };
+  /** WHICH indices each field's evidence reaches (see the codec) — named, never a count rendered as a range. */
+  evidence: { actionCodeIndices: number[]; targetByteIndices: number[] };
 }
 
 /** The fields a per-preset switch write may set (ForgeFX `PUT /preset/switches/:index`). */
