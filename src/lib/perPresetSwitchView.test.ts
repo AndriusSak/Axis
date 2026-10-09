@@ -3,21 +3,21 @@ import { evidenceNote, switchPatchFromFields, switchRows, switchWriteVerdict } f
 import type { PerPresetSwitch, PerPresetSwitches } from './types';
 
 const sw = (
-  index: number, actionCode: number, action: string | null, targetIndex: number,
-  targetLabel: string | null, confidence: 'measured' | 'inferred'
+  index: number, actionCode: number | null, action: string | null, targetIndex: number | null,
+  targetLabel: string | null, confidence: 'measured' | 'partial' | 'unknown'
 ): PerPresetSwitch => ({ index, actionCode, action, targetIndex, targetLabel, confidence });
 
-// The shape the real preset 410 returns: the block is present but UNCONFIGURED, so every row is zero.
-// The rows past PP#1 are `inferred` because only PP#1's offsets have ever been observed.
+// The shape the real preset 410 returns NOW: PP#1 fully observed, PP#2's action code observed but its target
+// byte never located, and PP#3+ with no observed offset at all — so those read as unread, not as zeroes.
 const EMPTY: PerPresetSwitches = {
   at: 11420,
   populated: false,
-  geometry: 'measured-pp1-only',
+  geometry: 'per-index-observed-offsets',
   evidence: { actionCodesMeasured: 2, targetBytesMeasured: 1 },
   switches: [
     sw(1, 0, 'unassigned', 0, 'Amp 1', 'measured'),
-    sw(2, 0, 'unassigned', 0, 'Amp 1', 'inferred'),
-    sw(3, 0, 'unassigned', 0, 'Amp 1', 'inferred')
+    sw(2, 0, 'unassigned', null, null, 'partial'),
+    sw(3, null, null, null, null, 'unknown')
   ]
 };
 
@@ -27,12 +27,12 @@ const CONFIGURED: PerPresetSwitches = {
   populated: true,
   switches: [
     sw(1, 0x04, 'Effect: Bypass (inferred)', 51, 'Reverb 1', 'measured'),
-    sw(2, 0, 'unassigned', 0, 'Amp 1', 'inferred'),
-    sw(3, 0x99, null, 9, null, 'inferred') // an unmeasured code AND an unlabelled target index
+    sw(2, 0, 'unassigned', null, null, 'partial'),
+    sw(3, 0x99, null, 9, null, 'measured') // an unmeasured code AND an unlabelled target index
   ]
 };
 
-describe('switchRows (per-row honesty)', () => {
+describe('switchRows (per-field honesty)', () => {
   it('returns no rows for a null/absent block (never a fabricated twelve)', () => {
     expect(switchRows(null)).toEqual([]);
     expect(switchRows(undefined)).toEqual([]);
@@ -60,14 +60,34 @@ describe('switchRows (per-row honesty)', () => {
     expect(r.actionLabel).toBe('code 0x99 (unmeasured)');
   });
 
-  it('carries confidence through and only lets PP#1 be edited', () => {
-    const rows = switchRows(CONFIGURED);
-    expect(rows[0]!.confidence).toBe('measured');
-    expect(rows[0]!.editable).toBe(true);
-    for (const r of rows.slice(1)) {
-      expect(r.confidence).toBe('inferred');
-      expect(r.editable).toBe(false);
-    }
+  it('says "(target not located)" for a PARTIAL row — never a number read from a guessed offset', () => {
+    const pp2 = switchRows(EMPTY)[1]!;
+    expect(pp2.confidence).toBe('partial');
+    expect(pp2.known).toBe(true);
+    expect(pp2.actionCode).toBe(0);
+    expect(pp2.actionLabel).toBe('unassigned');
+    expect(pp2.targetIndex).toBeNull();
+    expect(pp2.targetLabel).toBe('(target not located)');
+  });
+
+  it('reports an UNKNOWN row as unread — no claim at all, and no write', () => {
+    const r = switchRows(EMPTY)[2]!;
+    expect(r.confidence).toBe('unknown');
+    expect(r.known).toBe(false);
+    expect(r.assigned).toBeNull();
+    expect(r.actionLabel).toBe('—');
+    expect(r.targetLabel).toBe('—');
+    expect(r.canWriteAction).toBe(false);
+    expect(r.canWriteTarget).toBe(false);
+  });
+
+  it('offers writes per FIELD: PP#2 accepts an action code but not a target', () => {
+    const rows = switchRows(EMPTY);
+    expect(rows[0]!.canWriteAction).toBe(true);
+    expect(rows[0]!.canWriteTarget).toBe(true);
+    expect(rows[1]!.canWriteAction).toBe(true);   // its action-code offset IS observed
+    expect(rows[1]!.canWriteTarget).toBe(false);  // its target byte offset is NOT
+    expect(rows[2]!.canWriteAction).toBe(false);
   });
 });
 
@@ -108,7 +128,10 @@ describe('evidenceNote (the counts come from the decoder, never from prose)', ()
     const note = evidenceNote(EMPTY);
     expect(note).toContain('action codes of PP#1–PP#2');
     expect(note).toContain('target byte of PP#1 only');
-    expect(note).toContain('extrapolated');
+    // Nothing is extrapolated any more — rows without an observed offset read NOTHING, and the note says so
+    // rather than promising a value it cannot back.
+    expect(note).toContain('shows only what was observed');
+    expect(note).not.toContain('extrapolated');
   });
 
   it('follows the page when a field is measured for one row only', () => {

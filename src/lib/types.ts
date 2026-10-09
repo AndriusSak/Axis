@@ -529,21 +529,23 @@ export interface PerformSlotWriteResult {
 /**
  * One PER-PRESET SWITCH definition (§3.8), decoded from the preset body by ForgeFX `GET /preset/switches`.
  *
- * CONFIDENCE IS PER ROW AND IT MATTERS: only PP#1's byte offsets have been observed on the wire, so PP#1
- * comes back `measured` and every other row `inferred`. Do not present an inferred row as a reading.
+ * ONLY OBSERVED FIELDS CARRY VALUES. A field whose byte offset has never been located is `null`, not a value
+ * read out of a guessed position — a flat one-per-switch target array was measured and REFUTED, so `confidence`
+ * says exactly how much of the row is real: `measured` (both offsets), `partial` (action code only),
+ * `unknown` (neither). Do not present an unobserved field as a reading.
  */
 export interface PerPresetSwitch {
   /** 1-based ("PP#1"), as the switch picker numbers them. */
   index: number;
-  /** Raw 16-bit action code. */
-  actionCode: number;
-  /** The action's name, or null when the code is one nobody has measured (show the raw byte then). */
+  /** u16 action code — null when this index's action-code offset has not been observed. */
+  actionCode: number | null;
+  /** The action's name, or null when there is no code to name. */
   action: string | null;
-  /** Raw target byte — an index into the FM3's alphabetical FX-slot enumeration. */
-  targetIndex: number;
-  /** The FX-slot name for that index, or null when the index is unlabelled (never a guess). */
+  /** Target byte — null when its offset has not been observed. */
+  targetIndex: number | null;
+  /** The FX-slot name for that index, or null when unlabelled / unread. */
   targetLabel: string | null;
-  confidence: 'measured' | 'inferred';
+  confidence: 'measured' | 'partial' | 'unknown';
 }
 
 /** The per-preset switch block (ForgeFX `GET /preset/switches`, READ-ONLY). */
@@ -553,8 +555,8 @@ export interface PerPresetSwitches {
   /** True when any byte of the block is non-zero. */
   populated: boolean;
   switches: PerPresetSwitch[];
-  /** Which rows this decode can vouch for. */
-  geometry: 'measured-pp1-only';
+  /** The model in one word: per-index observed offsets, not a stride formula. */
+  geometry: 'per-index-observed-offsets';
   /** How far each field's evidence actually reaches, counted from PP#1 (see the codec). */
   evidence: { actionCodesMeasured: number; targetBytesMeasured: number };
 }

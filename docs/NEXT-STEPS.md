@@ -565,6 +565,20 @@ be a checksum or unrelated state that FM3-Edit rewrites whenever the block chang
 set PP#2's target to a KNOWN anchor (e.g. Reverb 1 = 51) and read marker+160 — 51 confirms the byte and the
 stride; anything else kills the hypothesis.**
 
+**The decoder no longer contains the refuted stride (2026-10-09).** The layout is now a per-index
+**observed-offset table** (`PP_MEASURED_OFFSETS = { 1: { actionCode: 4, target: 148 }, 2: { actionCode: 6 } }`)
+instead of a formula. Consequences, all deliberate:
+
+- a field whose offset nobody has located is reported as **null**, never read out of a guessed position, and
+  `confidence` is a three-way split — `measured` (both offsets) · `partial` (action code only) · `unknown`
+  (neither). Indices 3+ therefore list as `unknown` rather than carrying values from `marker+4+2i`;
+- `evidence` is DERIVED from that table, so it cannot drift from the model it describes;
+- the WRITE route's bound is evidence-driven and **per field**: PP#1 accepts both fields, **PP#2 now accepts an
+  action-code write** (its offset is observed) but a target write there is refused `400` naming the reason, and
+  PP#3+ are refused entirely. The panel disables the target input and says why;
+- adding a measured index is now a ONE-LINE data change, which is the whole point: the next hardware round
+  should not need a code change to unlock a switch.
+
 **The roster shortcut is CLOSED — do not re-open it.** Two candidate enumerations exist in the repo
 (`effectRoster()` with `blockInstances`, and `FM3_EFFECT_ID_TABLE`) and both reproduce **1 of 13** anchors:
 each gets `Amp 1 = 0` and then mis-places the rest by 2–4 slots, because the anchors demand Amp to contribute

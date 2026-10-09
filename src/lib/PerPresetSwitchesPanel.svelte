@@ -10,7 +10,8 @@
   //   • AN UNLABELLED TARGET SHOWS ITS INDEX. 13 target indices have measured names; the rest (including
   //     the 8–16 band the docs bound only by dichotomising) show the raw number rather than a guess.
   //
-  // WRITE: PP#1 only, and it targets the unit's EDIT BUFFER — nothing is saved, and reloading the preset
+  // WRITE: per FIELD, bounded by the offsets the decoder has actually observed (today: PP#1 fully, PP#2's
+  // action code only). It targets the unit's EDIT BUFFER — nothing is saved, and reloading the preset
   // discards it. The answer is a read-back verdict, so `ok:false` is a normal outcome and is shown as one.
   import { forgefx } from './forgefx';
   import {
@@ -34,6 +35,8 @@
   let error = $state('');
 
   let editing = $state(false);
+  /** The row being edited — the write targets THIS index, never a hardcoded PP#1. */
+  let editRow = $state<SwitchRow | null>(null);
   let fields = $state<SwitchFields>({ ...EMPTY });
   let writing = $state(false);
   let verdict = $state('');
@@ -60,16 +63,18 @@
     void load();
   }
 
-  function startEdit() {
+  function startEdit(r: SwitchRow) {
     verdict = '';
     verdictOk = false;
     editing = true;
-    const pp1 = rows.find((r) => r.index === 1);
-    // start from what the device reports, but leave an UNASSIGNED row's fields blank rather than
-    // "0" — an empty field means "leave it alone", and a bare 0 is easy to send by accident.
-    fields = pp1 && pp1.assigned
-      ? { actionCode: String(pp1.actionCode), targetIndex: String(pp1.targetIndex) }
-      : { ...EMPTY };
+    editRow = r;
+    // Start from what the device reports, but leave an UNASSIGNED row's fields blank rather than "0" — an
+    // empty field means "leave it alone", and a bare 0 is easy to send by accident. An UNOBSERVED field
+    // starts empty and stays disabled: there is no offset to write to.
+    fields = {
+      actionCode: r.actionCode === null || r.actionCode === 0 ? '' : String(r.actionCode),
+      targetIndex: r.targetIndex === null || r.targetIndex === 0 ? '' : String(r.targetIndex)
+    };
   }
 
   function setAction(code: number) {
@@ -77,6 +82,8 @@
   }
 
   async function write() {
+    if (!editRow) return;
+    const target = editRow;
     const patch = switchPatchFromFields(fields);
     if (!patch) {
       verdictOk = false;
@@ -85,11 +92,12 @@
     }
     writing = true;
     try {
-      const res = await forgefx.setPerPresetSwitch(1, patch);
+      const res = await forgefx.setPerPresetSwitch(target.index, patch);
       await load();
       verdictOk = res.ok;
-      verdict = switchWriteVerdict(res);
+      verdict = `PP#${target.index}: ` + switchWriteVerdict(res);
       editing = false;
+      editRow = null;
     } catch (e) {
       verdictOk = false;
       verdict = (e as Error).message;
@@ -131,38 +139,50 @@
           <span class="act"></span>
         </div>
         {#each rows as r (r.index)}
-          <div class="prow" class:off={!r.assigned}>
+          <div class="prow" class:off={!r.known}>
             <span class="slot mono">PP#{r.index}</span>
             <span class="nm">
-              {#if r.assigned}
+              {#if r.known && r.assigned}
                 <b>{r.actionLabel}</b>
+              {:else if r.known}
+                <span class="un">{r.actionLabel}</span>
               {:else}
-                <span class="un">unassigned</span>
+                <span class="un" title="No byte offset for this index has been observed — nothing is read for it.">—</span>
               {/if}
             </span>
-            <span class="ids mono">{r.assigned ? r.targetLabel : '—'}</span>
-            <span class="conf" class:inferred={r.confidence === 'inferred'}>{r.confidence}</span>
+            <span class="ids mono">{r.known ? r.targetLabel : '—'}</span>
+            <span class="conf" class:inferred={r.confidence !== 'measured'}>{r.confidence}</span>
             <span class="act">
-              {#if r.editable}
-                <button class="mini" onclick={startEdit} disabled={writing || editing}>Edit</button>
+              {#if r.canWriteAction || r.canWriteTarget}
+                <button class="mini" onclick={() => startEdit(r)} disabled={writing || (editing && editRow?.index === r.index)}>Edit</button>
               {/if}
             </span>
           </div>
-          {#if editing && r.editable}
+          {#if editing && editRow && editRow.index === r.index}
             <div class="edit">
-              <label>action code<input bind:value={fields.actionCode} inputmode="numeric" placeholder="e.g. 4" /></label>
-              <label>target index<input bind:value={fields.targetIndex} inputmode="numeric" placeholder="e.g. 51" /></label>
+              <label>action code<input bind:value={fields.actionCode} inputmode="numeric" placeholder="e.g. 4" disabled={writing} /></label>
+              <label
+                title={r.canWriteTarget
+                  ? `Write the target byte for PP#${r.index}.`
+                  : `PP#${r.index}'s target-byte offset has never been located, so it cannot be written — the server refuses it too.`}
+              >
+                target index<input bind:value={fields.targetIndex} inputmode="numeric" placeholder={r.canWriteTarget ? 'e.g. 51' : 'not located'} disabled={writing || !r.canWriteTarget} />
+              </label>
               <div class="actions">
                 {#each KNOWN_ACTIONS as a (a.code)}
                   <button class="mini" onclick={() => setAction(a.code)} disabled={writing}>{a.label} ({a.code})</button>
                 {/each}
-                <button class="mini go" onclick={write} disabled={writing}>{writing ? 'Writing…' : 'Write PP#1'}</button>
-                <button class="mini" onclick={() => (editing = false)} disabled={writing}>Cancel</button>
+                <button class="mini go" onclick={write} disabled={writing}>{writing ? 'Writing…' : `Write PP#${r.index}`}</button>
+                <button class="mini" onclick={() => { editing = false; editRow = null; }} disabled={writing}>Cancel</button>
               </div>
               <p class="warn">
                 Writes the unit's EDIT BUFFER — not saved; reloading the preset discards it. The action codes
                 offered above are the two that have been observed (0x04, 0x03); a code typed here is sent
                 as-is and read back, not validated against a function list.
+                {#if !r.canWriteTarget}
+                  <b>The target index is disabled because this switch's target byte has never been located</b> —
+                  a one-byte-per-switch array was measured and refuted, so its position is unknown.
+                {/if}
               </p>
             </div>
           {/if}
