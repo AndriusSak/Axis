@@ -33,6 +33,8 @@
   let writing = $state(false);
   let verdict = $state('');
   let verdictOk = $state(false);
+  /** The label whose target was edited since it was prefilled, so it no longer names what it points at. */
+  let labelCleared = $state('');
 
   async function load() {
     loading = true;
@@ -59,6 +61,7 @@
   function startEdit(r: PerformRow) {
     verdict = '';
     verdictOk = false;
+    labelCleared = '';
     editSlot = r.slot;
     fields = {
       effectId: r.assigned ? String(r.effectId) : '', // an unassigned slot's ids are 0, not "the old target"
@@ -66,6 +69,19 @@
       effectLabel: r.effectLabel,
       paramLabel: r.paramLabel
     };
+  }
+
+  /**
+   * Changing a TARGET clears the label that names it. This is the write-side defect the 2026-10-08 round trip
+   * produced for real: a slot's ids moved while its label stayed, so the page displayed "Master Volume"
+   * pointing at Cab proximity — structurally valid, and a lie. The label fields are prefilled from the row
+   * being edited, so without this an id-only edit silently re-writes the OLD name onto the NEW target, and
+   * the read-back CONFIRMS it (the panel would happily report ok). A label must be re-entered deliberately.
+   */
+  function onIdChange(which: 'effectLabel' | 'paramLabel') {
+    if (fields[which] === '') return;
+    fields = { ...fields, [which]: '' };
+    labelCleared = which;
   }
 
   function cancelEdit() {
@@ -133,15 +149,20 @@
           </div>
           {#if editSlot === r.slot}
             <div class="edit">
-              <label>effect id<input bind:value={fields.effectId} inputmode="numeric" placeholder="e.g. 62" /></label>
-              <label>param id<input bind:value={fields.paramId} inputmode="numeric" placeholder="e.g. 41" /></label>
-              <label>effect label<input bind:value={fields.effectLabel} placeholder="CAB" /></label>
-              <label>param label<input bind:value={fields.paramLabel} placeholder="Proximity Frequ" /></label>
+              <label>effect id<input bind:value={fields.effectId} inputmode="numeric" placeholder="e.g. 62" oninput={() => onIdChange('effectLabel')} /></label>
+              <label>param id<input bind:value={fields.paramId} inputmode="numeric" placeholder="e.g. 41" oninput={() => onIdChange('paramLabel')} /></label>
+              <label class:cleared={labelCleared === 'effectLabel'}>effect label<input bind:value={fields.effectLabel} placeholder="CAB" /></label>
+              <label class:cleared={labelCleared === 'paramLabel'}>param label<input bind:value={fields.paramLabel} placeholder="Proximity Frequ" /></label>
               <div class="actions">
                 <button class="mini go" onclick={write} disabled={writing}>{writing ? 'Writing…' : 'Write to unit'}</button>
                 <button class="mini" onclick={cancelEdit} disabled={writing}>Cancel</button>
                 <span class="warn">Writes the unit's EDIT BUFFER — not saved; reloading the preset discards it.</span>
               </div>
+              {#if labelCleared}
+                <span class="warn">The {labelCleared === 'effectLabel' ? 'effect' : 'param'} label was CLEARED because
+                  its target changed — re-enter the name that belongs to the new target. A label left over from
+                  the old target reads back as confirmed, and names the wrong thing.</span>
+              {/if}
             </div>
           {/if}
         {/each}

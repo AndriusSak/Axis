@@ -552,7 +552,8 @@ export interface PerPresetSwitch {
 export interface PerPresetSwitches {
   /** Offset of the block marker in the decompressed body (diagnostic — it MOVES between presets). */
   at: number;
-  /** True when any byte of the block is non-zero. */
+  /** True when any OBSERVED field of the block is non-zero — the unread bytes of the block are NOT covered,
+   *  so `false` means "nothing this build can read is set", never "the block is all zero". */
   populated: boolean;
   switches: PerPresetSwitch[];
   /** The model in one word: per-index observed offsets, not a stride formula. */
@@ -571,7 +572,7 @@ export interface PerPresetSwitchPatch {
 export interface PerPresetSwitchWriteResult {
   ok: boolean;
   index: number;
-  /** 'no-block' | 'unsupported-index' | 'retarget-failed' | 'readback-mismatch'. */
+  /** 'no-block' | 'unsupported-index' | 'no-target-offset' | 'retarget-failed' | 'readback-mismatch'. */
   reason?: string;
   requested: PerPresetSwitchPatch;
   readback: PerPresetSwitch | null;

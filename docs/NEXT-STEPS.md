@@ -348,10 +348,12 @@ Each item names its blocker and what closing it would require.
   BUFFER. Suite: `drivers/perform-slot-write` (9 cases, incl. a stateful mock whose edit buffer ADOPTS what
   is written to it — a mock that always echoes the patch would make every write look accepted).
   Writing a *saved* preset slot is still proven only as far as the edit buffer is.
-- **§3.8 per-preset FC/switch definitions — DECODED, not yet wired.** The block layout and the per-switch
-  target field are measured (see §3.8 at the end of this file); what remains is a route + UI — and the same
-  recompress/reframe/retarget path the perform-page WRITE now proves is what a switch write would ride. The
-  last two table rows are still unlabelled (cosmetic; bounded to indices 8-16).
+- **§3.8 per-preset FC/switch definitions — DECODED AND WIRED (2026-10-08/09).** The block layout and the
+  per-switch target field are measured (see §3.8 at the end of this file); the route (`GET /preset/switches`,
+  `PUT /preset/switches/:index`), the shared handlers on BOTH route tables and the Axis panel all landed, and
+  the write rides the same recompress/reframe/retarget path the perform-page WRITE proves. The write bound is
+  per FIELD, not per index — see §3.8. The last two table rows are still unlabelled (cosmetic; bounded to
+  indices 8-16).
 - **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
   Do not build.
 
@@ -527,16 +529,17 @@ and find the last commit that held it with `git log --oneline -- docs/<file>`.
 
 ### §3.8 per-preset switch definitions — BLOCK AND TARGET DECODED (2026-10-08)
 
-Body offsets (decompressed preset): marker `0x05F5 / 0x0001` at ~11412, **one 16-bit action code per switch**
-at ~11424 (`0x04` = Effect: Bypass, `0x03` = Scene: Select — INFERRED from two configured switches, not
-measured across all functions), and the **PP#1 target byte at 11568**.
+Body offsets (decompressed preset): marker `0x05F5 / 0x0001` at **11420** (an earlier note said ~11412 — the
+marker MOVES between presets, and 11420 is the measured anchor for preset 410), **one 16-bit action code per switch**
+at marker+4 (measured: 11424 for preset 410) (`0x04` = Effect: Bypass, `0x03` = Scene: Select — INFERRED
+from two configured switches, not measured across all functions), and the **PP#1 target byte at marker+148**.
 
 The target is an **index into the FM3's alphabetically ordered FX-slot enumeration, instances expanded**
 (the list the switch-assignment picker shows: Amp 1, Cab 1, Chorus 1, Chorus 2, Comp 1, …).
 
 Measured on the unit — 14 anchors, each one edit plus one read-only dump:
-`Amp 1=0 · Cab 1=1 · Chorus 1=2 · Chorus 2=3 · Delay 1=7 · Filter 4=20 · Gate 1=25 · GEQ 1=27 · In 1=29 ·
-Looper=31 · Megatap 1=32 · MultDly 1=38 · Reverb 1=51`
+`Amp 1=0 · Cab 1=1 · Chorus 1=2 · Chorus 2=3 · Delay 1=7 · Delay 2=8 · Filter 4=20 · Gate 1=25 · GEQ 1=27 ·
+In 1=29 · Looper=31 · Megatap 1=32 · MultDly 1=38 · Reverb 1=51`
 
 NOT the eid, NOT the block-list order, NOT the chain order, NOT a grid cell, NOT a type id (a Chorus 1 →
 Chorus 2 edit returned 2 → 3, so it is per-instance). Two earlier models were refuted by their own
@@ -550,8 +553,8 @@ the PP#1 target byte at marker+148 went 20 → 8. Two things follow:
   (`Delay 1 = 7` → `Delay 2 = 8`);
 - **the target bytes are NOT a flat one-per-switch array.** The same capture changed PP#2's action code
   (marker+6, 3 → 4) and set PP#2's own target, yet the byte at **marker+149 did not move**. A contiguous
-  reading predicted it must. So "one byte per switch" is dead, and the row-level `inferred` tag stays until
-  the record layout is measured.
+  reading predicted it must. So "one byte per switch" is dead, and a field whose offset was never observed
+  reads `null` — the geometry is a per-index OBSERVED-offset table (`PP_MEASURED_OFFSETS`), not a stride.
 
 `scripts/check-switch-offsets.ts` now walks all three captures and includes the refutation as a
 `mustMove: false` prediction, so the dead reading cannot come back unnoticed. `diff-switch-capture.ts` is the
@@ -590,8 +593,9 @@ the only reason to believe the negative.)
 **WIRED (2026-10-08), and the geometry is now better evidenced.** `DeviceDriver.perPresetSwitches()` /
 `setPerPresetSwitch()` back `GET /preset/switches` and `PUT /preset/switches/:index` (shared handlers, BOTH
 route tables, on `DEVICE_WRITES` and on `NOT_DRY_RUNNABLE`), with an Axis panel (`PerPresetSwitchesPanel`).
-The write is bounded to **PP#1** on purpose: that is the only index whose byte offsets were observed, so any
-other index answers 400 rather than writing to an unmeasured offset.
+The write is bounded **per FIELD, by the offsets actually observed**: PP#1 accepts an action code AND a target
+byte, PP#2 accepts only its action code, and any unlocated field is refused (400, `no-target-offset`) rather
+than written to an unmeasured offset.
 
 **A two-fixture differential confirmed the offsets by prediction.** The same preset was captured twice — the
 committed `preset-perform/preset-410.bin` (no switch configured) and, later, with PP#1 and PP#2 configured —
@@ -611,5 +615,6 @@ label, so the captures are not a controlled experiment). It touches none of the 
 
 **A MEANING caveat that fell out of the live fixture:** PP#2's action is Scene: Select, and its target byte
 read 0 — for a scene action that byte is most likely a SCENE number, not an FX-slot index, so the anchor
-table must NOT be applied across action types. The row is `inferred` anyway, and the panel shows the raw
-index; treat "target = FX-slot index" as true for the bypass-style action measured, unestablished elsewhere.
+table must NOT be applied across action types. PP#2's target byte is unlocated, so its row is `partial` and
+its target reads `null`; the panel shows the raw index; treat "target = FX-slot index" as true for the
+bypass-style action measured, unestablished elsewhere.

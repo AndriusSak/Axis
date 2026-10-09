@@ -398,12 +398,15 @@ export const forgefx = {
   setPerformSlot: (slot: number, patch: PerformSlotPatch) =>
     req<PerformSlotWriteResult>(`/preset/perform/${slot}`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** Per-preset SWITCH definitions of the CURRENT preset (§3.8) — `null` when the body has no block.
-   *  501→null on a device that can't read it. Only PP#1's row is `measured`; the rest are `inferred`. */
+   *  501→null on a device that can't read it. Each row carries its own `confidence` (`measured` when every
+   *  field's offset was OBSERVED on the wire, `partial` when only some were, `unknown` when none) and each
+   *  FIELD reads `null` when its offset was never located — a value is never guessed from a stride. */
   perPresetSwitches: () => capOptional(req<PerPresetSwitches | null>(`/preset/switches`)),
   /**
-   * Write ONE per-preset switch (§3.8). Only index 1 is accepted — that is the only switch whose byte
-   * offsets have been measured on the wire, and the server answers 400 for any other index rather than
-   * writing to an unmeasured offset. Sent to the unit's EDIT BUFFER: nothing is saved.
+   * Write ONE per-preset switch (§3.8). The bound is per FIELD, not per index: index 1 accepts an action
+   * code and a target byte (both offsets measured), index 2 accepts only its action code, and the server
+   * answers 400 (`no-target-offset`) rather than writing to an offset that was never observed.
+   * Sent to the unit's EDIT BUFFER: nothing is saved.
    *
    * `ok` is a read-back verdict, so `ok:false` is a normal outcome to display (see `reason`).
    */

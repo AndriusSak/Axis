@@ -4,10 +4,11 @@
   // on the button, never on mount, so opening Device Tools fires no device traffic.
   //
   // TWO HONESTY RULES, both enforced in `perPresetSwitchView`:
-  //   • CONFIDENCE IS PER ROW. Only PP#1's byte offsets were measured on the wire; every other row is
-  //     inferred from the same geometry. The panel labels them so — twelve confident-looking rows built on
+  //   • CONFIDENCE IS PER FIELD, FROM AN OBSERVED-OFFSET TABLE. A row is `measured` only when every field's
+  //     offset was read off the wire, `partial` when only some were, `unknown` when none — and a field whose
+  //     offset was never located renders as `—`, never as a value. Twelve confident-looking rows built on
   //     one measurement would be a lie.
-  //   • AN UNLABELLED TARGET SHOWS ITS INDEX. 13 target indices have measured names; the rest (including
+  //   • AN UNLABELLED TARGET SHOWS ITS INDEX. 14 target indices have measured names; the rest (including
   //     the 8–16 band the docs bound only by dichotomising) show the raw number rather than a guess.
   //
   // WRITE: per FIELD, bounded by the offsets the decoder has actually observed (today: PP#1 fully, PP#2's
@@ -122,12 +123,14 @@
       <p class="note">
         Block found at body offset <span class="mono">{page?.at}</span>.
         {#if page && !page.populated}
-          <b>No switch is configured in this preset</b> (the block is all zero).
+          <b>No switch is configured in this preset</b> among the fields this build can READ — PP#1 and
+          PP#2's action code are zero. The other bytes of the block are not read, so this is not a claim
+          that they are zero.
         {/if}
       </p>
       <p class="note caveat">
         {evidenceNote(page)}
-        Target names exist only for the 13 indices measured so far; anything else shows its raw index on
+        Target names exist only for the 14 indices measured so far; anything else shows its raw index on
         purpose.
       </p>
       <div class="list">
@@ -151,7 +154,7 @@
               {/if}
             </span>
             <span class="ids mono">{r.known ? r.targetLabel : '—'}</span>
-            <span class="conf" class:inferred={r.confidence !== 'measured'}>{r.confidence}</span>
+            <span class="conf" class:inferred={r.confidence !== 'measured'} title={r.confidence === 'measured' ? 'every field read from an observed offset' : r.confidence === 'partial' ? 'only some fields have an observed offset' : 'no field of this row has an observed offset'}>{r.confidence}</span>
             <span class="act">
               {#if r.canWriteAction || r.canWriteTarget}
                 <button class="mini" onclick={() => startEdit(r)} disabled={writing || (editing && editRow?.index === r.index)}>Edit</button>
