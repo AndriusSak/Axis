@@ -84,6 +84,34 @@ export function patchFromFields(f: PerformSlotFields): PerformSlotPatch | null {
   return Object.keys(patch).length ? patch : null;
 }
 
+/** Which label input a slot's id change invalidates: the effect id change invalidates the effect
+ *  label, the param id change the param label. */
+export type PerformLabelField = 'effectLabel' | 'paramLabel';
+
+/** The next editor state after an id change: the field values to show, plus which label was CLEARED. */
+export interface PerformLabelClear {
+  /** The editor fields to show next — the stale label blanked when it was non-empty, else untouched. */
+  fields: PerformSlotFields;
+  /** The label field this change cleared, or '' when there was nothing to clear. */
+  cleared: PerformLabelField | '';
+}
+
+/**
+ * Changing a TARGET clears the label that names it. This is the write-side defect the 2026-10-08 round
+ * trip produced for real: a slot's ids moved while its label stayed, so the page displayed "Master
+ * Volume" pointing at Cab proximity — structurally valid, and a lie. The label inputs are prefilled
+ * from the row being edited, so without this an id-only edit silently re-writes the OLD name onto the
+ * NEW target, and the read-back CONFIRMS it (what was written is what reads back). A label must be
+ * re-entered deliberately.
+ *
+ * `cleared` is '' (and the fields untouched) when the label was ALREADY empty — an empty label names
+ * nothing, so there is nothing to clear and no notice to raise.
+ */
+export function clearLabelOnTargetChange(f: PerformSlotFields, which: PerformLabelField): PerformLabelClear {
+  if (f[which] === '') return { fields: f, cleared: '' };
+  return { fields: { ...f, [which]: '' }, cleared: which };
+}
+
 /** A one-line, honest summary of a write verdict — the `reason` when it was not confirmed. */
 export function writeVerdict(result: { ok: boolean; reason?: string }): string {
   if (result.ok) return 'Written to the unit’s edit buffer (not saved — reloading the preset discards it).';

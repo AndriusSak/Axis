@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { assignedCount, patchFromFields, performPageRows, writeVerdict } from './performPageView';
+import { assignedCount, clearLabelOnTargetChange, patchFromFields, performPageRows, writeVerdict } from './performPageView';
+import type { PerformSlotFields } from './performPageView';
 import type { PerformPage, PerformSlot } from './types';
 
 const slot = (n: number, effectId: number, paramId: number, effectLabel: string, paramLabel: string): PerformSlot => ({
@@ -85,6 +86,41 @@ describe('patchFromFields (the write payload)', () => {
     expect(patchFromFields({ ...empty, effectId: '-1' })).toBeNull();
     expect(patchFromFields({ ...empty, paramId: '16384' })).toBeNull(); // 14-bit ceiling
     expect(patchFromFields({ ...empty, paramId: '16383' })).toEqual({ paramId: 16383 });
+  });
+});
+
+describe('clearLabelOnTargetChange (an id edit clears the label that names it)', () => {
+  const full: PerformSlotFields = { effectId: '62', paramId: '41', effectLabel: 'CAB', paramLabel: 'Proximity Frequ' };
+
+  it('clears the label for the changed target and flags it', () => {
+    expect(clearLabelOnTargetChange(full, 'effectLabel')).toEqual({
+      fields: { ...full, effectLabel: '' },
+      cleared: 'effectLabel'
+    });
+    expect(clearLabelOnTargetChange(full, 'paramLabel')).toEqual({
+      fields: { ...full, paramLabel: '' },
+      cleared: 'paramLabel'
+    });
+  });
+
+  it('clears nothing and flags nothing when the label was already empty', () => {
+    const alreadyEmpty: PerformSlotFields = { ...full, effectLabel: '' };
+    const next = clearLabelOnTargetChange(alreadyEmpty, 'effectLabel');
+    expect(next.cleared).toBe('');       // no notice is raised...
+    expect(next.fields).toBe(alreadyEmpty); // ...and the fields are not even replaced
+  });
+
+  it('does not touch the OTHER label when one target changes', () => {
+    const next = clearLabelOnTargetChange(full, 'paramLabel');
+    expect(next.fields.effectLabel).toBe('CAB');
+    expect(next.fields.paramLabel).toBe('');
+  });
+
+  it('never mutates the input fields (a fresh object comes back)', () => {
+    const before = { ...full };
+    const next = clearLabelOnTargetChange(full, 'effectLabel');
+    expect(full).toEqual(before);       // the caller's object is untouched
+    expect(next.fields).not.toBe(full);  // and the returned fields are a fresh object
   });
 });
 

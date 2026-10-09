@@ -14,7 +14,7 @@
   // The editor therefore starts BLANK for an unassigned slot rather than prefilling stale text.
   import { forgefx } from './forgefx';
   import {
-    assignedCount, patchFromFields, performPageRows, writeVerdict,
+    assignedCount, clearLabelOnTargetChange, patchFromFields, performPageRows, writeVerdict,
     type PerformRow, type PerformSlotFields
   } from './performPageView';
   import type { PerformPage } from './types';
@@ -72,16 +72,16 @@
   }
 
   /**
-   * Changing a TARGET clears the label that names it. This is the write-side defect the 2026-10-08 round trip
-   * produced for real: a slot's ids moved while its label stayed, so the page displayed "Master Volume"
-   * pointing at Cab proximity — structurally valid, and a lie. The label fields are prefilled from the row
-   * being edited, so without this an id-only edit silently re-writes the OLD name onto the NEW target, and
-   * the read-back CONFIRMS it (the panel would happily report ok). A label must be re-entered deliberately.
+   * Changing a TARGET clears the label that names it. The rule itself lives (and is unit-tested) in the
+   * pure view model — `clearLabelOnTargetChange`; here we only apply its result. An already-empty label
+   * clears nothing and raises no notice, so we touch neither the fields nor the marker in that case.
    */
   function onIdChange(which: 'effectLabel' | 'paramLabel') {
-    if (fields[which] === '') return;
-    fields = { ...fields, [which]: '' };
-    labelCleared = which;
+    const next = clearLabelOnTargetChange(fields, which);
+    if (next.cleared) {
+      fields = next.fields;
+      labelCleared = next.cleared;
+    }
   }
 
   function cancelEdit() {
