@@ -543,9 +543,27 @@ Chorus 2 edit returned 2 → 3, so it is per-instance). Two earlier models were 
 predictions — an alphabetical list with a short inventory (predicted Reverb 15, measured 51) and a grid
 position (the layout is one row, so Reverb would have been ≈ 10). Do not re-derive either.
 
-**Open:** two rows unlabelled, bounded to indices 8–16 (`Delay 2 · Drive · Enhance · FB Rtn`; "FB Snd" is a
-guess). Closing needs 2 more targets: Delay 2, then FB Rtn 2 — cosmetic only, since any target of interest
-resolves with one edit and one dump.
+**Delay 2 = 8 — MEASURED (2026-10-09), and it refuted a model.** The owner set PP#1's target to Delay 2 and
+the PP#1 target byte at marker+148 went 20 → 8. Two things follow:
+
+- the anchor table gains `Delay 2 = 8`, which also confirms that a family's INSTANCES are consecutive
+  (`Delay 1 = 7` → `Delay 2 = 8`);
+- **the target bytes are NOT a flat one-per-switch array.** The same capture changed PP#2's action code
+  (marker+6, 3 → 4) and set PP#2's own target, yet the byte at **marker+149 did not move**. A contiguous
+  reading predicted it must. So "one byte per switch" is dead, and the row-level `inferred` tag stays until
+  the record layout is measured.
+
+`scripts/check-switch-offsets.ts` now walks all three captures and includes the refutation as a
+`mustMove: false` prediction, so the dead reading cannot come back unnoticed. `diff-switch-capture.ts` is the
+general tool for "one edit + one dump": it prints every moved byte in marker-relative terms.
+
+**Open, and the next question is a cheap one:** the byte at **marker+160** moved 1 → 14 in the same capture
+that reconfigured PP#2, and sits exactly `148 + 12`. That makes it the leading candidate for PP#2's target
+byte with a 12-byte record stride — BUT it is one observation and 14 does not match what the alphabetical
+model predicts for the block that was picked there, so it stays a HYPOTHESIS, not a finding. It could equally
+be a checksum or unrelated state that FM3-Edit rewrites whenever the block changes. **One edit settles it:
+set PP#2's target to a KNOWN anchor (e.g. Reverb 1 = 51) and read marker+160 — 51 confirms the byte and the
+stride; anything else kills the hypothesis.**
 
 **The roster shortcut is CLOSED — do not re-open it.** Two candidate enumerations exist in the repo
 (`effectRoster()` with `blockInstances`, and `FM3_EFFECT_ID_TABLE`) and both reproduce **1 of 13** anchors:
