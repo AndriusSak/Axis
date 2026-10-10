@@ -31,7 +31,7 @@ const SCENE: PerPresetSwitches = {
   ...EMPTY,
   populated: true,
   switches: [
-    sw(1, 0x04, 'Effect: Bypass (inferred)', 20, 'Filter 4', 'measured'),
+    sw(1, 0x04, 'Effect (category — the mode is in the record)', 20, 'Filter 4', 'measured'),
     sw(2, 0x03, 'Scene: Select (inferred)', 1, 'Cab 1', 'measured')
   ]
 };
@@ -41,7 +41,7 @@ const CONFIGURED: PerPresetSwitches = {
   ...EMPTY,
   populated: true,
   switches: [
-    sw(1, 0x04, 'Effect: Bypass (inferred)', 51, 'Reverb 1', 'measured'),
+    sw(1, 0x04, 'Effect (category — the mode is in the record)', 51, 'Reverb 1', 'measured'),
     sw(2, 0, 'unassigned', null, null, 'partial'),
     sw(3, 0x99, null, 9, null, 'measured') // an unmeasured code AND an unlabelled target index
   ]
@@ -62,16 +62,21 @@ describe('switchRows (per-field honesty)', () => {
     expect(r.actionLabel).toBe('unassigned');
   });
 
-  it('names a configured target only through a MEASURED anchor', () => {
+  it('withholds the anchor name from an EFFECT row too, while the mode cannot be read', () => {
+    // 0x04 is the whole Effect category: Bypass, Change Channel and Parameter (all measured). The anchor table
+    // was measured with Bypass alone and the three modes do not share the meaning of record+0, so a name here
+    // would be a guess for two of them. The observed index is shown, and the name returns when the mode is
+    // decodable (plan: Change Channel on a known block).
     const pp1 = switchRows(CONFIGURED)[0]!;
     expect(pp1.assigned).toBe(true);
-    expect(pp1.targetLabel).toBe('Reverb 1');
-    expect(pp1.actionLabel).toBe('Effect: Bypass (inferred)');
+    expect(pp1.targetIndex).toBe(51);
+    expect(pp1.targetLabel).toBe('index 51 (name withheld: effect mode not decoded)');
+    expect(pp1.actionLabel).toBe('Effect (category — the mode is in the record)');
   });
 
   it('withholds an FX-slot name from a NON-effect action (the anchors are an effect-action table)', () => {
     const rows = switchRows(SCENE);
-    expect(rows[0]!.targetLabel).toBe('Filter 4');            // an effect action keeps its anchor name
+    expect(rows[0]!.targetLabel).toBe('index 20 (name withheld: effect mode not decoded)'); // same rule for 0x04
     const scene = rows[1]!;
     expect(scene.assigned).toBe(true);
     expect(scene.actionLabel).toBe('Scene: Select (inferred)');

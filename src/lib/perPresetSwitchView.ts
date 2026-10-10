@@ -64,16 +64,21 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
     // `(target not located)` when its position is unknown. Collapsing them would put a name next to a number
     // that was never read.
     //
-    // The decoded anchor names are an FX-SLOT table — every anchor was measured with the action set to
-    // Effect: Bypass — so a name may only be applied to a row whose action IS an effect action. A scene
-    // action's target byte is a scene number (capture B: PP#2 = Scene: Select, target byte 1; calling that
-    // "Cab 1" would be a claim nobody measured), and an unmeasured action code is unknown by definition. In
-    // both cases the observed INDEX is still shown — the number is a fact, the name would not be.
-    const EFFECT_BYPASS_CODE = 0x04;
-    const anchorApplies = assigned && s.actionCode === EFFECT_BYPASS_CODE;
+    // The decoded anchor names are an FX-SLOT table and every anchor was measured with ONE mode: Effect: Bypass.
+    // The code 0x04 is the whole EFFECT category (Bypass AND Change Channel AND Parameter — measured), and those
+    // modes do NOT share the meaning of record+0 (Parameter's read zero). The mode itself lives in the record and
+    // is not decoded yet, so a name beside an effect row would be a guess for two of the three modes: PP#17
+    // (Change Channel, record+0 = 2) would display "Chorus 1" on no evidence.
+    // So the name is withheld for EVERY row — the observed INDEX is shown instead — and it comes back the moment
+    // the mode can be read (plan: Change Channel on a KNOWN block; if its +0 reads that block's slot index, the
+    // table covers the whole category and this gate becomes a mode check). A scene row is the same story: its
+    // byte is a scene number, and calling that "Cab 1" was never measured.
+    const EFFECT_CATEGORY_CODE = 0x04;
+    const effectRow = assigned && s.actionCode === EFFECT_CATEGORY_CODE;
+    const withheld = `index ${s.targetIndex} (name withheld: effect mode not decoded)`;
     const targetLabel = s.targetIndex === null
       ? '(target not located)'
-      : (assigned ? (anchorApplies ? (s.targetLabel ?? `index ${s.targetIndex} (unlabelled)`) : `index ${s.targetIndex} (unlabelled)`) : '');
+      : (assigned ? (effectRow ? withheld : `index ${s.targetIndex} (unlabelled)`) : '');
     return { ...base, assigned, actionCode: s.actionCode, actionLabel, targetIndex: s.targetIndex, targetLabel };
   });
 }
