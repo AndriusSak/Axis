@@ -7,8 +7,11 @@ const sw = (
   targetLabel: string | null, confidence: 'measured' | 'partial' | 'unknown'
 ): PerPresetSwitch => ({ index, actionCode, action, targetIndex, targetLabel, confidence });
 
-// The shape the real preset 410 returns NOW: PP#1 fully observed, PP#2's action code observed but its target
-// byte never located, and PP#3+ with no observed offset at all — so those read as unread, not as zeroes.
+// The shape the real preset 410 returns NOW: PP#1–PP#3 fully observed (both target bytes were located on
+// 2026-10-09, at marker+160 and marker+172), and PP#4+ with no observed offset at all — so those read as
+// unread, not as zeroes. PP#2 is kept as a PARTIAL row deliberately: the table no longer produces that state,
+// but the view must still handle it honestly, since that is the shape the server returns the moment an index
+// is measured only half-way (finding 7's guard).
 const EMPTY: PerPresetSwitches = {
   at: 11420,
   populated: false,
@@ -18,6 +21,18 @@ const EMPTY: PerPresetSwitches = {
     sw(1, 0, 'unassigned', 0, 'Amp 1', 'measured'),
     sw(2, 0, 'unassigned', null, null, 'partial'),
     sw(3, null, null, null, null, 'unknown')
+  ]
+};
+
+// A row whose action is NOT an effect action. Its target byte IS observed (1) — but every FX-slot anchor in
+// the decode was measured with Effect: Bypass selected, so the name must be withheld: for a scene action that
+// byte is a scene number, and calling it "Cab 1" would be a claim nobody measured.
+const SCENE: PerPresetSwitches = {
+  ...EMPTY,
+  populated: true,
+  switches: [
+    sw(1, 0x04, 'Effect: Bypass (inferred)', 20, 'Filter 4', 'measured'),
+    sw(2, 0x03, 'Scene: Select (inferred)', 1, 'Cab 1', 'measured')
   ]
 };
 
@@ -52,6 +67,16 @@ describe('switchRows (per-field honesty)', () => {
     expect(pp1.assigned).toBe(true);
     expect(pp1.targetLabel).toBe('Reverb 1');
     expect(pp1.actionLabel).toBe('Effect: Bypass (inferred)');
+  });
+
+  it('withholds an FX-slot name from a NON-effect action (the anchors are an effect-action table)', () => {
+    const rows = switchRows(SCENE);
+    expect(rows[0]!.targetLabel).toBe('Filter 4');            // an effect action keeps its anchor name
+    const scene = rows[1]!;
+    expect(scene.assigned).toBe(true);
+    expect(scene.actionLabel).toBe('Scene: Select (inferred)');
+    expect(scene.targetIndex).toBe(1);                        // the observed byte is still shown…
+    expect(scene.targetLabel).toBe('index 1 (unlabelled)');   // …but the name would be an unmeasured claim
   });
 
   it('shows the raw INDEX for an unlabelled target and the raw CODE for an unmeasured action', () => {
@@ -135,6 +160,14 @@ describe('evidenceNote (the indices come from the decoder, never a count-as-rang
     // rather than promising a value it cannot back.
     expect(note).toContain('shows only what was observed');
     expect(note).not.toContain('extrapolated');
+  });
+
+  it('names all three measured indices when the decode reaches PP#3', () => {
+    const page = { ...EMPTY, evidence: { actionCodeIndices: [1, 2, 3], targetByteIndices: [1, 2, 3] } };
+    const note = evidenceNote(page);
+    expect(note).toContain('action codes of PP#1, PP#2, PP#3');
+    expect(note).toContain('target bytes of PP#1, PP#2, PP#3');
+    expect(note).not.toContain('–');
   });
 
   it('follows the page when a field is measured for one row only', () => {

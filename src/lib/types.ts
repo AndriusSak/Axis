@@ -543,7 +543,9 @@ export interface PerPresetSwitch {
   action: string | null;
   /** Target byte — null when its offset has not been observed. */
   targetIndex: number | null;
-  /** The FX-slot name for that index, or null when unlabelled / unread. */
+  /** The FX-SLOT name for that index, or null when unlabelled / unread. Meaningful for an EFFECT action
+   *  only: every anchor was measured with Effect: Bypass selected, so `switchRows` withholds the name for
+   *  any other action and shows the raw index instead. */
   targetLabel: string | null;
   confidence: 'measured' | 'partial' | 'unknown';
 }

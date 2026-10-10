@@ -2,10 +2,10 @@
 // `GET /preset/switches` (see `forgefx.perPresetSwitches()`).
 //
 // Kept a plain TS module (no Svelte) so vitest can cover the HONESTY RULES without mounting a component:
-//   • a row shows only what the decode OBSERVED. PP#1's offsets were measured; PP#2's action code was too,
-//     but its target byte was never located (a flat one-per-switch array was measured and REFUTED), and
-//     indices 3+ have no observed offset at all. An unobserved field renders as unobserved — never as a
-//     value read out of a guessed position.
+//   • a row shows only what the decode OBSERVED. PP#1–PP#3 have BOTH offsets observed (action code at
+//     marker+4/6/8, target byte at marker+148/160/172 — the last two confirmed by prediction); indices 4+
+//     have no observed offset at all. An unobserved field renders as unobserved — never as a value read out
+//     of a guessed position.
 //   • a target with no measured anchor shows its raw INDEX. "Index 9" is a fact; "FB Snd" would be a guess,
 //     and a guess in a name column is indistinguishable from a measurement to whoever reads it.
 //   • which fields may be WRITTEN is per FIELD, straight from the decoder's table — the UI must not offer a
@@ -59,12 +59,21 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
     const actionLabel = s.action
       ? s.action
       : (s.actionCode === 0 ? 'unassigned' : `code ${hex16(s.actionCode as number)} (unmeasured)`);
-    // The target cell says three different things and they are NOT interchangeable: '' when the switch does
-    // nothing, `index N (unlabelled)` when read but unnamed, `(target not located)` when its position is
-    // unknown. Collapsing them would put a name next to a number that was never read.
+    // The target cell says several different things and they are NOT interchangeable: '' when the switch does
+    // nothing, an anchor NAME when the index is named, `index N (unlabelled)` when read but unnamed,
+    // `(target not located)` when its position is unknown. Collapsing them would put a name next to a number
+    // that was never read.
+    //
+    // The decoded anchor names are an FX-SLOT table — every anchor was measured with the action set to
+    // Effect: Bypass — so a name may only be applied to a row whose action IS an effect action. A scene
+    // action's target byte is a scene number (capture B: PP#2 = Scene: Select, target byte 1; calling that
+    // "Cab 1" would be a claim nobody measured), and an unmeasured action code is unknown by definition. In
+    // both cases the observed INDEX is still shown — the number is a fact, the name would not be.
+    const EFFECT_BYPASS_CODE = 0x04;
+    const anchorApplies = assigned && s.actionCode === EFFECT_BYPASS_CODE;
     const targetLabel = s.targetIndex === null
       ? '(target not located)'
-      : (assigned ? (s.targetLabel ?? `index ${s.targetIndex} (unlabelled)`) : '');
+      : (assigned ? (anchorApplies ? (s.targetLabel ?? `index ${s.targetIndex} (unlabelled)`) : `index ${s.targetIndex} (unlabelled)`) : '');
     return { ...base, assigned, actionCode: s.actionCode, actionLabel, targetIndex: s.targetIndex, targetLabel };
   });
 }
