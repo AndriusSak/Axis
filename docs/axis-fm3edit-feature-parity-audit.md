@@ -186,17 +186,27 @@ toast fallback for NON-device rows.
   path (single order source; dry-run → confirm → abort unchanged; the same-slot-set guard untouched).
   **Move / Delete everywhere** stay honest negatives (no slot-erase op on the wire).
 
-### 2.5 User Cab / IR management — **Absent**
+### 2.5 User Cab / IR management — **Partial** (upload / library / slot state DONE and hardware-cycled; the Manage-Cabs UI and the import options are still absent)
 FM3-Edit: **Manage Cabs** (reorder/rename/delete user IRs), **IR import** (`.wav`/`.ir` with MPT /
-Auto-Trim / output format options), Scratchpad naming, UltraRes marking. Axis has only the *picker*
-(`GET /cab/irs`, `CabPicker.svelte`) + favourites. No `POST /cab/*` write endpoints at all; no
-upload; no IR-capture UI (IR capture on the FM3 is front-panel/III-editor).
-- **Custom-IR upload to the device IS available — confirmed 2026-10-07 (Andy; the FM3 Owner's Manual
-  has a "Loading User Cabs" section, p.118)**, so this is buildable rather than blocked: implement the
-  multi-frame SyEx user-cab upload (`POST /cab/*` write endpoints + an import UI) per the FM3 spec, then
-  load-test on hardware. `presetAuthorIr.ts` already authors IR data into a preset dump **offline**.
-  **Next step:** the cab write endpoints + import UI; hardware-verify the upload (the multi-frame
-  transfer is the part that needs the device).
+Auto-Trim / output format options), Scratchpad naming, UltraRes marking.
+
+**This entry said "Absent" when the audit was written on 2026-10-07; it is now measured otherwise.** Verified
+2026-10-11 against the route tables and the unit:
+- **IR upload WORKS and was load-tested on the FM3** — `POST /cab/ir/upload` (Content-Type MUST be
+  `application/octet-stream`, or JSON `{bytes:[…]}`; a bare `--data-binary` gets 415). The multi-frame transfer,
+  the close frame's CONTENT CHECK (a mismatch makes the unit DISCARD the upload) and a per-slot state read
+  (`fn=0x01 sub=0x4B`, the same `[index, page]` pair the IR picker uses) were all measured on hardware, and the
+  verification rule is real: `ok` means every frame was acked AND the close answered `0x00`.
+- **A server-side cab-IR BYTE LIBRARY** persists the bytes of IRs uploaded through Axis (`GET /cab/library`,
+  `GET /cab/library/:id/bytes`; `runtime/cabLibrary.ts`, cap 200, oldest evicted) and the **move** action uses the
+  STORED bytes (sha256-matched), so a later move needs no file. Only a VERIFIED upload is stored.
+- **Cab-slot DELETE is solved** — `POST /cab/slots/clear` (there is no remove opcode; the clear is the primitive),
+  `GET /cab/slots` reads per-slot state. Both surfaces carry every one of these routes.
+
+**Still absent:** the **Manage Cabs** UI (reorder/rename/delete as a browser), the **import options**
+(MPT / Auto-Trim / output format), Scratchpad naming, UltraRes marking, and an IR-capture UI (IR capture on the
+FM3 is front-panel/III-editor). Per-slot IR **data** reads do not exist — the boundary was probed and measured —
+so nothing can name or edit an IR the stack never uploaded, and the library's scope line says so.
 
 ### 2.6 Library (block/channel library on disk) — **DONE (Axis-local format)** · 2026-10-06
 FM3-Edit's **Library** stores named **blocks (all 4 channels) and single channels** as `.blk` files,
