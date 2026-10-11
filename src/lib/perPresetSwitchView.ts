@@ -2,12 +2,13 @@
 // `GET /preset/switches` (see `forgefx.perPresetSwitches()`).
 //
 // Kept a plain TS module (no Svelte) so vitest can cover the HONESTY RULES without mounting a component:
-//   • a row shows only what the decode OBSERVED. PP#1–PP#3 have BOTH offsets observed (action code at
-//     marker+4/6/8, target byte at marker+148/160/172 — the last two confirmed by prediction); indices 4+
-//     have no observed offset at all. An unobserved field renders as unobserved — never as a value read out
-//     of a guessed position.
+//   • a row shows only what the decode OBSERVED. All 24 action codes and their offsets were located by
+//     prediction across nine captures; a field whose offset is unobserved renders as unobserved — never as a
+//     value read out of a guessed position.
 //   • a target with no measured anchor shows its raw INDEX. "Index 9" is a fact; "FB Snd" would be a guess,
 //     and a guess in a name column is indistinguishable from a measurement to whoever reads it.
+//   • an anchor NAME is only printed where the device was measured to store an FX-slot index there — the
+//     server decides that (`targetIsFxSlot`) and this module follows it rather than re-deriving it.
 //   • which fields may be WRITTEN is per FIELD, straight from the decoder's table — the UI must not offer a
 //     write the server will refuse, nor hide one it would accept.
 import type { PerPresetSwitch, PerPresetSwitches, PerPresetSwitchPatch } from './types';
@@ -26,19 +27,49 @@ export interface SwitchRow {
   actionCode: number | null;
   /** The action's name, `code 0xNN (unmeasured)`, `unassigned`, or the unread marker. */
   actionLabel: string;
+  /** The TAP's function within its category — a measured name, `entry N (unnamed)`, or '' when unassigned. */
+  functionLabel: string;
   targetIndex: number | null;
   /** The FX-slot name for a MEASURED anchor, the raw index, `(target not located)`, or the unread marker. */
   targetLabel: string;
+  /** The HOLD side, beside the TAP: `unassigned`, a category name, `code 0xNN (unmeasured)`, or the unread marker. */
+  holdLabel: string;
+  holdActionCode: number | null;
+  /**
+   * True when the HOLD reads as Unassigned but was NEVER EXERCISED on the unit — the codec's `holdMeasured`
+   * inverted for display. A zero is then a convention, not an observation, and the row says so.
+   */
+  holdUnexercised: boolean;
   /** The action code can be written (its offset is observed). */
   canWriteAction: boolean;
   /** The target byte can be written (its offset has been LOCATED). */
   canWriteTarget: boolean;
+  /** The HOLD action code can be written (the HOLD array is located — see the codec). */
+  canWriteHold: boolean;
 }
 
 const hex16 = (v: number): string => `0x${v.toString(16).padStart(2, '0')}`;
 
 /** For a field the decode cannot read AT ALL — deliberately distinct from "reads as zero". */
 const UNREAD = '—';
+
+/**
+ * Why the FX-slot anchor name is withheld for this row. Two different reasons, and they are not interchangeable:
+ * an Effect row whose FUNCTION was never measured to store a slot index (0x04 is the whole Effect category:
+ * Bypass and Chan Select were measured on the wire, Chan Toggle and Chan Inc/Dec were not), versus a row of any
+ * other category, whose byte means something else entirely (a scene number, a preset number, a layout …).
+ */
+function withheldReason(s: PerPresetSwitch): string {
+  if (s.actionCode === 0x04) {
+    return `name withheld: effect function ${s.functionIndex}${s.functionName ? ` (${s.functionName})` : ''} has not been measured to carry an FX-slot index`;
+  }
+  if (!s.action) {
+    // An unmeasured CODE has no category to reason from, so the reason is the missing list itself.
+    return `name withheld: code ${hex16(s.actionCode as number)} is unmeasured, so it has no function list to reason from`;
+  }
+  const category = s.action.split(' ')[0]?.replace(/:$/, '') || 'this';
+  return `not an FX slot — a ${category} row stores its own kind of value here`;
+}
 
 /** Build the renderable rows. A null/absent block yields none — never a fabricated twelve. */
 export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRow[] {
@@ -50,36 +81,42 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
       confidence: s.confidence,
       known,
       canWriteAction: known,
-      canWriteTarget: s.targetIndex !== null
+      canWriteTarget: s.targetIndex !== null,
+      canWriteHold: known
     };
     if (!known) {
-      return { ...base, assigned: null, actionCode: null, actionLabel: UNREAD, targetIndex: null, targetLabel: UNREAD };
+      return {
+        ...base, assigned: null, actionCode: null, actionLabel: UNREAD, functionLabel: UNREAD,
+        targetIndex: null, targetLabel: UNREAD, holdLabel: UNREAD, holdActionCode: null, holdUnexercised: false
+      };
     }
     const assigned = s.actionCode !== 0;
     const actionLabel = s.action
       ? s.action
       : (s.actionCode === 0 ? 'unassigned' : `code ${hex16(s.actionCode as number)} (unmeasured)`);
+    // No function claim for an unassigned row, and none for a code nobody has measured — the index beside an
+    // unmeasured code would be a number about a category nobody can name.
+    const functionLabel = !assigned || !s.action
+      ? ''
+      : (s.functionName ?? `entry ${s.functionIndex} (unnamed)`);
     // The target cell says several different things and they are NOT interchangeable: '' when the switch does
-    // nothing, an anchor NAME when the index is named, `index N (unlabelled)` when read but unnamed,
-    // `(target not located)` when its position is unknown. Collapsing them would put a name next to a number
-    // that was never read.
-    //
-    // The decoded anchor names are an FX-SLOT table and every anchor was measured with ONE mode: Effect: Bypass.
-    // The code 0x04 is the whole EFFECT category (Bypass AND Change Channel AND Parameter — measured), and those
-    // modes do NOT share the meaning of record+0 (Parameter's read zero). The mode itself lives in the record and
-    // is not decoded yet, so a name beside an effect row would be a guess for two of the three modes: PP#17
-    // (Change Channel, record+0 = 2) would display "Chorus 1" on no evidence.
-    // So the name is withheld for EVERY row — the observed INDEX is shown instead — and it comes back the moment
-    // the mode can be read (plan: Change Channel on a KNOWN block; if its +0 reads that block's slot index, the
-    // table covers the whole category and this gate becomes a mode check). A scene row is the same story: its
-    // byte is a scene number, and calling that "Cab 1" was never measured.
-    const EFFECT_CATEGORY_CODE = 0x04;
-    const effectRow = assigned && s.actionCode === EFFECT_CATEGORY_CODE;
-    const withheld = `index ${s.targetIndex} (name withheld: effect mode not decoded)`;
+    // nothing, an anchor NAME when the device was measured to store an FX-slot index there, `index N (…)` when
+    // the byte is observed but not a slot, `(target not located)` when its position is unknown. Collapsing them
+    // would put a name next to a number that was never read, or hide the reason a name is missing.
     const targetLabel = s.targetIndex === null
       ? '(target not located)'
-      : (assigned ? (effectRow ? withheld : `index ${s.targetIndex} (unlabelled)`) : '');
-    return { ...base, assigned, actionCode: s.actionCode, actionLabel, targetIndex: s.targetIndex, targetLabel };
+      : (!assigned
+        ? ''
+        : (s.targetIsFxSlot
+          ? (s.targetLabel ?? `index ${s.targetIndex} (unlabelled)`)
+          : `index ${s.targetIndex} (${withheldReason(s)})`));
+    const holdActionCode = s.holdActionCode;
+    const holdLabel = holdActionCode === 0 ? 'unassigned' : (s.holdAction ?? `code ${hex16(holdActionCode)} (unmeasured)`);
+    return {
+      ...base, assigned, actionCode: s.actionCode, actionLabel, functionLabel,
+      targetIndex: s.targetIndex, targetLabel, holdLabel, holdActionCode,
+      holdUnexercised: holdActionCode === 0 && !s.holdMeasured
+    };
   });
 }
 
@@ -87,6 +124,7 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
 export interface SwitchFields {
   actionCode: string;
   targetIndex: string;
+  holdActionCode: string;
 }
 
 /**
@@ -94,14 +132,16 @@ export interface SwitchFields {
  *
  * An EMPTY input means "leave this field alone" — and a non-numeric or out-of-range value is DROPPED rather
  * than sent (the server would answer 400, but a UI that sends nonsense is a UI that lies about what it did).
- * Action codes are 16-bit; a target index is one byte.
+ * Action codes and HOLD codes are 16-bit; a target index is one byte.
  */
 export function switchPatchFromFields(f: SwitchFields): PerPresetSwitchPatch | null {
   const patch: PerPresetSwitchPatch = {};
   const action = f.actionCode.trim();
   const target = f.targetIndex.trim();
+  const hold = f.holdActionCode.trim();
   if (/^\d+$/.test(action) && Number(action) <= 0xffff) patch.actionCode = Number(action);
   if (/^\d+$/.test(target) && Number(target) <= 0xff) patch.targetIndex = Number(target);
+  if (/^\d+$/.test(hold) && Number(hold) <= 0xffff) patch.holdActionCode = Number(hold);
   return Object.keys(patch).length ? patch : null;
 }
 
@@ -122,16 +162,24 @@ function ppIndexList(indices: readonly number[]): string {
  * decide whether to trust a row. The indices come from the decoder's own measured-offset table, so this text
  * cannot drift from the evidence the way a hardcoded sentence in a component would. Naming the indices (not a
  * count rendered as "PP#1–PP#n") is what keeps the sentence true when the measured indices are NOT contiguous.
+ *
+ * The HOLD half is a third line and it means something DIFFERENT in kind: those are the rows whose HOLD was
+ * actually exercised on the unit, not rows whose offset was located. Both are reported, and the sentence says
+ * which is which — that is the difference between "the array is located" and "this row was proven".
  */
 export function evidenceNote(page: PerPresetSwitches | null | undefined): string {
   if (!page) return '';
   const a = [...page.evidence.actionCodeIndices].sort((x, y) => x - y);
   const t = [...page.evidence.targetByteIndices].sort((x, y) => x - y);
+  const h = [...(page.evidence.holdMeasuredIndices ?? [])].sort((x, y) => x - y);
   const codePart = a.length === 0
     ? 'no action code has been measured'
     : `the action code${a.length === 1 ? '' : 's'} of ${ppIndexList(a)}${a.length === 1 ? ' only' : ''}`;
   const targetPart = t.length === 0
     ? 'no target byte has been measured'
     : `the target byte${t.length === 1 ? '' : 's'} of ${ppIndexList(t)}${t.length === 1 ? ' only' : ''}`;
-  return `Confirmed against real dumps: ${codePart}, ${targetPart}. Every other row shows only what was observed — rows with no observed offset read as “${UNREAD}”.`;
+  const holdPart = h.length === 0
+    ? 'No HOLD has been exercised on this unit'
+    : `the HOLD was exercised on ${ppIndexList(h)}`;
+  return `Confirmed against real dumps: ${codePart}, ${targetPart}. ${holdPart} — every other row's HOLD reads Unassigned by the same convention the TAP side uses for an unassigned row, which is a convention and not an observation. Every other row shows only what was observed: rows with no observed offset read as “${UNREAD}”.`;
 }

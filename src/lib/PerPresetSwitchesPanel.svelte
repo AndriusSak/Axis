@@ -3,17 +3,20 @@
   // preset, read from the edit buffer (`forgefx.perPresetSwitches()` → GET /preset/switches). Read lazily
   // on the button, never on mount, so opening Device Tools fires no device traffic.
   //
-  // TWO HONESTY RULES, both enforced in `perPresetSwitchView`:
+  // THREE HONESTY RULES, all enforced in `perPresetSwitchView`:
   //   • CONFIDENCE IS PER FIELD, FROM AN OBSERVED-OFFSET TABLE. A row is `measured` only when every field's
   //     offset was read off the wire, `partial` when only some were, `unknown` when none — and a field whose
-  //     offset was never located renders as `—`, never as a value. Twelve confident-looking rows built on
-  //     one measurement would be a lie.
-  //   • AN UNLABELLED TARGET SHOWS ITS INDEX. 14 target indices have measured names; the rest (including
-  //     the 8–16 band the docs bound only by dichotomising) show the raw number rather than a guess.
+  //     offset was never located renders as `—`, never as a value.
+  //   • AN UNLABELLED TARGET SHOWS ITS INDEX, and an FX-slot NAME appears only where the unit was measured to
+  //     store a slot index at that byte (Effect: Bypass and Effect: Chan Select — the server's
+  //     `targetIsFxSlot`). Elsewhere the row says WHY: a scene number, a layout, an unmeasured effect function.
+  //   • A HOLD that reads Unassigned is marked when nobody ever exercised a HOLD on the unit — the zero is the
+  //     same convention an unassigned TAP row uses, and it is labelled as a convention, not an observation.
   //
-  // WRITE: per FIELD, bounded by the offsets the decoder has actually observed (today: PP#1 fully, PP#2's
-  // action code only). It targets the unit's EDIT BUFFER — nothing is saved, and reloading the preset
-  // discards it. The answer is a read-back verdict, so `ok:false` is a normal outcome and is shown as one.
+  // WRITE: per FIELD, bounded by the offsets the decoder has actually observed (all 24 action codes, 20 target
+  // bytes, and the HOLD code — a second action-code array located on 2026-10-11). It targets the unit's EDIT
+  // BUFFER — nothing is saved, and reloading the preset discards it. The answer is a read-back verdict, so
+  // `ok:false` is a normal outcome and is shown as one.
   import { forgefx } from './forgefx';
   import {
     evidenceNote, switchPatchFromFields, switchRows, switchWriteVerdict,
@@ -21,12 +24,13 @@
   } from './perPresetSwitchView';
   import type { PerPresetSwitches } from './types';
 
-  const EMPTY: SwitchFields = { actionCode: '', targetIndex: '' };
+  const EMPTY: SwitchFields = { actionCode: '', targetIndex: '', holdActionCode: '' };
 
-  /** The two action codes that have been observed, offered as buttons so a caller need not recall them. */
+  /** Action codes offered as buttons so a caller need not recall them — the two most common of the thirteen
+   *  categories the codec now carries (all fourteen dropdown positions are measured). */
   const KNOWN_ACTIONS: Array<{ code: number; label: string }> = [
-    { code: 0x04, label: 'Effect: Bypass' },
-    { code: 0x03, label: 'Scene: Select' }
+    { code: 0x04, label: 'Effect' },
+    { code: 0x03, label: 'Scene' }
   ];
 
   let page = $state<PerPresetSwitches | null>(null);
@@ -74,7 +78,8 @@
     // starts empty and stays disabled: there is no offset to write to.
     fields = {
       actionCode: r.actionCode === null || r.actionCode === 0 ? '' : String(r.actionCode),
-      targetIndex: r.targetIndex === null || r.targetIndex === 0 ? '' : String(r.targetIndex)
+      targetIndex: r.targetIndex === null || r.targetIndex === 0 ? '' : String(r.targetIndex),
+      holdActionCode: r.holdActionCode === null || r.holdActionCode === 0 ? '' : String(r.holdActionCode)
     };
   }
 
@@ -130,14 +135,16 @@
       </p>
       <p class="note caveat">
         {evidenceNote(page)}
-        Target names exist only for the 14 indices measured so far; anything else shows its raw index on
-        purpose.
+        An FX-slot name appears only where the unit was measured to store a slot index there (Effect: Bypass
+        and Effect: Chan Select); every other row shows its raw byte plus the reason. A row marked
+        <span class="mono">unassigned*</span> has a HOLD that was never exercised on this unit.
       </p>
       <div class="list">
         <div class="prow head">
           <span class="slot mono">switch</span>
-          <span class="nm">action</span>
+          <span class="nm">action · function</span>
           <span class="ids mono">target</span>
+          <span class="ids mono">hold</span>
           <span class="conf">confidence</span>
           <span class="act"></span>
         </div>
@@ -146,7 +153,8 @@
             <span class="slot mono">PP#{r.index}</span>
             <span class="nm">
               {#if r.known && r.assigned}
-                <b>{r.actionLabel}</b>
+                <b>{r.actionLabel.split(' (')[0]}</b>
+                {#if r.functionLabel}<span class="fn">{r.functionLabel}</span>{/if}
               {:else if r.known}
                 <span class="un">{r.actionLabel}</span>
               {:else}
@@ -154,6 +162,9 @@
               {/if}
             </span>
             <span class="ids mono">{r.known ? r.targetLabel : '—'}</span>
+            <span class="ids mono">
+              {#if !r.known}—{:else if r.holdUnexercised}<span class="un" title="No HOLD was ever exercised on this unit, so this Unassigned is the codec's zero convention rather than an observation.">{r.holdLabel}*</span>{:else}{r.holdLabel}{/if}
+            </span>
             <span class="conf" class:inferred={r.confidence !== 'measured'} title={r.confidence === 'measured' ? 'every field read from an observed offset' : r.confidence === 'partial' ? 'only some fields have an observed offset' : 'no field of this row has an observed offset'}>{r.confidence}</span>
             <span class="act">
               {#if r.canWriteAction || r.canWriteTarget}
@@ -170,6 +181,11 @@
                   : `PP#${r.index}'s target-byte offset has never been located, so it cannot be written — the server refuses it too.`}
               >
                 target index<input bind:value={fields.targetIndex} inputmode="numeric" placeholder={r.canWriteTarget ? 'e.g. 51' : 'not located'} disabled={writing || !r.canWriteTarget} />
+              </label>
+              <label
+                title={`Write the HOLD action code for PP#${r.index}. The HOLD half is a second action-code array (marker+436 + 2·(index−1)), located on 2026-10-11 — three HOLDs read back 8/5/7 there. 0 = Unassigned; leave it empty to change only the TAP side.`}
+              >
+                hold action code<input bind:value={fields.holdActionCode} inputmode="numeric" placeholder={r.canWriteHold ? 'e.g. 8 = Looper' : 'not located'} disabled={writing || !r.canWriteHold} />
               </label>
               <div class="actions">
                 {#each KNOWN_ACTIONS as a (a.code)}
@@ -216,8 +232,9 @@
   .note.err { color: #ff6b6b; }
   .note.caveat { font-size: 11px; opacity: 0.65; }
   .list { display: flex; flex-direction: column; gap: 2px; }
-  .prow { display: grid; grid-template-columns: 56px 1fr 1fr 74px 52px; align-items: center; gap: 8px;
+  .prow { display: grid; grid-template-columns: 56px 1.1fr 1fr 0.8fr 74px 52px; align-items: center; gap: 8px;
     padding: 4px 6px; border-radius: 6px; font-size: 12px; }
+  .fn { margin-left: 6px; font-size: 11px; opacity: 0.7; }
   .prow.head { opacity: 0.55; text-transform: uppercase; letter-spacing: 0.05em; font-size: 10px; }
   .prow.off { opacity: 0.5; }
   .slot { text-align: right; }

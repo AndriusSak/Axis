@@ -543,11 +543,27 @@ export interface PerPresetSwitch {
   action: string | null;
   /** Target byte — null when its offset has not been observed. */
   targetIndex: number | null;
-  /** The FX-SLOT name for that index, or null when unlabelled / unread. Measured with Effect: Bypass selected
-   *  ONLY, and the action code cannot tell one Effect mode from another (0x04 covers Bypass, Change Channel and
-   *  Parameter, whose record+0 does not mean the same thing), so `switchRows` currently withholds it from every
-   *  row — including effect rows — and shows the observed index instead. */
+  /** The FX-SLOT name for that index, or null when unlabelled / unread. It is the byte's identity ONLY where
+   *  the device was measured to store an FX-slot index — `targetIsFxSlot` below says whether that is true here,
+   *  and `switchRows` withholds the name wherever it is not. */
   targetLabel: string | null;
+  /**
+   * TRUE only when the anchor table provably names this byte: the action is Effect AND the function is Bypass or
+   * Chan Select (both measured on four blocks). Printing `targetLabel` without checking this would claim a name
+   * nobody measured for every other category — a Scene row's byte is a scene number, a Layout row's is a layout.
+   */
+  targetIsFxSlot: boolean;
+  /** The TAP's function index WITHIN its category (0 = the category's first menu entry). */
+  functionIndex: number;
+  /** The measured name of that function, or null when nobody has read that category's list. */
+  functionName: string | null;
+  /** The HOLD side's action code — the SAME code space as `actionCode`; 0 = Unassigned. */
+  holdActionCode: number;
+  /** The HOLD action's category name. */
+  holdAction: string | null;
+  /** Whether a HOLD at this index was ever EXERCISED on the unit. False means the byte reads 0 and that zero
+   *  was never tested, so it is Unassigned by convention rather than by observation. */
+  holdMeasured: boolean;
   confidence: 'measured' | 'partial' | 'unknown';
 }
 
@@ -561,14 +577,17 @@ export interface PerPresetSwitches {
   switches: PerPresetSwitch[];
   /** The model in one word: per-index observed offsets, not a stride formula. */
   geometry: 'per-index-observed-offsets';
-  /** WHICH indices each field's evidence reaches (see the codec) — named, never a count rendered as a range. */
-  evidence: { actionCodeIndices: number[]; targetByteIndices: number[] };
+  /** WHICH indices each field's evidence reaches (see the codec) — named, never a count rendered as a range.
+   *  `holdMeasuredIndices` is a DIFFERENT kind of evidence: the rows whose HOLD was exercised on the unit. */
+  evidence: { actionCodeIndices: number[]; targetByteIndices: number[]; holdMeasuredIndices: number[] };
 }
 
 /** The fields a per-preset switch write may set (ForgeFX `PUT /preset/switches/:index`). */
 export interface PerPresetSwitchPatch {
   actionCode?: number;
   targetIndex?: number;
+  /** The HOLD action code — the same code space as `actionCode`, 0 = Unassigned. */
+  holdActionCode?: number;
 }
 
 /** The server's answer to a per-preset switch write — `ok` is a READ-BACK of the edit buffer. */
