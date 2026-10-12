@@ -1,19 +1,17 @@
 // Regression guard for the owner's 2026-10-12 Cab-block reports, pinned to a LIVE capture of the Cab
-// block (preset 410 `USA Mk IV`, FM3 fw 13.0) taken from a running ForgeFX (`GET /preset/blocks/62/params`
-// → `cabBoard.fixture.json`, 37 params + 23 enums + the 4-page editor layout).
+// block — preset 410 "USA Mk IV" (the preset name lives in `preset.name`; the fixture's `type.name`
+// `1x8 PRINCETONE` is the CABINET MODEL of Cab slot 1, NOT the preset name), FM3 fw 13.0 — taken from a
+// running ForgeFX (`GET /preset/blocks/62/params` → `cabBoard.fixture.json`, 37 params + 23 enums + the
+// 4-page editor layout).
 //
-// The three reports, and what this pins about each:
-//   1. "Room Diffusion shows 50% while the unit says 0%" — the SERVED value for that param must stay 0 with
-//      norm 0, and the board must bind it to `k59`. The dial renders `value = norm` (its arc is
-//      `norm * 117.8`), so a knob reading 50% can only mean the client got norm 0.5 from somewhere that is
-//      NOT this payload — i.e. any future change that makes the payload say 0.5 is a real regression.
-//   2. "Mic placement in Cab is nowhere to be seen" — the mic-position control is the layout's
-//      `dynaCabControl` (paramId 93/94, Axis view `dynacab`), which carries the cab's Distance param as
-//      `key2` (97/98). It must be PRESENT on the Cab page, and the Mic model dropdowns (enum 89/90) must
-//      bind with their option labels intact — so an invisible control is a RENDERING problem, not a
-//      missing binding.
-//   3. "switches display numbers instead of names" — not covered here (that is `perPresetSwitchView`,
-//      which prints the served `functionName`/`targetLabel`); this file only fixes the Cab payload facts.
+// TWO KINDS OF ASSERTION, kept apart on purpose:
+//   • BINDING tests (the first describe) — they run the REAL builder over the served payload, so a
+//     change in how a control binds, in what order keys are placed, or in the dedupe shows up as a
+//     failure. The per-page ORDERED key list is the one assertion that catches a binding change.
+//   • PROVENANCE tests (the second describe) — they assert constants inside the static fixture. They
+//     document what the unit actually served and can catch a corrupting edit to the fixture, but they
+//     CANNOT detect a server regression (the fixture does not move when the server does), so they are
+//     labelled as provenance rather than treated as live wiring.
 //
 // A layout control whose parameter the device does not serve must resolve to a GAP, never to a different
 // key: a mis-binding is how one knob silently renders another knob's value.
@@ -27,6 +25,8 @@ interface FixtureEnum { id: number; name: string; value: number; options: { valu
 interface Fixture {
   named: FixtureParam[];
   enums: FixtureEnum[];
+  type: { value: number; name: string };
+  preset: { id: number; name: string };
   layout: Parameters<typeof buildDeviceLayoutBoard>[0];
 }
 
@@ -51,8 +51,13 @@ const board = () => {
   return b;
 };
 const widgets = () => Object.values(board().boards).flat();
+/** The keys placed on each page, in reading order (headers excluded — they bind no parameter). */
+const keysByPage = () =>
+  Object.fromEntries(
+    board().pageOrder.map((p) => [p, board().boards[p]!.filter((w) => w.view !== 'header').map((w) => w.key)])
+  );
 
-describe('Cab block board binding (live payload, preset 410)', () => {
+describe('Cab block board binding (live payload, preset 410 "USA Mk IV")', () => {
   it('every placed widget binds a catalog key that really exists (no mis-binding)', () => {
     const keys = new Set(catalog().map((c) => c.key));
     // `view: 'header'` is the device's own group text (CAB 1 / CAB 2) — it binds no parameter by design.
@@ -62,7 +67,39 @@ describe('Cab block board binding (live payload, preset 410)', () => {
     expect(bad.map((w) => w.key)).toEqual([]);
   });
 
-  it('Room Diffusion is served as 0 (norm 0), and the board binds it to k59', () => {
+  // THE binding-change detector: any change to which key a control binds, or to its placed order,
+  // moves this list. It is the assertion a re-binding regression must trip.
+  it('places a pinned, ordered list of keys on every page', () => {
+    expect(keysByPage()).toEqual({
+      Cab: ['k93', 'e85', 'e89', 'e24', 'k12', 'e74', 'e78', 'k8', 'k97', 'k62', 'k66', 'k94', 'e86', 'e90', 'e25', 'k13', 'e75', 'e79', 'k9', 'k98', 'k63', 'k67', 'k28', 'k29', 'e84'],
+      Preamp: ['e43', 'e47', 'k33', 'k34', 'k44', 'k45', 'k46', 'k38', 'e82', 'k39', 'e83', 'k28', 'k29', 'e42', 'e30', 'e84'],
+      'Room/Air': ['k35', 'k36', 'e56', 'k53', 'k59', 'k57', 'k58', 'k37', 'k54', 'k55', 'k41', 'k28', 'k29', 'e42', 'e30', 'e84'],
+      Align: ['e85', 'e89', 'e24', 'k16', 'e86', 'e90', 'e25', 'k17', 'e105', 'k28', 'k29', 'e84'],
+      More: ['k4', 'k5', 'k20', 'k21', 'e0', 'e1', 'e70', 'e71']
+    });
+  });
+
+  it('the mic-position control is a dynacab tile carrying the cab Distance param', () => {
+    const tiles = widgets().filter((w) => w.view === 'dynacab');
+    // Two cab slots in this preset → one tile each, bound to the mic-position param + its Distance.
+    expect(tiles.map((t) => [t.key, t.key2])).toEqual([
+      ['k93', 'k97'],
+      ['k94', 'k98']
+    ]);
+  });
+
+  it('the DynaCab graph WINS its key over the Position knob listed beside it (recorded, not silent)', () => {
+    // paramId 93/94 is listed TWICE in the served layout — once as the `dynaCabControl` graph and once
+    // as the `knobMiniReadout` "Position" knob. The graph must win; the knob must be the one dropped.
+    const graphKeys = widgets().filter((w) => w.view === 'dynacab').map((w) => w.key);
+    expect(graphKeys.sort()).toEqual(['k93', 'k94']);
+    // …and each dropped key is RECORDED in the board's dedupe list, so it is auditable.
+    expect(board().skipped).toEqual(['k93', 'k94']);
+  });
+});
+
+describe('provenance — the fixture is a live capture; these constants are not a server regression test', () => {
+  it('Room Diffusion was served as 0 (norm 0) — the "50% while the unit says 0%" report', () => {
     const p = F.named.find((x) => x.id === 59);
     expect(p).toMatchObject({ name: 'Room Diffusion', value: 0, norm: 0, min: 0, max: 100 });
     // The knob renders `value = norm`; 0 → a zero-length arc → the pointer at the MINIMUM, not the middle.
@@ -72,31 +109,43 @@ describe('Cab block board binding (live payload, preset 410)', () => {
     expect(w!.key2).toBeUndefined();
   });
 
-  it('the mic-position control is a dynacab tile carrying the cab Distance param', () => {
-    const tiles = widgets().filter((w) => w.view === 'dynacab');
-    // Two cab slots in this preset → one tile each, bound to the mic-position param + its Distance.
-    expect(tiles.map((t) => [t.key, t.key2])).toEqual([
-      ['k93', 'k97'],
-      ['k94', 'k98'],
-    ]);
-  });
-
-  it('the Mic model dropdowns bind with their option labels (names, not indices)', () => {
+  it('the Mic model dropdowns carry their option labels (names, not indices)', () => {
     const mic = F.enums.find((e) => e.id === 89);
     expect(mic?.options.map((o) => o.label)).toEqual(['Condenser', 'Ribbon', 'Dynamic 1', 'Dynamic 2']);
-    // and the served value selects one of them rather than being absent
-    expect(mic!.value).toBeGreaterThanOrEqual(0);
-    const keys = new Set(widgets().map((w) => w.key));
-    expect(keys.has('e89')).toBe(true);
-    expect(keys.has('e90')).toBe(true);
   });
 
-  it('a layout control the device does not serve leaves a gap instead of borrowing a neighbour', () => {
-    // CABINET_DYNACAB_TYPE2 (86) / MUTE1 (24) are layout-referenced but not in this block's served set.
-    const served = new Set(F.named.map((p) => `k${p.id}`));
-    for (const absent of [85, 86]) expect(served.has(`k${absent}`)).toBe(false);
-    // The board must not have silently bound them to some other param.
+  it('the fixture names the preset in `preset`, and the cab models in `type`', () => {
+    expect(F.preset).toEqual({ id: 410, name: 'USA Mk IV' });
+    // `type` is the CABINET MODEL of cab slot 1 — NOT the preset name (the two used to be conflated).
+    expect(F.type.name).toBe('1x8 PRINCETONE');
+    expect(F.type.name).not.toBe(F.preset.name);
+  });
+});
+
+describe('layout-referenced ids 85 / 86 / 24 are ENUMS, bound as e<n>, never as params', () => {
+  it('85 (DYNACAB TYPE1) / 86 (DYNACAB TYPE2) / 24 (MUTE1) are served as enums', () => {
+    for (const id of [85, 86, 24]) {
+      expect(F.enums.some((e) => e.id === id), `enum ${id} must be served`).toBe(true);
+    }
+    expect(F.enums.find((e) => e.id === 24)?.name).toBe('MUTE1');
+  });
+
+  it('they bind as e85/e86/e24 and never as the param spelling k<n>', () => {
+    // The layout references them by paramId…
+    const referenced = new Set<number>();
+    for (const pg of F.layout?.pages ?? []) for (const row of pg.rows ?? []) for (const c of row.controls ?? []) if (c.paramId != null) referenced.add(c.paramId);
+    for (const id of [85, 86, 24]) expect(referenced.has(id)).toBe(true);
+
+    // …the board binds them as the ENUM keys…
     const keys = new Set(widgets().map((w) => w.key));
-    for (const absent of [85, 86]) expect(keys.has(`k${absent}`)).toBe(false);
+    for (const id of [85, 86, 24]) expect(keys.has(`e${id}`)).toBe(true);
+
+    // …and NOT as continuous params (the old test asserted the k<n> spelling and could never fail —
+    // 85/86 are enums, so `k85`/`k86` were never going to be in the served param set).
+    const servedParams = new Set(F.named.map((p) => `k${p.id}`));
+    for (const id of [85, 86, 24]) {
+      expect(servedParams.has(`k${id}`)).toBe(false);
+      expect(keys.has(`k${id}`)).toBe(false);
+    }
   });
 });

@@ -21,12 +21,38 @@
     axisFcWorkbenchRuntime,
     type AxisFcRuntimeSnapshot
   } from '../../fc/fcWorkbenchRuntime';
+  // Unread-safe reads + write REFUSALS (fcSlotEdit.ts). An unread field/slot is `null`, never a
+  // fabricated 0, and the step/toggle wrappers do not write at all while the value is unknown.
+  import {
+    applyBoolToggle,
+    applySlotStep,
+    FC_UNREAD_MARKER,
+    FC_UNREAD_REASON,
+    readBoolSlot,
+    readFieldValue,
+    readSlotValue
+  } from '../../fc/fcSlotEdit';
+  // Named options for the 'block'-typed value slot (the FC "Effect" assignment) — the SAME helpers
+  // FcEditor.svelte uses. The names come from the preset's placed blocks (/preset/grid); the FC
+  // model carries none, so a value that matches no placed block is MARKED, never a bare id.
+  import { forgefx } from '../../../forgefx';
+  import {
+    FC_BLOCK_VALUE_SPACE_CAVEAT,
+    fcBlockOptionsIncluding,
+    fcBlockRawHint,
+    fcBlockRosterNote,
+    type FcBlockCell
+  } from '../../../fcBlockOptions';
 
   let { panel }: { panel: PanelInstance } = $props();
   const { controller: workbench } = getWorkbenchContext();
   let snapshot = $state<AxisFcControllerSnapshot>(axisFcWorkbenchController.snapshot);
   let runtimeSnapshot = $state<AxisFcRuntimeSnapshot>(axisFcWorkbenchRuntime.snapshot);
   let lastReadKey = '';
+  // The preset's PLACED BLOCKS — the roster the 'block'-typed value slot is named from (/preset/grid).
+  // A failed/absent read leaves it EMPTY and every block id renders its explicit marker, never a
+  // fabricated name (see fcBlockOptions.ts).
+  let placed = $state<FcBlockCell[]>([]);
   const part = $derived<AxisFcPart>(parseAxisFcPart(panel.state?.part, axisFcPartFromPanelType(panel.type)));
 
   // Reactive data view over BOTH the selection and runtime snapshots (board tiles, assigned
@@ -56,8 +82,20 @@
   const showIdentity = $derived(part === 'inspector' || part === 'led');
   const cfg = $derived(data.selectedConfig);
 
+  /** Load the placed-block roster the 'block'-typed slot is named from; a failure leaves it empty
+   *  (every block id then renders its explicit marker). */
+  async function loadPlaced(): Promise<void> {
+    try {
+      const grid = await forgefx.grid();
+      placed = grid.cells;
+    } catch {
+      /* roster stays empty → every block id renders its explicit marker */
+    }
+  }
+
   onMount(() => {
     if (parseAxisFcPart(panel.state?.part, axisFcPartFromPanelType(panel.type)) === 'grid') return;
+    void loadPlaced();
     return bindAxisRuntimeHost({
       runtime: axisFcWorkbenchRuntime,
       host: createAxisFcWorkbenchHost(),
@@ -81,12 +119,14 @@
     void axisFcWorkbenchRuntime.readSelection(snapshot);
   });
 
-  function fieldNumber(field: string): number {
-    return Number(runtimeSnapshot.edits[`${field}:${cfg}`] ?? 0);
+  // A field/slot the unit has not supplied reads as `null` — NOT a 0 that is indistinguishable from a
+  // real 0. Callers must treat `null` as "unknown": render an explicit marker, and never write.
+  function fieldNumber(field: string): number | null {
+    return readFieldValue(runtimeSnapshot.edits, field, cfg);
   }
 
-  function slotNumber(side: AxisFcSide, slotIndex: number, fallback = 0): number {
-    return Number(runtimeSnapshot.edits[`${side}Params#${slotIndex}:${cfg}`] ?? fallback);
+  function slotNumber(side: AxisFcSide, slotIndex: number): number | null {
+    return readSlotValue(runtimeSnapshot.edits, side, slotIndex, cfg);
   }
 
   function labelValue(side: AxisFcSide): string {
@@ -106,11 +146,14 @@
   );
 
   function functionsForSide(side: AxisFcSide) {
-    return runtimeSnapshot.model?.functions?.[String(fieldNumber(`${side}Category`))] ?? [];
+    const cat = fieldNumber(`${side}Category`);
+    if (cat == null) return [];
+    return runtimeSnapshot.model?.functions?.[String(cat)] ?? [];
   }
 
   function selectedFunctionForSide(side: AxisFcSide) {
     const ord = fieldNumber(`${side}Function`);
+    if (ord == null) return null;
     return functionsForSide(side).find((fn) => fn.ord === ord) ?? null;
   }
 
@@ -122,9 +165,15 @@
     return axisFcActionLabel(runtimeSnapshot.model, side, cfg, runtimeSnapshot.edits);
   }
 
+  // A step is REFUSED (no write at all) while the slot is unread — a delta from a guessed 0 is a
+  // guess written to the device. applySlotStep owns that refusal; the range fallback lives only in
+  // the slot's own min/max clamp.
   function stepSlot(side: AxisFcSide, slot: AxisFcSlotLike, delta: number) {
-    const { value } = axisFcSlotBounds(slot, slotNumber(side, slot.i, slot.min ?? 0) + delta);
-    void axisFcWorkbenchRuntime.writeSlot(side, slot.i, value, cfg);
+    void applySlotStep(axisFcWorkbenchRuntime, runtimeSnapshot.edits, side, slot, cfg, delta);
+  }
+
+  function toggleSlot(side: AxisFcSide, slotIndex: number) {
+    void applyBoolToggle(axisFcWorkbenchRuntime, runtimeSnapshot.edits, side, slotIndex, cfg);
   }
 
   function sceneOptions(slot: AxisFcSlotLike): number[] {
@@ -469,7 +518,7 @@
           {/each}
         </div>
       </div>
-    {:else if fieldNumber(`${which}Category`) !== 0}
+    {:else if (fieldNumber(`${which}Category`) ?? 0) !== 0}
       <label class="fc-fld">
         <span>Function (raw)</span>
         <input
@@ -484,20 +533,27 @@
     {#if fn}
       {#each fn.slots as slot (slot.i)}
         {#if slot.type === 'bool'}
+          {@const boolState = readBoolSlot(runtimeSnapshot.edits, which, slot.i, cfg)}
           <div class="fc-inline">
             <span class="fc-inlinelab">{slot.role}</span>
             <button
               type="button"
               class="fc-pill"
-              class:on={slotNumber(which, slot.i) === 1}
+              class:on={boolState === true}
+              class:unread={boolState == null}
               role="switch"
-              aria-checked={slotNumber(which, slot.i) === 1}
+              aria-checked={boolState === true}
+              aria-disabled={boolState == null}
+              disabled={boolState == null}
               aria-label={slot.role}
-              onclick={() =>
-                axisFcWorkbenchRuntime.writeSlot(which, slot.i, slotNumber(which, slot.i) === 1 ? 0 : 1, cfg)}
+              title={boolState == null ? FC_UNREAD_REASON : `${slot.role}: ${boolState ? 'on' : 'off'}`}
+              onclick={() => toggleSlot(which, slot.i)}
             >
               <span class="fc-pilldot"></span>
             </button>
+            {#if boolState == null}
+              <span class="fc-unreadtag" title={FC_UNREAD_REASON}>not read</span>
+            {/if}
           </div>
         {:else if slot.type === 'enum' && slot.options?.length}
           <div class="fc-group">
@@ -537,33 +593,63 @@
                 <button
                   type="button"
                   class="fc-mini"
-                  class:on={slotNumber(which, slot.i, slot.min ?? 1) === scene}
-                  aria-pressed={slotNumber(which, slot.i, slot.min ?? 1) === scene}
+                  class:on={slotNumber(which, slot.i) === scene}
+                  aria-pressed={slotNumber(which, slot.i) === scene}
                   title={`${slot.role} ${scene}`}
                   onclick={() => axisFcWorkbenchRuntime.writeSlot(which, slot.i, scene, cfg)}>{scene}</button>
               {/each}
             </div>
           </div>
+        {:else if slot.type === 'block'}
+          <!-- The FC "Effect" assignment: a NAMED picker of the preset's placed blocks — never a bare
+               id and never a numeric stepper. This mirrors FcEditor.svelte's block branch and routes
+               the value through the SAME helpers (fcBlockOptions.ts). A value that matches no placed
+               block renders MARKED, not guessed; an unread value shows "— no value read". -->
+          {@const blockVal = slotNumber(which, slot.i)}
+          {@const blockOpts = fcBlockOptionsIncluding(placed, blockVal)}
+          <div class="fc-inline">
+            <span class="fc-inlinelab">{slot.role}</span>
+            <select
+              class="fc-blocksel"
+              value={blockVal === null ? '' : String(blockVal)}
+              title={fcBlockRosterNote(placed)}
+              onchange={(event) => axisFcWorkbenchRuntime.writeSlot(which, slot.i, +textFromInput(event), cfg)}
+            >
+              {#if blockVal === null}<option value="" disabled>— no value read</option>{/if}
+              {#each blockOpts as option (option.value)}
+                <option value={String(option.value)}>{option.label}</option>
+              {/each}
+            </select>
+            <span class="fc-blockhint mono" title={FC_BLOCK_VALUE_SPACE_CAVEAT}>{fcBlockRawHint(blockVal)}</span>
+          </div>
         {:else}
-          {@const bounds = axisFcSlotBounds(slot, slotNumber(which, slot.i, slot.min ?? 0))}
+          <!-- An UNREAD slot shows an explicit marker and DISABLES its stepper: a delta from a guessed
+               0 would write a wrong value. `raw ?? slot.min` feeds ONLY the slot's own range (lo/hi),
+               never the value written or displayed. -->
+          {@const raw = slotNumber(which, slot.i)}
+          {@const unread = raw == null}
+          {@const bounds = axisFcSlotBounds(slot, raw ?? slot.min ?? 0)}
           {@const wide = bounds.hi - bounds.lo > 32}
           <div class="fc-inline">
-            <span class="fc-inlinelab">{slot.role}{slot.type === 'block' ? ' (block id)' : ''}</span>
-            <div class="fc-stepper" title={`Range ${bounds.lo}–${bounds.hi}`}>
+            <span class="fc-inlinelab">{slot.role}</span>
+            <div class="fc-stepper" class:unread title={unread ? FC_UNREAD_REASON : `Range ${bounds.lo}–${bounds.hi}`}>
               {#if wide}
-                <button type="button" class="fc-step" disabled={bounds.atMin} aria-label="−10" title="−10" onclick={() => stepSlot(which, slot, -10)}>«</button>
+                <button type="button" class="fc-step" disabled={unread || bounds.atMin} aria-label="−10" title="−10" onclick={() => stepSlot(which, slot, -10)}>«</button>
               {/if}
-              <button type="button" class="fc-step" disabled={bounds.atMin} aria-label="−1" title="−1" onclick={() => stepSlot(which, slot, -1)}>−</button>
-              <span class="fc-stepval">{bounds.value}</span>
-              <button type="button" class="fc-step" disabled={bounds.atMax} aria-label="+1" title="+1" onclick={() => stepSlot(which, slot, 1)}>+</button>
+              <button type="button" class="fc-step" disabled={unread || bounds.atMin} aria-label="−1" title="−1" onclick={() => stepSlot(which, slot, -1)}>−</button>
+              <span class="fc-stepval" class:unread>{unread ? FC_UNREAD_MARKER : bounds.value}</span>
+              <button type="button" class="fc-step" disabled={unread || bounds.atMax} aria-label="+1" title="+1" onclick={() => stepSlot(which, slot, 1)}>+</button>
               {#if wide}
-                <button type="button" class="fc-step" disabled={bounds.atMax} aria-label="+10" title="+10" onclick={() => stepSlot(which, slot, 10)}>»</button>
+                <button type="button" class="fc-step" disabled={unread || bounds.atMax} aria-label="+10" title="+10" onclick={() => stepSlot(which, slot, 10)}>»</button>
               {/if}
             </div>
+            {#if unread}
+              <span class="fc-unreadtag" title={FC_UNREAD_REASON}>not read</span>
+            {/if}
           </div>
         {/if}
       {/each}
-    {:else if side && fieldNumber(`${which}Category`) !== 0}
+    {:else if side && (fieldNumber(`${which}Category`) ?? 0) !== 0}
       {#each Array(side.slotCount) as _, index (index)}
         <label class="fc-fld">
           <span>Value {index + 1} (raw)</span>
@@ -1231,6 +1317,36 @@
     font: 700 14px/1 var(--aw-font-mono);
     color: var(--aw-text);
   }
+  /* An unread slot: the value is unknown, so show the marker dimmed and never a fabricated 0. */
+  .fc-stepper.unread {
+    border-style: dashed;
+  }
+  .fc-stepval.unread {
+    color: var(--aw-text-muted);
+  }
+  .fc-unreadtag {
+    flex: none;
+    font: 600 10px/1 var(--aw-font-ui);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--aw-text-muted);
+  }
+  .fc-blocksel {
+    flex: 1;
+    min-width: 0;
+    height: 32px;
+    border: 1px solid var(--aw-border-2);
+    border-radius: 8px;
+    background: var(--aw-bg-2);
+    color: var(--aw-text);
+    padding: 0 9px;
+    font: 600 12px/1 var(--aw-font-ui);
+  }
+  .fc-blockhint {
+    flex: none;
+    font-size: 10px;
+    color: var(--aw-text-muted);
+  }
   .fc-pill {
     position: relative;
     flex: none;
@@ -1248,6 +1364,12 @@
   }
   .fc-pill.on {
     background: var(--aw-accent);
+  }
+  /* Unread: the switch state is unknown, so it cannot be flipped — render it dimmed and disabled. */
+  .fc-pill.unread,
+  .fc-pill:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
   .fc-pilldot {
     position: absolute;

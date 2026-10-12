@@ -38,6 +38,9 @@ export interface SurfaceBoard {
   boards: Record<string, SurfaceWidget[]>;
   /** Fingerprint of the served layout variant; used to re-seed the Default board on a type change. */
   variantSig?: string;
+  /** Catalog keys the per-page dedupe dropped (a key claimed by more than one control, or superseded
+   *  by the DynaCab graph). Recorded so a duplicate is auditable rather than silent. */
+  skipped?: string[];
 }
 
 /** The subset of a ControlSurface `Ctl` the builder needs (catalog entry). */
@@ -230,23 +233,35 @@ const isHeaderLabel = (ctl: LayoutControl): boolean =>
 /** Stable fingerprint of the served layout variant — changes when the block's type selects a different
  *  layout, so the Default board can be re-seeded (user boards keep their own storage).
  *
- *  The leading `db2` is the BOARD-BUILDER version: bump it whenever the builder changes what a seeded
+ *  The leading `db6` is the BOARD-BUILDER version: bump it whenever the builder changes what a seeded
  *  board contains, so a board seeded by an older builder re-seeds once instead of silently missing the
- *  new widget (e.g. the DynaCab tile's second bound param). */
+ *  new widget (e.g. the DynaCab tile's second bound param).
+ *
+ *  The fingerprint covers the ORDERED `(page name, paramId, rawWidget)` list of every control. Page
+ *  names and param ids are what actually move when the SERVER changes a BINDING without changing the
+ *  counts — the pseudo-id rewrite (65286 → the real id) and swapping two same-named selector pages both
+ *  do exactly that — so a count-only signature would leave a persisted board stale. `ctlCount` is kept
+ *  too, so a control added/removed is still a change even if the lists somehow collide. */
 export function layoutVariantSig(layout: DeviceLayout | null | undefined): string {
   if (!layout) return '';
   const ctlCount = (layout.pages ?? []).reduce(
     (n, pg) => n + (pg.rows ?? []).reduce((m, r) => m + (r.controls?.length ?? 0), 0),
     0
   );
+  const bindings = (layout.pages ?? []).flatMap((pg) =>
+    (pg.rows ?? []).flatMap((r) =>
+      (r.controls ?? []).map((c) => `${pg.name ?? ''}:${c.paramId ?? ''}:${c.rawWidget ?? ''}`)
+    )
+  );
   return [
-    'db5',
+    'db6',
     layout.family ?? '',
     layout.variantName ?? '',
     layout.variantValue ?? '',
     layout.editorName ?? '',
     (layout.pages ?? []).length,
-    ctlCount
+    ctlCount,
+    ...bindings
   ].join('|');
 }
 
@@ -282,8 +297,24 @@ export function buildDeviceLayoutBoard(
     return name;
   };
 
+  // THE DEDUPE RULE, made EXPLICIT (it used to be incidental, resting on the band reorder): when two
+  // controls resolve to the SAME catalog key and one of them is the DynaCab mic graph, the GRAPH must
+  // win — otherwise a layout that lists the Position knob BEFORE the graph would silently drop the
+  // graph and render a 1×1 knob in its place. Pre-collecting the graph-claimed keys makes the rule hold
+  // regardless of served order. Every key the dedupe drops (graph-wins or a plain duplicate) is
+  // recorded in `skipped`, so a dropped control is auditable rather than silent.
+  const graphKeys = new Set<string>();
+  for (const pg of layout.pages)
+    for (const row of pg.rows ?? [])
+      for (const c of row.controls ?? []) {
+        if (!isDynaCabControl(c)) continue;
+        const r = resolveControl(c, byKey, byName);
+        if (r !== 'gap') graphKeys.add(r.key);
+      }
+
   const boards: Record<string, SurfaceWidget[]> = {};
   const pageOrder: string[] = [];
+  const skipped: string[] = [];
 
   for (const pg of layout.pages) {
     const widgets: SurfaceWidget[] = [];
@@ -336,7 +367,16 @@ export function buildDeviceLayoutBoard(
             x += 1;
             continue;
           }
+          const isGraph = r.view === 'dynacab';
+          // The DynaCab graph WINS a key it shares with another control (see graphKeys): a knob that
+          // would otherwise claim the graph's id is dropped and recorded, never allowed to displace it.
+          if (!isGraph && graphKeys.has(r.key)) {
+            skipped.push(r.key);
+            x += 1; // keep the slot so neighbours don't shift left
+            continue;
+          }
           if (seen.has(r.key)) {
+            skipped.push(r.key);
             x += 1; // a param listed twice — keep the slot so neighbours don't shift left
             continue;
           }
@@ -346,7 +386,6 @@ export function buildDeviceLayoutBoard(
             continue;
           }
           // The DynaCab mic graph needs room to read: give it a 2×2 tile (clamped to the board width).
-          const isGraph = r.view === 'dynacab';
           const w = isGraph ? Math.min(2, columns) : Math.min(base.w, columns);
           const h = isGraph ? 2 : base.h;
           if (x + w > columns) {
@@ -385,7 +424,7 @@ export function buildDeviceLayoutBoard(
     pageOrder.push(name);
   }
 
-  return { pageOrder, page: pageOrder[0]!, boards, variantSig: layoutVariantSig(layout) };
+  return { pageOrder, page: pageOrder[0]!, boards, variantSig: layoutVariantSig(layout), skipped };
 }
 
 /**

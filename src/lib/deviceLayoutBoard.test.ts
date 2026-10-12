@@ -362,6 +362,79 @@ describe('buildDeviceLayoutBoard — pseudo-param buttons (cab M/S)', () => {
   });
 });
 
+// A persisted Default board is re-seeded when `layoutVariantSig` moves. A count-only signature missed
+// the changes that actually matter: the server's pseudo-id rewrite (65286 → the real id) and swapping
+// two same-named selector pages both leave the family/variant/count fields identical, yet they change
+// which parameter a control binds. The signature now carries the ORDERED (page name, paramId, rawWidget)
+// list, so those changes re-seed the board.
+describe('layoutVariantSig — the fingerprint follows a BINDING change, not just counts', () => {
+  const page = (name: string, controls: LayoutControl[]) => [{ name, rows: [{ controls }] }] as DeviceLayout['pages'];
+
+  it('is versioned so an older persisted board re-seeds once (db6 prefix)', () => {
+    expect(layoutVariantSig(layout(page('P', [ctl('knob', 10, 'A')])))).toMatch(/^db6\|/);
+  });
+
+  it('changes when a paramId changes while the family/variant/counts stay identical', () => {
+    // the server rewriting a pseudo-id to the real served id — same control count, same page
+    const a = layoutVariantSig(layout(page('P', [ctl('knob', 65286, 'MUTE')])));
+    const b = layoutVariantSig(layout(page('P', [ctl('knob', 24, 'MUTE')])));
+    expect(a).not.toBe(b);
+  });
+
+  it('changes when a control\'s rawWidget changes', () => {
+    const a = layoutVariantSig(layout(page('P', [ctl('knob', 10, 'A', { rawWidget: 'knobMiniReadout' })])));
+    const b = layoutVariantSig(layout(page('P', [ctl('knob', 10, 'A', { rawWidget: 'knobCompact' })])));
+    expect(a).not.toBe(b);
+  });
+
+  it('changes when two same-named pages are swapped', () => {
+    const a = layoutVariantSig(layout(page('X', [ctl('knob', 10, 'A')])));
+    const b = layoutVariantSig(layout(page('Y', [ctl('knob', 10, 'A')])));
+    expect(a).not.toBe(b);
+  });
+});
+
+// The dedupe rule for a key claimed twice, one claimant being the DynaCab mic graph: the GRAPH wins,
+// and every key the dedupe drops is RECORDED. The band reorder already made the graph win on the Cab
+// page, but that was incidental; these cases pin the rule as explicit and order-independent.
+describe('buildDeviceLayoutBoard — the DynaCab graph wins a shared key (explicit rule)', () => {
+  const knobDyn = (id: number): BoardCtl => ({ key: `k${id}`, kind: 'cont', id, w: 1, h: 1, view: 'knob', views: ['knob', 'dynacab'] });
+  const graph = () => ctl('unknown', 93, 'DynaCab', { rawWidget: 'dynaCabControl' });
+  const positionKnob = () => ctl('knob', 93, 'Position');
+  const separator = () => ctl('label', null, 'Seperator', { rawWidget: 'labelSeperator' });
+
+  it('wins even when the Position knob is in an EARLIER band (the silent 1×1-knob case)', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([{ name: 'Cab', rows: [{ controls: [positionKnob(), separator(), graph()] }] }]),
+      [knobDyn(93)],
+      12
+    )!;
+    const ws = board.boards['Cab'];
+    expect(find(ws, 'k93').view).toBe('dynacab'); // the graph, not the knob
+    expect(ws.filter((w) => w.key === 'k93')).toHaveLength(1);
+    expect(board.skipped).toEqual(['k93']); // the dropped knob is recorded, never silent
+  });
+
+  it('wins within one band regardless of served order', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([{ name: 'Cab', rows: [{ controls: [positionKnob(), graph()] }] }]),
+      [knobDyn(93)],
+      12
+    )!;
+    expect(find(board.boards['Cab'], 'k93').view).toBe('dynacab');
+    expect(board.skipped).toEqual(['k93']);
+  });
+
+  it('records a plain duplicate (no graph involved) too', () => {
+    const board = buildDeviceLayoutBoard(
+      layout([{ name: 'P', rows: [{ controls: [ctl('knob', 0, 'A'), ctl('knob', 0, 'A again')] }] }]),
+      [knob(0)],
+      12
+    )!;
+    expect(board.skipped).toEqual(['k0']);
+  });
+});
+
 // The top bar's Basic/Advanced View toggle drives `editor.globalMode`; this is the contract it documents
 // ("blocks open on Ideal / Advanced") re-pointed at the board pages that replaced the old tab strip.
 describe('pageForViewMode — Basic/Advanced open-on choice', () => {
