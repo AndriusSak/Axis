@@ -31,10 +31,12 @@ const EMPTY: PerPresetSwitches = {
   ]
 };
 
-// The rule that FLIPPED on 2026-10-11: a Chan Select row was pointed at four known blocks and record+0 read
-// their FX-slot indices (Chorus 1 = 2, Reverb 1 = 51, Delay 1 = 7, GEQ 2 = 28), so the anchor table provably
-// covers Bypass AND Chan Select. An Effect row whose FUNCTION was never measured to carry a slot keeps the
-// name withheld, and a row of any other category never had a claim to it.
+// The rule that FLIPPED on 2026-10-11 (Chan Select: four known blocks, record+0 read 2/51/7/28) and FINISHED on
+// 2026-10-12, when the remaining two Effect functions were measured: Chan Toggle by writing targetIndex 51 to
+// such a row and reading marker+340 back as 51 (nothing else moved), Chan Inc/Dec by setting its "Effect" field
+// to Cab 1 and reading record+0 = 1. So the whole Effect category may be named. What still keeps a name back is
+// an Effect row whose FUNCTION INDEX was never observed (the mode is what the name depends on), and any row of
+// another category, whose byte means something else entirely.
 const MIXED: PerPresetSwitches = {
   ...EMPTY,
   populated: true,
@@ -43,11 +45,16 @@ const MIXED: PerPresetSwitches = {
       { targetIsFxSlot: true, functionIndex: 0, functionName: 'Bypass' }),
     sw(2, 0x04, EFFECT_ACTION, 2, 'Chorus 1', 'measured',
       { targetIsFxSlot: true, functionIndex: 1, functionName: 'Chan Select' }),
-    sw(3, 0x04, EFFECT_ACTION, 9, null, 'measured',
-      { targetIsFxSlot: false, functionIndex: 2, functionName: 'Chan Toggle' }),
+    // An Effect row whose function was never observed: the only Effect case left that withholds a name.
+    sw(3, 0x04, EFFECT_ACTION, 9, null, 'partial',
+      { targetIsFxSlot: false, functionIndex: null, functionName: null }),
     sw(4, 0x03, 'Scene (category — the mode is in the record)', 1, 'Cab 1', 'measured',
       { targetIsFxSlot: false, functionIndex: 1, functionName: 'Toggle' }),
-    sw(5, 0x99, null, 9, null, 'measured', { functionIndex: 4 })
+    sw(5, 0x99, null, 9, null, 'measured', { functionIndex: 4 }),
+    // APPENDED, so the five rows above keep their positions: the case the 2026-10-12 measurements created — a
+    // Chan Toggle row MAY be named now, and it is a row of the same category that made this rule necessary.
+    sw(6, 0x04, EFFECT_ACTION, 51, 'Reverb 1', 'measured',
+      { targetIsFxSlot: true, functionIndex: 2, functionName: 'Chan Toggle' })
   ]
 };
 
@@ -88,12 +95,20 @@ describe('switchRows (per-field honesty)', () => {
     expect(rows[0]!.functionLabel).toBe('Bypass');
   });
 
-  it('withholds the name from an Effect row whose FUNCTION was never measured, and says which', () => {
-    // 0x04 is the whole Effect category; Chan Toggle (index 2) and Chan Inc/Dec (index 3) were never shown to
-    // store an FX-slot index, and Inc/Dec left record+0 at zero. The observed byte is still shown.
+  it('withholds the name from an Effect row whose FUNCTION was never OBSERVED, and says which', () => {
+    // The whole Effect category is measured now, so the one Effect case left is a row whose function index
+    // nobody read: the mode decides what the byte means, and an unobserved mode cannot name anything. The
+    // observed BYTE is still shown — withholding a name must not hide the reading.
     const r = switchRows(MIXED)[2]!;
     expect(r.targetIndex).toBe(9);
-    expect(r.targetLabel).toBe('index 9 (name withheld: effect function 2 (Chan Toggle) has not been measured to carry an FX-slot index)');
+    expect(r.targetLabel).toBe('index 9 (name withheld: this Effect row’s function was not observed, so what its byte means is unread)');
+  });
+
+  it('names an FX slot on a Chan Toggle row — the function measured on 2026-10-12 that made the old rule wrong', () => {
+    const r = switchRows(MIXED)[5]!;
+    expect(r.functionLabel).toBe('Chan Toggle');
+    expect(r.targetIndex).toBe(51);
+    expect(r.targetLabel).toBe('Reverb 1');
   });
 
   it('withholds an FX-slot name from a NON-effect action, naming the reason', () => {

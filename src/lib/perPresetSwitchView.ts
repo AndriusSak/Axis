@@ -55,13 +55,18 @@ const UNREAD = '—';
 
 /**
  * Why the FX-slot anchor name is withheld for this row. Two different reasons, and they are not interchangeable:
- * an Effect row whose FUNCTION was never measured to store a slot index (0x04 is the whole Effect category:
- * Bypass and Chan Select were measured on the wire, Chan Toggle and Chan Inc/Dec were not), versus a row of any
+ * an Effect row whose FUNCTION was never OBSERVED (the mode is what the name depends on — all four Effect
+ * functions have now been measured on the wire, so this means an unread function index), versus a row of any
  * other category, whose byte means something else entirely (a scene number, a preset number, a layout …).
  */
 function withheldReason(s: PerPresetSwitch): string {
   if (s.actionCode === 0x04) {
-    return `name withheld: effect function ${s.functionIndex}${s.functionName ? ` (${s.functionName})` : ''} has not been measured to carry an FX-slot index`;
+    // The Effect category is FULLY measured as of 2026-10-12 — Bypass and Chan Select on 2026-10-11, Chan Toggle
+    // and Chan Inc/Dec on 2026-10-12 — so the only Effect case that still withholds a name is a row whose
+    // FUNCTION INDEX nobody observed. The mode is what the name depends on, so an unobserved mode gets none.
+    return s.functionIndex === null
+      ? 'name withheld: this Effect row’s function was not observed, so what its byte means is unread'
+      : `name withheld: effect function ${s.functionIndex}${s.functionName ? ` (${s.functionName})` : ''} has no measured FX-slot reading`;
   }
   if (!s.action) {
     // An unmeasured CODE has no category to reason from, so the reason is the missing list itself.
