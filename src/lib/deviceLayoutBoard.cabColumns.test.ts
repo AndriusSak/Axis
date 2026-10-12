@@ -163,4 +163,28 @@ describe('Cab mic page — cab 1 and cab 2 must not interleave', () => {
       expect(h.id.startsWith('h')).toBe(true);
     }
   });
+
+  // Owner decision 2026-10-12: "mic graph can be first and knobs after". The graphs used to land at the
+  // END of their column's line (the served order), which put them at y=737 in a block pane only ~281px
+  // tall at 1280x800 — below the fold, reported as "mic placement isn't in any of the tabs".
+  it('LEADS each column with its DynaCab mic graph, knobs after', () => {
+    const graphs = ws.filter((w) => w.view === 'dynacab').sort((a, b) => a.key.localeCompare(b.key));
+    const [g1, g2] = graphs;
+    const [h1, h2] = ws.filter((w) => w.view === 'header');
+    // the graph is the first content line of its own column, directly under that column's label
+    expect(g1!.y).toBe(h1!.y + 1);
+    expect(g2!.y).toBe(h2!.y + 1);
+    // nothing else in that column comes before it in reading order (same line only to its right)
+    const leads = (g: { key: string; x: number; y: number; w: number }, group: typeof cab1) =>
+      group.every((w) => w.key === g.key || w.y > g.y || (w.y === g.y && w.x >= g.x + g.w));
+    expect(leads(g1!, cab1)).toBe(true);
+    expect(leads(g2!, cab2)).toBe(true);
+    // and the graphs no longer sit at the foot of their columns (the regression this pins)
+    for (const [g, group] of [
+      [g1!, cab1],
+      [g2!, cab2]
+    ] as const) {
+      expect(g.y).toBeLessThan(Math.max(...group.map((w) => w.y + w.h)));
+    }
+  });
 });

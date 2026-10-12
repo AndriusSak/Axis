@@ -318,7 +318,19 @@ export function buildDeviceLayoutBoard(
             gridRow += 1;
           }
         }
-        for (const ctl of band) {
+        // The DynaCab mic graph LEADS its band; the knobs follow (owner decision, 2026-10-12).
+        // WHY: it is the control the owner looks for first, and in the served arrangement it lands low
+        // on the Cab page — measured at y=737 in a block pane only ~281px tall at 1280x800, i.e. below
+        // the fold, reported as "mic placement isn't in any of the tabs, it should be in Cab". It
+        // renders and is reachable by scrolling; it is simply not where he looks.
+        // SCOPE: bands that carry the graph. A band without one keeps its served order exactly, so
+        // every other block's board is byte-identical. Hoisting INSIDE the band (not to the page top)
+        // preserves the two-column structure this page is titled with: each cab's graph sits first in
+        // its own column, still below that column's device label.
+        const bandOrder = band.some(isDynaCabControl)
+          ? [...band.filter(isDynaCabControl), ...band.filter((c) => !isDynaCabControl(c))]
+          : band;
+        for (const ctl of bandOrder) {
           const r = resolveControl(ctl, byKey, byName);
           if (r === 'gap') {
             x += 1;
