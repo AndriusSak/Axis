@@ -108,18 +108,42 @@ Each item names its blocker and what closing it would require.
   `query-subs-decode/README.md` (ROUND 13 section) + four more taps; tool `scripts/probe-1b-structure.ts`,
   read-only, and the two table sweeps were re-run and reproduced their maps exactly.
 
-  - **The reply echoes the whole 5-byte address region at data 0-4** (`<at0>..<at4>`), content is data 5-7
-    (21 bits), data 8-13 zero. ROUND 12 read the head as "zero"; it is an echo.
-  - **Address bytes 9 and 11 are mode SELECTORS**: byte 9 ≠ 0 → the fixed value `01 00 00`; byte 11 ≠ 0 → the
-    fixed value `1b 14 4c` (each for every value 1..15 tested). **Address byte 10 walks a value table** — 23
-    distinct values over `0x00..0x3f` on the delay, 37 on the amp, and it produces values (`4b 19 03`, `7c 0f 00`)
-    that the 96-eid sweep never does. The byte-10 table is **joint with the eid, not global** (the two maps do not
-    correspond), which refutes "at[3] indexes a shared family table".
+  - **The reply echoes the whole 5-byte address region at data 0-4** (`<at0>..<at4>`); with a zeroed tail the
+    content is data 5-7 and data 8-13 are zero. ROUND 12 read the head as "zero"; it is an echo.
+    **ROUND 14 corrected the byte count — see below: with a selector set the content runs to data 9.**
+  - **Address bytes 9 and 11 are mode SELECTORS** (each for every value 1..15 tested). **Address byte 10 walks a
+    value table** — 23 distinct values over `0x00..0x3f` on the delay, 37 on the amp, and it produces values
+    (`4b 19 03`, `7c 0f 00`) that the 96-eid sweep never does. The byte-10 table is **joint with the eid, not
+    global** (the two maps do not correspond), which refutes "at[3] indexes a shared family table".
   - **Three hypotheses killed in ROUND 13**: one-family-one-value, placed/unplaced sentinel, and sized-by-param-
     count (the amp has 143 parameters and reads **0 bits**; OUTPUT has 26 and reads 15).
   - ⇒ **Upstream's name PARAM FLAGS is unsupported by anything measured** and now looks wrong: a flags reply
-    would not depend on three address bytes this way. What the 21 bits MEAN is still open — `0x1b` is an
-    *addressed read of a table*, which is the state the next round inherits.
+    would not depend on three address bytes this way. `0x1b` is an *addressed read of a table*.
+  - ⚠ **ROUND 13's quoted "fixed values" are NOT fixed — corrected by ROUND 14 (same day), do not quote them.**
+    See the ROUND 14 block below and `query-subs-decode/README.md` (ROUND 14 section).
+
+  **ROUND 14 (same day, task 1 of the handover) — the "two fixed records" are not fixed, and `0x2e` reads the
+  same table.** Evidence: `query-subs-decode/README.md` (ROUND 14 section), taps `1b-fixed-records.tap` +
+  `1b-address-selectors-rerun.tap`, console log `review-2026-10-12/probe-1b-fixed-records.out`, tool
+  `scripts/probe-1b-fixed-records.ts` (read-only; prints a ROUND 13 CLAIM CHECK on every run).
+
+  - **The content is NINE bytes** (data 5-9), not three: every selector reply carries `1b 14 4c 7a 0a` there.
+    ROUND 13's tool printed `data[0..7]` in selector mode, so bytes 8-13 were never read.
+  - **`byte 9 ≠ 0` is NOT `01 00 00`.** The same tool with a **byte-identical TX sequence** answered
+    `01 00 00 00 00 02 00 00 00` at 13:57 and `1b 14 4c 7a 0a 02 00 00 00` at 14:26, and the new tool reproduced
+    the latter at 14:50 — same preset name ("USA Mk IV", read with `fn=0x0d`), same 13 placed eids, no write by
+    any ROUND 12-14 probe. Only ONE record moved, and it is the one 64 exchanges carry: the 49 **unused eids**
+    (the hole/default record) plus the 15 `byte 9 ≠ 0` rows, which return exactly that same record. So byte 9
+    lands on the **hole record**, which is **time-varying**. **Why it moved is NOT established — treated as a
+    defect candidate, not a decode.** `byte 11 ≠ 0` reproduced byte-for-byte: `1b 14 4c 7a 0a 00 00 00 00`.
+  - **Neither selector returns a device constant** (task 1(a)): with the selector fixed at 1 the content takes
+    **8** distinct values over `at[1]` = `0x00..0x3f` under byte 9 and **4** under byte 11.
+  - **`0x2e` exposes the SAME record** (task 1(b)): request byte 7 ∈ `0x01..0x0f` answers a 23-byte reply whose
+    data 5-9 are `1b 14 4c 7a 0a`, byte-identical to `0x1b[at4 ≠ 0]` on eid `0x46` in the same session, and the
+    selector value is ignored across 1..15. The long `0x2e` (byte 7 = 0) does not contain that run. Cross-check
+    that holds: `0x2e[sel=1]`'s `02`-trailer eids are **exactly** the 16 eids whose zeroed-tail `0x1b` record is
+    the default/hole record — the eid space's holes are visible from two sub-actions.
+  - ⇒ **The "21 bits" framing is dead.** Tasks 2-4 of the handover remain open.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
