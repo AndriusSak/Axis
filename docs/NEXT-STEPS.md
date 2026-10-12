@@ -66,10 +66,16 @@ Each item names its blocker and what closing it would require.
   **`0x03` → 23B, address-dependent** (the amp's eid in byte 8 yields data bytes `1d 76`, other addresses all-zero)
   · **`0x1b` → 23B, address-dependent** · **`0x2e` → 590B, or 23B when byte 7 is `0x01`** (a selector switches it
   between the table and one small record).
+  **The 590-byte reply is address-INDEPENDENT and edit-buffer-INDEPENDENT** — tested by reading it, changing the
+  edit buffer through the route (`PP#5`'s HOLD, then restoring) and reading again: the three reads differ ONLY in
+  three volatile data bytes (`+22`/`+23`/`+24`), so it is a static model-side table rather than preset state. Its
+  576-byte data region is bit-level (220 bytes hold a single-bit value, zero bytes 241/576) and is NOT a
+  per-block geometry table — checked against `FM3_BLOCK_GEOMETRY`'s 28 blocks and reported `NO HITS`.
   **Nothing is DECODED yet** — that is the whole of what remains here, and it needs no new capture: the evidence
-  is `ForgeFX/server/test/fixtures/query-subs/` (tap + README), and the two next steps are a per-eid sweep of
-  `0x03`/`0x1b` whose predictions are checked against a block whose bypass is set through the route, and a decode
-  of the 590-byte table against the block/eid structure this repo already knows.
+  is `ForgeFX/server/test/fixtures/query-subs/` (taps + README), read with `inspect-tap.ts` /
+  `inspect-layout-map.ts`, and the three next steps are listed in that README (explain the volatile trio, test the
+  bit-packed hypothesis against the per-family param tables, then sweep `0x03`/`0x1b` per eid against a bypass
+  whose value we set).
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
