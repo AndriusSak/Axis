@@ -55,11 +55,21 @@ Each item names its blocker and what closing it would require.
 
 **Open — surfaced by the capture analyser (2026-10-08)**
 
-- **Three `fn=0x01` sub-actions the editor uses constantly are UNMAPPED** — `0x03` (the dominant one: 2786
-  frames in the upload capture, 582 in the refresh), `0x1b`, `0x2e`. They appear in every capture of FM3-Edit
-  talking to the unit and none of them is decoded; `0x03` carries what looks like a per-eid byte
-  (`... 01 03 01 3a ...`, `3a` = amp) and polls at a high rate. They are NOT cab-slot sub-actions. Not
-  interpreted — listed as unmapped by `scripts/analyze-cab-capture.ts`, which is how they were found.
+- **The three `fn=0x01` sub-actions the editor uses constantly are ANSWERED BY THE UNIT — no longer unmapped, and
+  no longer capture-gated (2026-10-12).** `0x03`, `0x1b` and `0x2e` were listed here as "unmapped, surfaced by the
+  capture analyser", with the FM3-Edit captures that revealed them living on the owner's deck and not in this
+  repo. Upstream's gen-3 codec already carries a sub-action table mined from the 2026-06-03 FM9 capture
+  (`forgefx-midi/src/devices/gen3/simResponders.ts`: `0x2e` = LAYOUT MAP expected 755B, `0x1b` = PARAM FLAGS
+  expected 23B, `0x03` absent), so the question was put to the device with
+  `ForgeFX/server/scripts/probe-query-subs.ts` (read-only, both controls in the same run):
+  `0x4b` → 60B as known · `0x99` → **SILENT** (so "not implemented" reads as silence here, not as a `0x64`) ·
+  **`0x03` → 23B, address-dependent** (the amp's eid in byte 8 yields data bytes `1d 76`, other addresses all-zero)
+  · **`0x1b` → 23B, address-dependent** · **`0x2e` → 590B, or 23B when byte 7 is `0x01`** (a selector switches it
+  between the table and one small record).
+  **Nothing is DECODED yet** — that is the whole of what remains here, and it needs no new capture: the evidence
+  is `ForgeFX/server/test/fixtures/query-subs/` (tap + README), and the two next steps are a per-eid sweep of
+  `0x03`/`0x1b` whose predictions are checked against a block whose bypass is set through the route, and a decode
+  of the 590-byte table against the block/eid structure this repo already knows.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
