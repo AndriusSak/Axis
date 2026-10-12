@@ -101,9 +101,25 @@ Each item names its blocker and what closing it would require.
     attribute anything; the arm now runs a drift control (3 reads, nothing written) and 5 reads per stage, and
     the superseded tap is kept as evidence of the trap. **Rule: measure the no-write baseline on the same rows
     before believing a write moved them.**
-  - **`0x1b` is the tractable one**: `sel=00` answers stable, reproducible per-eid bytes (`0x2a/0x2b → 7f 7f 01`,
-    `0x3a/0x3e → 00 00 00`, `0x46 → 47 42 00`, `0x4e → 0c 00 00`), `sel=01` answers all zeros for every eid,
-    and nothing moved it on any read or write. That is where a next round should start.
+  - **`0x1b` is the stable one**: `sel=00` answers reproducible per-eid bytes, `sel=01` all zeros, and nothing
+    moved it on any read or write.
+
+  **ROUND 13 (same day) took `0x1b` apart and it is NOT a per-block flag query.** Evidence:
+  `query-subs-decode/README.md` (ROUND 13 section) + four more taps; tool `scripts/probe-1b-structure.ts`,
+  read-only, and the two table sweeps were re-run and reproduced their maps exactly.
+
+  - **The reply echoes the whole 5-byte address region at data 0-4** (`<at0>..<at4>`), content is data 5-7
+    (21 bits), data 8-13 zero. ROUND 12 read the head as "zero"; it is an echo.
+  - **Address bytes 9 and 11 are mode SELECTORS**: byte 9 ≠ 0 → the fixed value `01 00 00`; byte 11 ≠ 0 → the
+    fixed value `1b 14 4c` (each for every value 1..15 tested). **Address byte 10 walks a value table** — 23
+    distinct values over `0x00..0x3f` on the delay, 37 on the amp, and it produces values (`4b 19 03`, `7c 0f 00`)
+    that the 96-eid sweep never does. The byte-10 table is **joint with the eid, not global** (the two maps do not
+    correspond), which refutes "at[3] indexes a shared family table".
+  - **Three hypotheses killed in ROUND 13**: one-family-one-value, placed/unplaced sentinel, and sized-by-param-
+    count (the amp has 143 parameters and reads **0 bits**; OUTPUT has 26 and reads 15).
+  - ⇒ **Upstream's name PARAM FLAGS is unsupported by anything measured** and now looks wrong: a flags reply
+    would not depend on three address bytes this way. What the 21 bits MEAN is still open — `0x1b` is an
+    *addressed read of a table*, which is the state the next round inherits.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
