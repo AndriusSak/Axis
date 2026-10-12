@@ -27,6 +27,9 @@ export interface SwitchRow {
   actionCode: number | null;
   /** The action's name, `code 0xNN (unmeasured)`, `unassigned`, or the unread marker. */
   actionLabel: string;
+  /** The TAP's function INDEX within its category (0 = the category's first menu entry), or null when the
+   *  row is unread. The named picker uses it to preselect and to mark an unnamed index. */
+  functionIndex: number | null;
   /** The TAP's function within its category — a measured name, `entry N (unnamed)`, or '' when unassigned. */
   functionLabel: string;
   targetIndex: number | null;
@@ -90,7 +93,7 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
     };
     if (!known) {
       return {
-        ...base, assigned: null, actionCode: null, actionLabel: UNREAD, functionLabel: UNREAD,
+        ...base, assigned: null, actionCode: null, actionLabel: UNREAD, functionIndex: null, functionLabel: UNREAD,
         targetIndex: null, targetLabel: UNREAD, holdLabel: UNREAD, holdActionCode: null, holdUnexercised: false
       };
     }
@@ -117,7 +120,7 @@ export function switchRows(page: PerPresetSwitches | null | undefined): SwitchRo
     const holdActionCode = s.holdActionCode;
     const holdLabel = holdActionCode === 0 ? 'unassigned' : (s.holdAction ?? `code ${hex16(holdActionCode)} (unmeasured)`);
     return {
-      ...base, assigned, actionCode: s.actionCode, actionLabel, functionLabel,
+      ...base, assigned, actionCode: s.actionCode, actionLabel, functionIndex: s.functionIndex, functionLabel,
       targetIndex: s.targetIndex, targetLabel, holdLabel, holdActionCode,
       holdUnexercised: holdActionCode === 0 && !s.holdMeasured
     };

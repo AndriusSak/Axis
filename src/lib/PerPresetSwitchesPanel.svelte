@@ -22,16 +22,12 @@
     evidenceNote, switchPatchFromFields, switchRows, switchWriteVerdict,
     type SwitchFields, type SwitchRow
   } from './perPresetSwitchView';
+  // The NAMED picker options, derived from the codec's measured tables (categories / function menus /
+  // FX-slot anchors) — never a hand-kept list in this component. See perPresetSwitchOptions.ts.
+  import { switchEditOptions } from './perPresetSwitchOptions';
   import type { PerPresetSwitches } from './types';
 
   const EMPTY: SwitchFields = { actionCode: '', targetIndex: '', holdActionCode: '' };
-
-  /** Action codes offered as buttons so a caller need not recall them — the two most common of the thirteen
-   *  categories the codec now carries (all fourteen dropdown positions are measured). */
-  const KNOWN_ACTIONS: Array<{ code: number; label: string }> = [
-    { code: 0x04, label: 'Effect' },
-    { code: 0x03, label: 'Scene' }
-  ];
 
   let page = $state<PerPresetSwitches | null>(null);
   let rows = $state<SwitchRow[]>([]);
@@ -73,18 +69,16 @@
     verdictOk = false;
     editing = true;
     editRow = r;
-    // Start from what the device reports, but leave an UNASSIGNED row's fields blank rather than "0" — an
-    // empty field means "leave it alone", and a bare 0 is easy to send by accident. An UNOBSERVED field
-    // starts empty and stays disabled: there is no offset to write to.
+    // The NAMED picker PRESELECTS what the device reports so the row reads as a name, not a 0.
+    // The category select is always editable (every row offered for editing has an observed code offset),
+    // so its value rides the write. The target select is only preselected when the byte is writable — an
+    // index whose offset was never located starts EMPTY and stays disabled, so `switchPatchFromFields`
+    // never sends a field the server would refuse. The HOLD field keeps its "empty = leave alone" rule.
     fields = {
-      actionCode: r.actionCode === null || r.actionCode === 0 ? '' : String(r.actionCode),
-      targetIndex: r.targetIndex === null || r.targetIndex === 0 ? '' : String(r.targetIndex),
+      actionCode: String(r.actionCode ?? 0),
+      targetIndex: r.canWriteTarget && r.targetIndex !== null ? String(r.targetIndex) : '',
       holdActionCode: r.holdActionCode === null || r.holdActionCode === 0 ? '' : String(r.holdActionCode)
     };
-  }
-
-  function setAction(code: number) {
-    fields = { ...fields, actionCode: String(code) };
   }
 
   async function write() {
@@ -173,14 +167,34 @@
             </span>
           </div>
           {#if editing && editRow && editRow.index === r.index}
+            {@const opts = switchEditOptions(r.actionCode, r.functionIndex, r.targetIndex)}
             <div class="edit">
-              <label>action code<input bind:value={fields.actionCode} inputmode="numeric" placeholder="e.g. 4" disabled={writing} /></label>
+              <label title="The TAP category (the action-code array). Names come from the codec's measured PP_ACTION_CATEGORIES — all thirteen are named.">
+                tap category
+                <select bind:value={fields.actionCode} disabled={writing}>
+                  {#each opts.categories as o (o.value)}
+                    <option value={String(o.value)}>{o.label}</option>
+                  {/each}
+                </select>
+              </label>
+              <div class="field" title={opts.functionMenu}>
+                tap function<span class="ro">read-only</span>
+                <span class="fnval" class:unnamed={!opts.currentFunction.named}>{opts.currentFunction.label}</span>
+              </div>
               <label
                 title={r.canWriteTarget
-                  ? `Write the target byte for PP#${r.index}.`
+                  ? `The FX-slot target byte for PP#${r.index}. Names come from the codec's measured anchors; ${opts.targetCoverage}`
                   : `PP#${r.index}'s target-byte offset has never been located, so it cannot be written — the server refuses it too.`}
               >
-                target index<input bind:value={fields.targetIndex} inputmode="numeric" placeholder={r.canWriteTarget ? 'e.g. 51' : 'not located'} disabled={writing || !r.canWriteTarget} />
+                target
+                <select bind:value={fields.targetIndex} disabled={writing || !r.canWriteTarget}>
+                  {#if !r.canWriteTarget}
+                    <option value="">not located</option>
+                  {/if}
+                  {#each opts.targets as o (o.value)}
+                    <option value={String(o.value)}>{o.label}</option>
+                  {/each}
+                </select>
               </label>
               <label
                 title={`Write the HOLD action code for PP#${r.index}. The HOLD half is a second action-code array (marker+436 + 2·(index−1)), located on 2026-10-11 — three HOLDs read back 8/5/7 there. 0 = Unassigned; leave it empty to change only the TAP side.`}
@@ -188,18 +202,19 @@
                 hold action code<input bind:value={fields.holdActionCode} inputmode="numeric" placeholder={r.canWriteHold ? 'e.g. 8 = Looper' : 'not located'} disabled={writing || !r.canWriteHold} />
               </label>
               <div class="actions">
-                {#each KNOWN_ACTIONS as a (a.code)}
-                  <button class="mini" onclick={() => setAction(a.code)} disabled={writing}>{a.label} ({a.code})</button>
-                {/each}
                 <button class="mini go" onclick={write} disabled={writing}>{writing ? 'Writing…' : `Write PP#${r.index}`}</button>
                 <button class="mini" onclick={() => { editing = false; editRow = null; }} disabled={writing}>Cancel</button>
               </div>
               <p class="warn">
-                Writes the unit's EDIT BUFFER — not saved; reloading the preset discards it. The action codes
-                offered above are the two that have been observed (0x04, 0x03); a code typed here is sent
-                as-is and read back, not validated against a function list.
+                Writes the unit's EDIT BUFFER — not saved; reloading the preset discards it. The category and
+                target are chosen by NAME from the codec's measured tables; a value with no measured name is
+                shown as its raw number and marked unmeasured.
+                {#if !opts.currentFunction.named}
+                  <b>This row's function index has no measured name</b> ({opts.currentFunction.label}) — it is
+                  shown as a number rather than guessed at.
+                {/if}
                 {#if !r.canWriteTarget}
-                  <b>The target index is disabled because this switch's target byte has never been located</b> —
+                  <b>The target is disabled because this switch's target byte has never been located</b> —
                   a one-byte-per-switch array was measured and refuted, so its position is unknown.
                 {/if}
               </p>
@@ -247,10 +262,14 @@
   .mono { font-family: var(--font-mono, ui-monospace, monospace); }
   .edit { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; margin: 2px 0 8px 62px;
     padding: 8px; border: 1px solid var(--line, #33343a); border-radius: 7px; }
-  .edit label { display: flex; flex-direction: column; gap: 3px; font-size: 10px;
+  .edit label, .edit .field { display: flex; flex-direction: column; gap: 3px; font-size: 10px;
     text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.8; }
-  .edit label input { width: 110px; font-size: 12px; padding: 4px 6px; border-radius: 5px;
+  .edit label input, .edit label select { width: 150px; font-size: 12px; padding: 4px 6px; border-radius: 5px;
     border: 1px solid var(--line, #33343a); background: var(--panel2, #24252b); color: inherit; }
+  .edit .ro { margin-left: 4px; font-size: 9px; opacity: 0.5; letter-spacing: 0; text-transform: none; }
+  .edit .fnval { width: 150px; font-size: 12px; padding: 4px 6px; border-radius: 5px; display: inline-block;
+    border: 1px dashed var(--line, #33343a); opacity: 0.9; }
+  .edit .fnval.unnamed { font-style: italic; opacity: 0.7; }
   .edit .actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; flex: 1 1 100%; }
   .edit .warn { flex: 1 1 100%; font-size: 11px; opacity: 0.7; margin: 0; }
 </style>
