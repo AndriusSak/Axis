@@ -180,7 +180,21 @@ Each item names its blocker and what closing it would require.
     TX sequences, the 49-eid move set, 9 content bytes, the hole set) — its two flagged "disagreements" were
     definitional (a different predicate: "differs from the modal" vs "is the hole record"), not conflicts.
 
-  **Remaining work: task 2's read-only run, `H_head`, and a standing hole-record read.** All read-only.
+  - **Task 2's SYMMETRY half is RUN and positive-negative: `H_FLAT` is REFUTED.** Five 64-row sweeps
+    (`probe-1b-symmetry.ts`, READ-ONLY, tap `1b-symmetry.tap`, log `review-2026-10-12/probe-1b-symmetry.out`).
+    The flat-index reading predicts a shift of exactly `D − E`; at that shift the mismatch is **0.71–0.93** over
+    the rows that exist, never 0, and for `E = 0x46` the predicted shift (−69) falls outside a ±63 scan so that
+    pair cannot test it at all. `V(0x46)` = 23 distinct and `V(0x3a)` = 37 distinct reproduce ROUND 13's maps
+    exactly. The positive content is the same-axis rows: moving at3 `0x00 → 0x01` changes **11 of 64** rows of
+    the at1 axis and `0x01 → 0x08` changes **13 of 64**, so **at3 perturbs the at1-keyed records** rather than
+    indexing a shared table. A residual above-chance agreement at an unpredicted shift is recorded as
+    **unexplained, not as a finding** (both maps are dominated by their modal token, which can produce it alone).
+  - **Task 2's STABILITY half is NOT run: it needs a scene change (`fn=0x0c`), i.e. a WRITE.** The tool holds it
+    behind `--with-scene` and refuses by default; the anchor set and four-stage design are in the handover.
+    **A write needs the owner's explicit go-ahead** — the same class as the `H_head` bypass toggle.
+
+  **Remaining work: the STABILITY half (scene write, needs approval), `H_head` (bypass write, needs approval),
+  and a standing hole-record read (free).** No unapproved writes have been made.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
