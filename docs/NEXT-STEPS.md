@@ -71,11 +71,39 @@ Each item names its blocker and what closing it would require.
   three volatile data bytes (`+22`/`+23`/`+24`), so it is a static model-side table rather than preset state. Its
   576-byte data region is bit-level (220 bytes hold a single-bit value, zero bytes 241/576) and is NOT a
   per-block geometry table — checked against `FM3_BLOCK_GEOMETRY`'s 28 blocks and reported `NO HITS`.
-  **Nothing is DECODED yet** — that is the whole of what remains here, and it needs no new capture: the evidence
-  is `ForgeFX/server/test/fixtures/query-subs/` (taps + README), read with `inspect-tap.ts` /
-  `inspect-layout-map.ts`, and the three next steps are listed in that README (explain the volatile trio, test the
-  bit-packed hypothesis against the per-family param tables, then sweep `0x03`/`0x1b` per eid against a bypass
-  whose value we set).
+  **ROUND 12 (2026-10-12) ran that README's three next steps. Evidence:
+  `ForgeFX/server/test/fixtures/query-subs-decode/` (six taps + a README stating what each row measures) —
+  still NOT decoded, but the space is much smaller:**
+
+  - **The `0x2e` volatile trio is per-READ, and it is NOT a counter.** Two connections (constant 500 ms steps,
+    then 250/500/1000/2000/4000/8000 ms) predicted different numbers under "counter" and "nonce": 16/16 trios
+    distinct with Δ tracking neither spacing nor read ordinal, and the 8000 ms step moved no further than the
+    250 ms one. Over 64 samples `+22` **never left `0..3`** while `+23`/`+24` span their 7-bit range — so it is
+    not three random bytes either, and `+22`'s boundedness is unexplained. **Everything else in the reply is
+    byte-identical across all 80 reads taken**, so masking `+22..+24` is sufficient and no byte of the region
+    is a stable identity until further notice. The SHORT `0x2e` reply is fully reproducible (1/64 distinct for
+    each of two addresses) — ROUND 11's "byte flipped between runs" was the address change, not volatility.
+  - **The 576-byte region is periodic at 8 bytes** (top autocorrelation lags are 8, 40, 72, 32, 16 — all
+    multiples of 8) and contains ~20 occurrences of the one-hot ladder `40 20 10 08 04 02 01`. Two hypotheses
+    are now KILLED, both reported by `scripts/decode-layout-map-matrix.ts` on every run: **"a family's bit-run
+    length equals its param count"** (REFUTED — the longest single-bit run is 7 and the smallest family has far
+    more params) and **"the region is a column-major one-bit-per-byte matrix"** (REFUTED — every
+    `start 0..72 × width 4..10` alignment was enumerated and none is violation-free; the best still leaves 92
+    multi-bit bytes).
+  - **`0x03[sel=01]` is a per-eid read whose bytes 5-7 are NOT stable identity.** Its reply is
+    `01 <eid> 00 00 00 <b5> <b6> <b7> 00…` with real per-eid content (`0x2a → 28 03`, `0x3a → 6f 0e 01`);
+    `sel=00` gives all zeros. The amp's byte 5 advances by **exactly +1 per write to that block** and is stable
+    across reads, while **`0x5e`'s advances +6 per READ with nothing written** — so "0x03 mirrors the block's
+    state" is NOT established, and the bypass question is OPEN in both directions, not answered.
+  - **The bypass arm that first read this nearly published the opposite.** Its first version compared
+    before/during/after a toggle and saw `6f → 70 → 71`, which reads as "carries live state" — but an unrelated
+    eid moved with no write near it. A before/during/after comparison **without a no-write baseline** cannot
+    attribute anything; the arm now runs a drift control (3 reads, nothing written) and 5 reads per stage, and
+    the superseded tap is kept as evidence of the trap. **Rule: measure the no-write baseline on the same rows
+    before believing a write moved them.**
+  - **`0x1b` is the tractable one**: `sel=00` answers stable, reproducible per-eid bytes (`0x2a/0x2b → 7f 7f 01`,
+    `0x3a/0x3e → 00 00 00`, `0x46 → 47 42 00`, `0x4e → 0c 00 00`), `sel=01` answers all zeros for every eid,
+    and nothing moved it on any read or write. That is where a next round should start.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
@@ -318,10 +346,10 @@ Each item names its blocker and what closing it would require.
      - one frame remains **UNEXPLAINED and unprobed**: `fn=0x19` payload `0b 10 16` (once, during the move).
        Recorded as a candidate "cab list changed" notice. It is NOT needed for the move, and it will not be
        sent blind — that is how the unit ended up in its bootloader earlier today.
-  5. **What is still capture-gated has shrunk to the three unmapped subs** — and to the three UNMAPPED sub-actions the editor
-     the editor uses constantly (`0x03`, `0x1b`, `0x2e`; the last returns a 590-byte dump with 12 distinct
-     payloads, which is table-shaped) and to the new `fn=0x19`. None of them is needed for names or for
-     reorder any more. `U0030` still holds `LYKOS-NAMETEST` and
+  5. **What is still capture-gated is now `fn=0x19` alone.** The three sub-actions the editor uses constantly
+     (`0x03`, `0x1b`, `0x2e`) are answered by the unit and were narrowed again in ROUND 12 — see the
+     "surfaced by the capture analyser" item above and `ForgeFX/server/test/fixtures/query-subs-decode/`. None
+     of them is needed for names or for reorder. `U0030` still holds `LYKOS-NAMETEST` and
      should be erased when convenient (blank-container delete, read-back verified).
 
 
