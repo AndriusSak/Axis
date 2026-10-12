@@ -33,6 +33,15 @@
     parseAxisFcLayoutPackage,
     serializeAxisFcLayoutPackage
   } from './axis-workbench/fc/fcLayoutPackage';
+  // Named options for the 'block'-typed value slot (the FC "Effect" assignment). The names come from
+  // the preset's PLACED BLOCKS (/preset/grid); the FC model itself carries none. See fcBlockOptions.ts.
+  import {
+    FC_BLOCK_VALUE_SPACE_CAVEAT,
+    fcBlockOptionsIncluding,
+    fcBlockRawHint,
+    fcBlockRosterNote,
+    type FcBlockCell
+  } from './fcBlockOptions';
 
   const ACC = 'var(--amber)'; // FC accent follows the theme's amber token
   let model = $state<FcModel | null>(null);
@@ -49,6 +58,10 @@
   // `present` flags a switch as configured (its category is not Unassigned).
   let present = $state<Record<number, boolean>>({});
   let reading = $state(false);
+  // The preset's placed blocks — the roster the FC "Effect" (block-typed) value slot is named from
+  // (/preset/grid). A failed/absent read leaves it EMPTY and the field shows its id, MARKED, rather
+  // than a fabricated name (see fcBlockOptions.ts).
+  let placed = $state<FcBlockCell[]>([]);
 
   onMount(async () => {
     try {
@@ -56,6 +69,15 @@
       if (!model) err = 'This device has no decoded Foot Controller model yet.';
     } catch (e) {
       err = (e as Error).message;
+    }
+    // the block picker is FM3-only (the typed value slots render in the liveState branch)
+    if (model?.liveState) {
+      try {
+        const g = await forgefx.grid();
+        placed = g.cells;
+      } catch {
+        /* roster stays empty → every block id renders marked */
+      }
     }
   });
 
@@ -153,6 +175,8 @@
   }
   const layoutLabel = (i: number) => (i === 8 ? 'Master' : String(i + 1));
   const catName = (v: number | undefined) => (v != null ? (model?.categories?.[String(v)] ?? 'Cat ' + v) : '—');
+  /** The cap disclosure for the block picker (the roster = the current preset's placed blocks). */
+  const blockRosterNote = $derived(fcBlockRosterNote(placed));
 
   // ── function model: the selected function for a side drives its value-slots + label options ──
   const labelModeFallback = $derived(model ? Object.entries(model.labelModes ?? {}).map(([, l]) => l) : []);
@@ -558,6 +582,23 @@
                     <select value={curSlot(side, slot.i) ?? 0} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
                       {#each model!.channels as ch, ci (ci)}<option value={ci}>{ch}</option>{/each}
                     </select>
+                  {:else if slot.type === 'block'}
+                    <!-- The FC "Effect" assignment: a NAMED picker of the preset's placed blocks, not a bare
+                         "block id" number. The raw id stays available (the mono hint), but the name is the
+                         primary text; a value that names no placed block is MARKED, never a bare number. -->
+                    {@const blockVal = curSlot(side, slot.i) ?? null}
+                    {@const blockOpts = fcBlockOptionsIncluding(placed, blockVal)}
+                    <select
+                      value={blockVal === null ? '' : String(blockVal)}
+                      title={blockRosterNote}
+                      onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}
+                    >
+                      {#if blockVal === null}<option value="" disabled>— no value read</option>{/if}
+                      {#each blockOpts as o (o.value)}
+                        <option value={String(o.value)}>{o.label}</option>
+                      {/each}
+                    </select>
+                    <span class="hint mono" title={FC_BLOCK_VALUE_SPACE_CAVEAT}>{fcBlockRawHint(blockVal)}</span>
                   {:else}
                     <input
                       type="number"
@@ -566,7 +607,6 @@
                       value={curSlot(side, slot.i) ?? slot.min ?? 0}
                       onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}
                     />
-                    {#if slot.type === 'block'}<span class="hint">block id</span>{/if}
                   {/if}
                 </div>
               {/each}
@@ -926,6 +966,11 @@
   }
   .mono {
     font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  /* the raw block id — AVAILABLE under the named picker, but secondary */
+  .hint {
+    font-size: 10px;
+    color: var(--textfaint);
   }
   /* §3.8 parity status + layout import/export */
   .parity {
