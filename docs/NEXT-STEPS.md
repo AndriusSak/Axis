@@ -134,8 +134,11 @@ Each item names its blocker and what closing it would require.
     the latter at 14:50 — same preset name ("USA Mk IV", read with `fn=0x0d`), same 13 placed eids, no write by
     any ROUND 12-14 probe. Only ONE record moved, and it is the one 64 exchanges carry: the 49 **unused eids**
     (the hole/default record) plus the 15 `byte 9 ≠ 0` rows, which return exactly that same record. So byte 9
-    lands on the **hole record**, which is **time-varying**. **Why it moved is NOT established — treated as a
-    defect candidate, not a decode.** `byte 11 ≠ 0` reproduced byte-for-byte: `1b 14 4c 7a 0a 00 00 00 00`.
+    lands on the **hole record**, which is **time-varying with no trigger found**: it is not a fast clock
+    (identical at 14:20/14:26/14:50), the owner confirms he never touched the unit, `journalctl -k` shows the
+    FM3 stayed enumerated (no USB connect/disconnect since 10:43:41, so not a re-enumeration), and no ROUND 12-14
+    probe writes. **An uncommanded internal state change — a defect candidate, not a decode, and never a stable
+    identity.** `byte 11 ≠ 0` reproduced byte-for-byte: `1b 14 4c 7a 0a 00 00 00 00`.
   - **Neither selector returns a device constant** (task 1(a)): with the selector fixed at 1 the content takes
     **8** distinct values over `at[1]` = `0x00..0x3f` under byte 9 and **4** under byte 11.
   - **`0x2e` exposes the SAME record** (task 1(b)): request byte 7 ∈ `0x01..0x0f` answers a 23-byte reply whose
