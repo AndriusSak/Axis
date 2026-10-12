@@ -193,8 +193,33 @@ Each item names its blocker and what closing it would require.
     behind `--with-scene` and refuses by default; the anchor set and four-stage design are in the handover.
     **A write needs the owner's explicit go-ahead** — the same class as the `H_head` bypass toggle.
 
-  **Remaining work: the STABILITY half (scene write, needs approval), `H_head` (bypass write, needs approval),
-  and a standing hole-record read (free).** No unapproved writes have been made.
+  - **Task 2's STABILITY half is RUN (owner authorised the scene write).** `probe-1b-symmetry.ts --with-scene`,
+    one self-restoring scene change, 8 anchors × 5 reads × 4 stages (A, A′ no-write control, B scene 1, C
+    restored); every anchor was stable within every stage, so the gate passed. **Verdict `H_SCENE_DEPENDENT`,
+    from ONE anchor of eight**: `C9(0x46, at3=0/1/8)`, `0x2a`, `0x3a`, `0x25`, `0x2e` are all identical across
+    the scene change (the `0x1b` content is NOT scene state), and only the hole/default record moved, reverting
+    on restore.
+  - **`H_head` is RUN (owner authorised the bypass toggle) and it lands the null result.** The region does
+    **not** carry bypass state: **0 of 44 head records and 0 tail grid cells changed** while the write was
+    proven landed and restored through the `fn=0x13` status dump (a different path), with the index mapping
+    cross-checked first (content 576B = head 355B + tail 221B). Instrument
+    `scripts/probe-2e-head-bypass.ts` → `scripts/diff-2e-head-vs-grid.ts --mask 22,23,24`; the mask is
+    required because the per-read volatile trio sits inside head records #2/#3. Since a scene switch does not
+    change grid structure either, the remaining `H_head` question needs a **PLACEMENT** change (moving a block
+    between cells) — a structural preset edit whose only restore oracle is the same reply being diffed.
+    **Proposed, not run.**
+  - **NEW DECODE — the "hole/default" record's first byte IS THE SCENE INDEX, 8 for 8.** Tool
+    `scripts/probe-hole-vs-scene.ts` (one self-restoring scene write per step, original restored and re-read),
+    tap `1b-hole-vs-scene.tap`. Scene s → `s 00 00 00 00 02 00 00 00`, eight distinct, control anchor `0x46`
+    unmoved. **This revises the earlier "uncommanded state change"**: the 13:18–13:57 value
+    `01 00 00 00 00 02` is exactly the scene-1 value, so a scene change between 13:57 and 14:20 explains that
+    half of the move. **Still unexplained:** `1b 14 4c 7a 0a 02` (read 14:20–≈15:2x), whose first byte `0x1b`
+    is not a legal scene index — the field has at least two regimes and the map holds in the current one.
+  - **⇒ Standing instrument to add:** every probe should log (hole record, `fn=0x0d` preset, `fn=0x13` placed
+    set, **scene index**) — four frames that date the next regime change instead of costing a round.
+
+  **Remaining work: a PLACEMENT-change arm for `H_head` (proposed, not run), the hole-record regime question,
+  and the standing read.** All other writes the owner authorised have been run and restored.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
