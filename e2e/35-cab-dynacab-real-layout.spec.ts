@@ -116,4 +116,52 @@ test.describe('Cab mic graph — real served layout (Cab 1, preset 410)', () => 
     expect(reach.top!, 'after scrolling the tile is on screen').toBeLessThan(reach.winH);
     expect(reach.bottom!, 'after scrolling the tile is on screen').toBeGreaterThan(0);
   });
+
+  /**
+   * The owner's decision, 2026-10-12: "mic graph can be first and knobs after".
+   *
+   * The served arrangement put the graph at the END of its column's line, which is what landed it ~450px
+   * below the fold. The builder now hoists it to the head of its band (below that column's own label),
+   * so this asserts the user-visible outcome, not the builder's internals: on open, with no scrolling,
+   * the graph is on screen AND is the first content line of its column.
+   */
+  test('the mic graph leads its column and is visible WITHOUT scrolling (owner decision)', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await bootWithRealCab(page);
+    const m = await page.evaluate(() => {
+      const bw = document.querySelector('.boardwrap') as HTMLElement;
+      let pane: HTMLElement | null = bw.parentElement;
+      while (pane && !(getComputedStyle(pane).overflowY !== 'visible' && pane.scrollHeight > pane.clientHeight + 2))
+        pane = pane.parentElement;
+      const pr = pane!.getBoundingClientRect();
+      const tile = document.querySelector('.dynabox') as HTMLElement;
+      // Compare against the tile's own CARD, not the tile: the tile sits ~9px inside its card, so a card
+      // sharing the tile's grid line (the knobs that flow to its right) would otherwise read as "above".
+      const tileCard = tile.closest('.card') as HTMLElement;
+      const tc = tileCard.getBoundingClientRect();
+      const tr = tile.getBoundingClientRect();
+      const cards = [...document.querySelectorAll('.boardwrap .card')]
+        .filter((e) => e !== tileCard)
+        .map((e) => e.getBoundingClientRect());
+      return {
+        paneTop: Math.round(pr.top),
+        paneBottom: Math.round(pr.bottom),
+        cardTop: Math.round(tc.top),
+        cardBottom: Math.round(tc.bottom),
+        tileTop: Math.round(tr.top),
+        scrollTop: Math.round(pane!.scrollTop),
+        cardsAboveGraph: cards.filter((r) => r.top < tc.top - 2).length
+      };
+    });
+    expect(m.scrollTop, 'nothing was scrolled to reach the assertion').toBe(0);
+    // Leading its column: no other card starts above the graph's card. (The column's own label sits
+    // above it and is a .grouphead, not a .card — that is the intent: label, then the graph.)
+    expect(m.cardsAboveGraph, 'the graph is the first card of its column').toBe(0);
+    // On open, and with no scrolling: the graph's card begins inside the pane and is at least partly
+    // visible. Demanding FULL visibility would be the mistake the HIL review flagged (a 284px tile can
+    // never be fully inside a ~281px pane); the owner's complaint is that it was not on screen at all.
+    expect(m.cardTop, 'the graph starts inside the visible pane').toBeGreaterThanOrEqual(m.paneTop - 1);
+    expect(m.cardTop, 'the graph is on screen without scrolling').toBeLessThan(m.paneBottom);
+    expect(m.tileTop, 'the tile itself begins inside the pane').toBeGreaterThanOrEqual(m.paneTop - 1);
+  });
 });
