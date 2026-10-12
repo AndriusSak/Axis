@@ -62,11 +62,10 @@ const UNREAD = '—';
 function withheldReason(s: PerPresetSwitch): string {
   if (s.actionCode === 0x04) {
     // The Effect category is FULLY measured as of 2026-10-12 — Bypass and Chan Select on 2026-10-11, Chan Toggle
-    // and Chan Inc/Dec on 2026-10-12 — so the only Effect case that still withholds a name is a row whose
-    // FUNCTION INDEX nobody observed. The mode is what the name depends on, so an unobserved mode gets none.
-    return s.functionIndex === null
-      ? 'name withheld: this Effect row’s function was not observed, so what its byte means is unread'
-      : `name withheld: effect function ${s.functionIndex}${s.functionName ? ` (${s.functionName})` : ''} has no measured FX-slot reading`;
+    // and Chan Inc/Dec on 2026-10-12 — and the decode always reports a numeric function index, so what reaches
+    // this branch is a function index OUTSIDE that measured set (a value a firmware update could introduce, or
+    // stale bytes). It fails closed: a number, and the reason, rather than the nearest plausible block name.
+    return `name withheld: effect function ${s.functionIndex}${s.functionName ? ` (${s.functionName})` : ''} is not one of the four whose byte has been measured`;
   }
   if (!s.action) {
     // An unmeasured CODE has no category to reason from, so the reason is the missing list itself.

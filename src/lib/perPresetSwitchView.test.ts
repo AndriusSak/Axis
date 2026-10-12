@@ -45,9 +45,10 @@ const MIXED: PerPresetSwitches = {
       { targetIsFxSlot: true, functionIndex: 0, functionName: 'Bypass' }),
     sw(2, 0x04, EFFECT_ACTION, 2, 'Chorus 1', 'measured',
       { targetIsFxSlot: true, functionIndex: 1, functionName: 'Chan Select' }),
-    // An Effect row whose function was never observed: the only Effect case left that withholds a name.
+    // An Effect row whose function index is OUTSIDE the four measured ones (index 4) — the only Effect case left
+    // that withholds a name, and it fails closed rather than reaching for the nearest block name.
     sw(3, 0x04, EFFECT_ACTION, 9, null, 'partial',
-      { targetIsFxSlot: false, functionIndex: null, functionName: null }),
+      { targetIsFxSlot: false, functionIndex: 4, functionName: null }),
     sw(4, 0x03, 'Scene (category — the mode is in the record)', 1, 'Cab 1', 'measured',
       { targetIsFxSlot: false, functionIndex: 1, functionName: 'Toggle' }),
     sw(5, 0x99, null, 9, null, 'measured', { functionIndex: 4 }),
@@ -95,13 +96,14 @@ describe('switchRows (per-field honesty)', () => {
     expect(rows[0]!.functionLabel).toBe('Bypass');
   });
 
-  it('withholds the name from an Effect row whose FUNCTION was never OBSERVED, and says which', () => {
-    // The whole Effect category is measured now, so the one Effect case left is a row whose function index
-    // nobody read: the mode decides what the byte means, and an unobserved mode cannot name anything. The
-    // observed BYTE is still shown — withholding a name must not hide the reading.
+  it('withholds the name from an Effect row whose FUNCTION INDEX is outside the measured four', () => {
+    // The whole Effect category is measured now, so what reaches the withholding path is an index the four
+    // measurements do not cover (a firmware update could add one; stale bytes could hold one). It fails closed:
+    // the number and the reason, never the nearest plausible block name. The observed BYTE is still shown,
+    // because withholding a name must not hide the reading.
     const r = switchRows(MIXED)[2]!;
     expect(r.targetIndex).toBe(9);
-    expect(r.targetLabel).toBe('index 9 (name withheld: this Effect row’s function was not observed, so what its byte means is unread)');
+    expect(r.targetLabel).toBe('index 9 (name withheld: effect function 4 is not one of the four whose byte has been measured)');
   });
 
   it('names an FX slot on a Chan Toggle row — the function measured on 2026-10-12 that made the old rule wrong', () => {
