@@ -21,11 +21,19 @@
 //     (the repo rule: `paletteRows.ts` / `listCaps.test.ts`).
 //   • NEVER INVENT A NAME. An option for a value the codec cannot name says so; the label is not a
 //     guess at the nearest plausible block or function.
+// NOTE THE SPECIFIER — it is the SELF-CONTAINED `perPresetSwitches` module, NOT the `forgefx-midi/devices/gen3`
+// barrel. The barrel re-exports `factory.js` → `writer.js`, and `writer.js` reads
+// `process.env.MCP_APPLY_BUDGET_MS` at module top level, so importing the barrel from browser code throws
+// `ReferenceError: process is not defined` and the ENTIRE app fails to boot (measured 2026-10-12: all 144
+// Playwright specs timed out waiting for `.aw-root`, while 1944 vitest cases and svelte-check stayed green —
+// Node HAS `process`, so no unit suite can see this). `perPresetSwitches.js` imports nothing and touches no
+// Node global. `perPresetSwitchOptions.browser-safety.test.ts` guards the specifier.
 import {
   PP_ACTION_CATEGORIES,
   PP_FUNCTION_NAMES,
-  PP_TARGET_ANCHORS
-} from 'forgefx-midi/devices/gen3';
+  PP_TARGET_ANCHORS,
+  ppTargetIsFxSlot
+} from 'forgefx-midi/devices/gen3/perPresetSwitches';
 
 /** One choice in a picker. `value` is the exact number written; `label` what the user reads. */
 export interface SwitchOption {
@@ -157,6 +165,49 @@ export function functionMenuNote(actionCode: number | null): string {
   return `Functions come from ${categoryOptionFor(actionCode).label}’s measured TAP menu, in index order.`;
 }
 
+/**
+ * What a row's target byte MEANS when it is not an FX-slot index. Only the domains this project has MEASURED
+ * are named; anything else says so rather than guessing at the nearest plausible thing.
+ *   Scene — PP#14 (Scene: Select) `record+0` read 3, a scene number.
+ *   Preset — PP#19 (Preset: Select) `record+0` read 28, a preset number.
+ *   Control Switch — PP#23 `record+0` read 3 for switch number 4: a ZERO-BASED Control Switch number.
+ */
+export function targetDomain(actionCode: number | null): string | null {
+  if (actionCode === null) return null;
+  const category = PP_ACTION_CATEGORIES[actionCode] ?? null;
+  if (category === 'Scene') return 'a scene number';
+  if (category === 'Preset') return 'a preset number';
+  if (category === 'Control Switch') return 'a zero-based Control Switch number';
+  return null;
+}
+
+/**
+ * The target options for ONE ROW, gated on whether this row's target byte is an FX-slot index at all.
+ *
+ * `PP_TARGET_ANCHORS` is an FX-SLOT table measured with Effect actions: its names are a CLAIM about a byte,
+ * and the codec states that a caller printing one without checking `ppTargetIsFxSlot` claims a name nobody
+ * measured (`perPresetSwitches.ts:474`). A Scene row's `3` is a scene number and a Control Switch row's `3`
+ * is a Control Switch number, so offering "Chorus 2" for either is a FALSE name. Where the flag is false the
+ * anchor roster is WITHHELD and the byte is shown as a raw number; `nowhere` is nothing to offer when the
+ * offset was never located, so the list is empty rather than padded.
+ */
+export function targetOptionsForRow(
+  actionCode: number | null,
+  functionIndex: number | null,
+  currentIndex: number | null = null
+): SwitchOption[] {
+  if (ppTargetIsFxSlot(actionCode, functionIndex)) return targetOptions(currentIndex);
+  if (currentIndex === null) return [];
+  return [{ value: currentIndex, label: `index ${currentIndex} (raw — not an FX slot)`, named: false }];
+}
+
+/** The note under one row's target select: the FX-slot cap, or WHY the FX-slot names are withheld here. */
+export function targetCoverageForRow(actionCode: number | null, functionIndex: number | null): string {
+  if (ppTargetIsFxSlot(actionCode, functionIndex)) return targetCoverageNote();
+  const domain = targetDomain(actionCode);
+  return `This row's TAP category does not store an FX-slot index in the target byte — it holds ${domain ?? 'a number for this category, whose meaning has not been decoded'}. The FX-slot names are NOT offered here (they were measured on Effect actions only), so the byte is shown and written as a raw number.`;
+}
+
 /** Everything the thin component needs to render the three selects for one row. */
 export interface SwitchEditOptions {
   categories: SwitchOption[];
@@ -176,9 +227,9 @@ export function switchEditOptions(
   return {
     categories: categoryOptionsIncluding(actionCode),
     functions: functionOptionsIncluding(actionCode, functionIndex),
-    targets: targetOptions(targetIndex),
+    targets: targetOptionsForRow(actionCode, functionIndex, targetIndex),
     currentFunction: functionOptionFor(actionCode, functionIndex),
-    targetCoverage: targetCoverageNote(),
+    targetCoverage: targetCoverageForRow(actionCode, functionIndex),
     functionMenu: functionMenuNote(actionCode)
   };
 }
