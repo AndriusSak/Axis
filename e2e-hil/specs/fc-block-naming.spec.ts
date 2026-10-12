@@ -28,6 +28,13 @@ test.describe('HIL · FC block-typed value slot is named from the placed blocks'
     const grid = await fetchJson(page, '/preset/grid');
     const placed = (grid?.cells ?? []).filter((c: any) => !c.isShunt && Number.isInteger(c.effectId));
     const nameByEffect = new Map<number, string>(placed.map((c: any) => [c.effectId, norm(c.name)]));
+    // An EMPTY grid cannot verify naming at all — never a vacuous pass. (Old code passed NAME when the
+    // roster was empty, so a preset with no placed blocks certified itself.)
+    if (nameByEffect.size === 0) {
+      pending(FEATURE, 'Effect (block-typed) value slot', 'NAME', 'the live /preset/grid carried no placed blocks — naming cannot be verified (never a pass)');
+      expect(nameByEffect.size, 'an empty grid must not certify naming').toBeGreaterThan(0);
+      return;
+    }
 
     await openPage(page, 'fc');
     // The block picker is the <select> whose title is the roster note (mentions "placed block").
@@ -52,9 +59,9 @@ test.describe('HIL · FC block-typed value slot is named from the placed blocks'
     const rec = { expected: `a NAME from /preset/grid, or a marker (${MARKERS.join(' | ')})`, actual: selectedText, source: '/preset/grid' };
     if (isBareId) {
       fail(FEATURE, 'Effect (block-typed) value slot', 'NAME', { ...rec, detail: 'the field shows a bare id' });
-    } else if (isMarker || nameByEffect.size === 0) {
+    } else if (isMarker) {
       // A marker is the explicit "not readable" outcome the honesty rule requires.
-      pass(FEATURE, 'Effect (block-typed) value slot', 'NAME', { ...rec, detail: isMarker ? `explicit marker — ${selectedText}` : 'roster empty, value shown marked' });
+      pass(FEATURE, 'Effect (block-typed) value slot', 'NAME', { ...rec, detail: `explicit marker — ${selectedText}` });
     } else {
       const named = [...nameByEffect.values()].includes(selectedText);
       if (named) pass(FEATURE, 'Effect (block-typed) value slot', 'NAME', { ...rec, detail: 'matched a placed-block name from /preset/grid' });

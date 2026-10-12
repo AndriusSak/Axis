@@ -13,7 +13,7 @@
 import { test, expect } from '@playwright/test';
 import {
   bootLive, openPage, selectGridCell, findCellForEffect, fetchJson, clickPageTab,
-  collectCards, classifyVisibility, pass, fail, pending, info, expectLiveDevice, norm
+  collectCards, classifyVisibility, pass, fail, pending, info, warn, expectLiveDevice, norm
 } from '../support/hil';
 
 const FEATURE = 'dynacab-mic-pad';
@@ -66,17 +66,22 @@ test.describe('HIL · DynaCab mic pad presence + reachability', () => {
     const tileVis = vis.filter((v) => tileIdx.includes(v.index));
     for (const v of tileVis) {
       const who = `DynaCab tile #${v.index}`;
-      if (v.outcome === 'in-pane' || v.outcome === 'off-pane-reachable') {
+      if (v.outcome === 'in-pane') {
         pass(FEATURE, who, 'VISIBILITY', { actual: v.outcome, detail: `box ${v.box.top}..${v.box.bottom} pane ${v.pane?.top}..${v.pane?.bottom} (pane ${v.pane?.clientHeight}px, board ${v.pane?.scrollHeight}px)` });
+      } else if (v.outcome === 'off-pane-on-open') {
+        // REACHABLE by scrolling its own pane, but invisible on open — the owner-reported class. A WARN,
+        // not the old misclassified `off-pane-unreachable` (a 284px tile can never be FULLY inside a
+        // ~280px pane, which is what the old rule demanded).
+        warn(FEATURE, who, 'VISIBILITY', { actual: v.outcome, detail: `reachable only after scrolling its ${v.pane?.clientHeight}px pane (board ${v.pane?.scrollHeight}px) — invisible on open` });
       } else {
-        fail(FEATURE, who, 'VISIBILITY', { actual: v.outcome, detail: 'DOM-present but no scroll of its pane reveals it' });
+        fail(FEATURE, who, 'VISIBILITY', { actual: v.outcome, detail: 'DOM-present but no scroll of its pane reveals it (or it is collapsed/occluded)' });
       }
     }
-    if (tileVis.length && tileVis.some((v) => v.outcome === 'off-pane-reachable')) {
-      info(FEATURE, '(pane)', 'VISIBILITY', { detail: 'mic pad sits below the fold of the short block pane — reachable by scrolling, but invisible on open (the owner-reported defect)' });
+    if (tileVis.length && tileVis.some((v) => v.outcome === 'off-pane-on-open')) {
+      info(FEATURE, '(pane)', 'VISIBILITY', { detail: 'mic pad sits below the fold of the short block pane — reachable by scrolling, but invisible on open (the owner-reported defect), reported as a WARN' });
     }
 
-    const bad = tileVis.filter((v) => v.outcome !== 'in-pane' && v.outcome !== 'off-pane-reachable');
+    const bad = tileVis.filter((v) => v.outcome !== 'in-pane' && v.outcome !== 'off-pane-on-open');
     expect(bad, 'DynaCab tile visibility failures').toEqual([]);
     // The reported defect: the mic pad tiles are absent from the Cab page — the spec's own `expect`
     // must go red as well, so the Playwright run and the recorded matrix agree.

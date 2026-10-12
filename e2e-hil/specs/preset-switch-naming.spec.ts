@@ -161,17 +161,19 @@ test.describe('HIL · per-switch pickers show served NAMES, not bare codes', () 
     if (servedRows.length) {
       info(FEATURE, '(oracle)', 'PRESENCE', { detail: `/preset/switches carries ${servedRows.length} decoded per-preset switch rows (populated=${switches?.populated})` });
     }
-    const hook = await openDeviceTools(page);
-    if (!hook) {
+    const opened = await openDeviceTools(page);
+    if (!opened) {
       pending(
         FEATURE, 'Device Tools · per-preset switch table', 'PRESENCE',
         'Device Tools has no reachable entry point in the workbench shell: no placed axis.deviceTools dock-action panel and no legacy tool rail. The per-preset switch DEFINITIONS table lives inside that modal, so it is reported PENDING rather than silently dropped (the FC picker assertions above cover the reachable per-switch naming).'
       );
     } else {
-      info(FEATURE, '(device tools)', 'PRESENCE', { detail: `opened via ${hook}` });
-      const read = page.locator('button', { hasText: /read switches/i }).first();
+      info(FEATURE, '(device tools)', 'PRESENCE', { detail: `opened via ${opened.hook}` });
+      const read = opened.panel.locator('button', { hasText: /read switches/i }).first();
       if (await read.count()) {
-        await activate(page, read, 'inspector', 'load the per-preset switch table (read-only GET /preset/switches)');
+        // Scoped to THIS modal's panel and pinned by accessible name — the old guard accepted any
+        // 'Read switches' button anywhere in any dialog.
+        await activate(page, read, { kind: 'inspector', name: /read switches/i, panel: opened.panel, reason: 'load the per-preset switch table (read-only GET /preset/switches)' });
         await page.waitForTimeout(2500);
       }
       const rows = await page.evaluate(() =>

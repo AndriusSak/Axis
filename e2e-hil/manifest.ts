@@ -115,12 +115,22 @@ export const MANIFEST: readonly ManifestEntry[] = [
   }
 ] as const;
 
-/** A single assertion outcome, as written to the run's JSONL and aggregated into the report. */
+/**
+ * A single assertion outcome, as written to the run's JSONL and aggregated into the report.
+ *   pass  — the assertion held and was informative.
+ *   fail  — the assertion held FALSE (the run goes RED).
+ *   weak  — the assertion held but was VACUOUS (0 vs 0, the param default, another control's value):
+ *           it does NOT count as a verification. Soft (not RED).
+ *   warn  — a real finding that is not a hard failure (e.g. a control visible only after scrolling its
+ *           pane — the owner-reported "nowhere to be seen" class). Soft (not RED).
+ *   pending — could not run (no device, no served value, no readout); never a pass.
+ *   info  — a non-assertion observation (counts, notes).
+ */
 export interface AssertionRecord {
   feature: string;
   control: string;
   kind: AssertionKind;
-  status: 'pass' | 'fail' | 'pending' | 'info';
+  status: 'pass' | 'fail' | 'pending' | 'info' | 'warn' | 'weak';
   expected?: string;
   actual?: string;
   detail?: string;

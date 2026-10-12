@@ -1,35 +1,42 @@
 /**
  * HIL · Cab block (eid 62) · Room/Air page — the layer that catches what nothing else does.
  *
- * Compares what the app RENDERS against the payload the LIVE ForgeFX server actually SERVES from a
- * real FM3. The oracle is the payload the UI itself consumes (`/preset/blocks/62/params` through the
- * app's own proxy), so this is render-vs-wire, not render-vs-fixture — the mocked e2e suite is green
- * while serving hand-made values and cannot see a served value the UI mislabels.
+ * Two oracles per control:
+ *   • RENDER-VS-WIRE — the payload the UI itself consumes (`/preset/blocks/62/params`).
+ *   • WIRE-VS-DEVICE — an INDEPENDENT decode of the block's RAW bytes (`/preset/blocks/62/raw`) with the
+ *     STATIC range table (`support/oracle.ts`). This is the second decode path that shares the device
+ *     bytes but none of the runtime-profile geometry — it would have caught `Room Diffusion 52.287` vs
+ *     `0` (a cache-rebuild bug) with no human in the loop.
  *
- * Per control on the Room/Air page it asserts:
+ * Per control on the Room/Air page:
  *   VALUE      — the readout (the hover `div.tip`; the pointer position is NOT the value) equals the
- *                served value within a rounding/unit tolerance.
- *   PRESENCE   — every control the device's own layout page declares either renders or is reported
- *                with a reason (unserved param / structural).
- *   VISIBILITY — the card lies inside its scrollable pane, or is reachable by scrolling THAT pane;
- *                DOM-present-but-off-pane is its own outcome.
+ *                served value within a RELATIVE tolerance, AND the displayed UNIT matches the served
+ *                unit (a unit mismatch is now observable, not overwritten with the served unit).
+ *   PRESENCE   — every control the layout declares either renders or is reported with a reason.
+ *   VISIBILITY — the card is inside its pane on open, or reachable by scrolling THAT pane
+ *                (`off-pane-on-open` = a WARN, the owner-reported class), or unreachable (a FAIL).
+ *
+ * A VALUE assertion whose expected value equals another control's value or the param's DEFAULT is
+ * recorded `weak` (vacuous), never `pass` — on this preset several controls legitimately serve 0.
  */
 import { test, expect } from '@playwright/test';
 import {
   bootLive, openPage, selectGridCell, findCellForEffect, fetchJson, clickPageTab,
-  collectCards, hoverReadTip, parseReadout, toleranceFor, classifyVisibility,
-  pass, fail, pending, info, expectLiveDevice, norm
+  collectCards, hoverReadTip, parseReadout, normUnit, toleranceFor, classifyVisibility,
+  pass, fail, pending, info, warn, weak, isVacuous, expectLiveDevice, norm
 } from '../support/hil';
+import { verifyServedAgainstRaw, defaultDisplay, oracleStride } from '../support/oracle';
 
 const FEATURE = 'cab-room-air-readouts';
 const CAB_EID = 62;
+const FAMILY = 'CABINET';
 
 interface ServedParam {
   id: number; name?: string; value?: number; unit?: string;
   min?: number; max?: number; options?: { value: number; label: string }[]; kind: 'cont' | 'enum';
 }
 
-test.describe('HIL · Cab Room/Air vs the live served payload', () => {
+test.describe('HIL · Cab Room/Air vs the live served payload + the raw device bytes', () => {
   test('VALUE / PRESENCE / VISIBILITY for every served Room/Air control', async ({ page }) => {
     await bootLive(page);
     await expectLiveDevice(page);
@@ -45,9 +52,11 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
     await clickPageTab(page, 'Room/Air');
     await expect(page.locator('.tabs .tab.on')).toHaveText('Room/Air');
 
-    // 3. Read the LIVE payload the UI consumes + build the served map.
+    // 3. Read the LIVE payload the UI consumes + the RAW device bytes (the independent oracle input).
     const payload = await fetchJson(page, `/preset/blocks/${CAB_EID}/params`);
     expect(payload?.named, 'the server must serve named params for the Cab block').toBeTruthy();
+    const rawPayload = await fetchJson(page, `/preset/blocks/${CAB_EID}/raw`);
+    const rawValues = rawPayload?.values ?? null;
     const servedById = new Map<number, ServedParam>();
     for (const n of payload.named as any[]) servedById.set(n.id, { ...n, kind: 'cont' });
     for (const e of payload.enums as any[]) servedById.set(e.id, { ...e, kind: 'enum' });
@@ -63,10 +72,11 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
     const vis = await classifyVisibility(page);
     const byLabel = new Map<string, number>();
     cards.forEach((c) => { if (c.label) byLabel.set(c.label, c.index); });
-    info(FEATURE, '(page)', 'PRESENCE', { detail: `served controls=${controls.length}, rendered cards=${cards.length}, pane clientH=${vis[0]?.pane?.clientHeight}`, actual: `${cards.length} cards` });
+    info(FEATURE, '(page)', 'PRESENCE', { detail: `served controls=${controls.length}, rendered cards=${cards.length}, raw values=${rawValues ? Object.keys(rawValues).length : 0}, pane clientH=${vis[0]?.pane?.clientHeight}`, actual: `${cards.length} cards` });
 
     const failures: string[] = [];
     const noteFail = (m: string) => failures.push(m);
+    const seenValues = new Set<number>();
 
     for (const c of controls) {
       if (c.paramId == null) continue; // structural (spacer/graph) — binds no param
@@ -74,7 +84,6 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
       const controlName = served?.name ?? c.label ?? `paramId ${c.paramId}`;
 
       if (!served) {
-        // PRESENCE: the layout declares it, but the server serves no param → a documented GAP.
         pending(FEATURE, controlName, 'PRESENCE', `layout control '${c.label}' binds paramId ${c.paramId}, which the server does not serve (unserved/gap)`, { expected: 'served param', actual: 'unserved' });
         continue;
       }
@@ -90,7 +99,7 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
 
       const card = page.locator('.boardwrap .card').nth(cardIndex);
 
-      // ── VALUE ──
+      // ── VALUE (cont) ──
       if (served.kind === 'cont') {
         let tip: string | null = null;
         try {
@@ -98,23 +107,45 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
         } catch (e) {
           pending(FEATURE, controlName, 'VALUE', `no hover target: ${(e as Error).message}`);
         }
-        if (tip != null || served.kind === 'cont') {
-          const { value: shown, unknown } = parseReadout(tip);
+        {
+          const { value: shown, unit: shownUnit, unknown } = parseReadout(tip);
           const servedVal = served.value;
           if (unknown || shown == null) {
             pending(FEATURE, controlName, 'VALUE', `readout '${tip ?? 'none'}' carries no numeric value`, { expected: String(servedVal), actual: String(tip) });
           } else if (servedVal == null) {
             pending(FEATURE, controlName, 'VALUE', 'served param has no value', { actual: String(shown) });
           } else {
-            const tol = toleranceFor(servedVal);
+            const tol = toleranceFor(tip ?? String(shown), served.min, served.max);
             const diff = Math.abs(shown - servedVal);
-            const rec = { expected: `${servedVal}${served.unit ?? ''}`, actual: `${shown}${served.unit ?? ''}`, detail: `Δ=${diff.toFixed(4)} tol=${tol}`, source: `/preset/blocks/${CAB_EID}/params` };
-            if (diff <= tol) pass(FEATURE, controlName, 'VALUE', rec);
-            else { fail(FEATURE, controlName, 'VALUE', rec); noteFail(`VALUE ${controlName}: readout ${shown} vs served ${servedVal} (Δ${diff.toFixed(3)})`); }
+            // UNIT HONESTY: compare the unit the TIP displayed to the served unit; record what was shown.
+            const su = normUnit(served.unit);
+            const du = normUnit(shownUnit);
+            const unitOk = !su || !du || su === du || du.startsWith(su) || su.startsWith(du);
+            const rec = { expected: `${servedVal}${served.unit ?? ''}`, actual: `${shown}${shownUnit ?? ''}`, detail: `Δ=${diff.toFixed(4)} tol=${tol.toPrecision(3)} unit served='${served.unit ?? ''}' shown='${shownUnit ?? ''}'`, source: `/preset/blocks/${CAB_EID}/params` };
+            if (!unitOk) {
+              fail(FEATURE, controlName, 'VALUE', { ...rec, detail: `${rec.detail} — DISPLAYED UNIT MISMATCH` });
+              noteFail(`VALUE ${controlName}: displayed unit '${shownUnit}' vs served '${served.unit}'`);
+            } else if (diff > tol) {
+              fail(FEATURE, controlName, 'VALUE', rec);
+              noteFail(`VALUE ${controlName}: readout ${shown} vs served ${servedVal} (Δ${diff.toFixed(4)} > tol ${tol.toPrecision(3)})`);
+            } else if (isVacuous(servedVal, seenValues, defaultDisplay(FAMILY, c.paramId))) {
+              weak(FEATURE, controlName, 'VALUE', { ...rec, detail: `${rec.detail} — VACUOUS (equals the param default or another control's value; not a measurement)` });
+            } else {
+              pass(FEATURE, controlName, 'VALUE', rec);
+            }
+            seenValues.add(servedVal);
+
+            // ── WIRE-VS-DEVICE (the independent raw-bytes oracle) ──
+            const oracle = verifyServedAgainstRaw(rawValues, FAMILY, c.paramId, servedVal);
+            const orec = { expected: `served ${servedVal} == decode(raw)`, actual: `${oracle.mode} ${oracle.decoded ?? 'n/a'}`, detail: `${oracle.detail}; static stride ${oracleStride(FAMILY)} (channel ${oracle.channel})`, source: `/preset/blocks/${CAB_EID}/raw` };
+            if (oracle.ok) pass(FEATURE, `${controlName} · raw-oracle`, 'VALUE', orec);
+            else {
+              fail(FEATURE, `${controlName} · raw-oracle`, 'VALUE', orec);
+              noteFail(`VALUE-oracle ${controlName}: served ${servedVal} matches NO independent decode of the raw bytes (${oracle.detail})`);
+            }
           }
         }
       } else if (served.kind === 'enum') {
-        // A select shows text; a 2-option toggle shows state only (no text readout).
         if (cards[cardIndex]?.hasSelect) {
           const shown = norm(await card.locator('.seltxt').first().textContent());
           const opt = served.options?.find((o) => o.value === served.value);
@@ -131,8 +162,10 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
       const v = vis.find((x) => x.index === cardIndex);
       if (!v) {
         pending(FEATURE, controlName, 'VISIBILITY', 'no geometry captured for this card');
-      } else if (v.outcome === 'in-pane' || v.outcome === 'off-pane-reachable') {
+      } else if (v.outcome === 'in-pane') {
         pass(FEATURE, controlName, 'VISIBILITY', { actual: v.outcome, detail: `box ${v.box.top}..${v.box.bottom} pane ${v.pane?.top}..${v.pane?.bottom}` });
+      } else if (v.outcome === 'off-pane-on-open') {
+        warn(FEATURE, controlName, 'VISIBILITY', { actual: v.outcome, detail: `reachable only after scrolling its ${v.pane?.clientHeight}px pane (board ${v.pane?.scrollHeight}px) — invisible on open (the owner-reported class)` });
       } else {
         fail(FEATURE, controlName, 'VISIBILITY', { actual: v.outcome, detail: 'DOM-present but not reachable within its scrollable pane' });
         noteFail(`VISIBILITY ${controlName}: ${v.outcome}`);
@@ -141,7 +174,7 @@ test.describe('HIL · Cab Room/Air vs the live served payload', () => {
 
     // Report the pane's own geometry as an observation (the Room/Air board overflows a short pane).
     if (vis[0]?.pane) {
-      const off = vis.filter((v) => v.outcome.startsWith('off-pane')).length;
+      const off = vis.filter((v) => v.outcome === 'off-pane-on-open' || v.outcome === 'off-pane-unreachable').length;
       info(FEATURE, '(pane)', 'VISIBILITY', { detail: `${off}/${vis.length} cards below the fold of a ${vis[0].pane.clientHeight}px pane (board ${vis[0].pane.scrollHeight}px)` });
     }
 

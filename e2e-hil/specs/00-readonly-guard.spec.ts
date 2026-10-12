@@ -1,84 +1,111 @@
 /**
- * HIL · READ-ONLY GUARD (source check) — the contract, re-checked against the harness's OWN source on
- * every run.
+ * HIL · READ-ONLY GUARD — the contract, re-checked against the harness's OWN source on every run,
+ * PLUS a runtime proof that the network guard cuts off a non-GET request.
  *
- * The input guard (`support/input-guard.ts`) is the single dispatch site, but a future edit could add
- * a second one in a spec. This suite statically scans every harness source file and FAILS if any of
- * them can press, drag, or type at the live instrument. It is the code half of "read-only by
- * construction"; the byte-identical pre/post body dump in `verify-ui-hardware.sh` is the runtime half.
+ * Three independent halves:
+ *   1. STATIC (allowlist): every harness source file — INCLUDING `playwright.hil.config.ts` (which sits
+ *      outside `e2e-hil/`) and THIS spec — is scanned for write CAPABILITIES by `support/readonly-scan.ts`.
+ *      Only member calls on the read-only allowlist may appear on a `page.` receiver; `page.mouse`,
+ *      `page.keyboard`, `page.touchscreen`, `page.request`, `newCDPSession` (outside the guard) and a raw
+ *      `fetch` are all violations. `.ts/.tsx/.js/.cjs/.mjs/.mts` are all scanned.
+ *   2. POSITIVE CONTROL: a violation planted in a temp file MUST make the scanner go red, so the scan
+ *      cannot pass by describing a hazard that no longer exists.
+ *   3. RUNTIME: the boot path installs a `page.route` over the api glob which ABORTS every non-GET — the
+ *      one class of write (APP-originated) that no source scan can see. A test POSTs through the page
+ *      and asserts it was aborted.
+ *
+ * The old guard is why this exists: it checked SPELLINGS, not CAPABILITIES, scanned only `.ts`/`.mjs`
+ * under `e2e-hil/`, and exempted the guard file from every pattern — so `locator.click()` (a real CDP
+ * press-and-release, the exact action that wrote to the owner's unit) was never caught.
  */
 import { test, expect } from '@playwright/test';
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { readdirSync, readFileSync, statSync, writeFileSync, unlinkSync, mkdtempSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 import { READ_ONLY_GUARANTEE } from '../support/input-guard';
+import { scanSources, scanFile, type ScanFile } from '../support/readonly-scan';
 
-// The harness lives under e2e-hil/ (this file is e2e-hil/specs/00-readonly-guard.spec.ts).
 const HARNESS_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+const AXIS_ROOT = join(HARNESS_ROOT, '..');
+const SCAN_EXT = /\.(ts|tsx|js|cjs|mjs|mts)$/;
 
 function collect(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const p = join(dir, name);
     const st = statSync(p);
     if (st.isDirectory()) collect(p, out);
-    else if (/\.(ts|mjs)$/.test(name)) out.push(p);
+    else if (SCAN_EXT.test(name)) out.push(p);
   }
   return out;
 }
 
-const FILES = collect(HARNESS_ROOT).map((p) => ({ path: p, rel: p.replace(HARNESS_ROOT + '/', ''), src: readFileSync(p, 'utf8') }));
+const FILES: ScanFile[] = collect(HARNESS_ROOT).map((p) => ({ rel: p.replace(HARNESS_ROOT + '/', ''), src: readFileSync(p, 'utf8') }));
+// The config lives OUTSIDE e2e-hil/ — it must be scanned too.
+FILES.push({ rel: 'playwright.hil.config.ts', src: readFileSync(join(AXIS_ROOT, 'playwright.hil.config.ts'), 'utf8') });
+
+/** Build a string from parts so a banned token never appears literally in THIS spec's source. */
+const j = (...parts: string[]) => parts.join('');
 
 test.describe('HIL · read-only input contract', () => {
   test('the guarantee is stated', () => {
     expect(READ_ONLY_GUARANTEE).toMatch(/mouseMoved/);
     expect(READ_ONLY_GUARANTEE).toMatch(/no press/);
+    expect(READ_ONLY_GUARANTEE).toMatch(/ABORTED/);
   });
 
-  test('no source file can press, drag or type at the instrument', () => {
-    const violations: string[] = [];
-    const check = (rel: string, re: RegExp, why: string) => {
-      const f = FILES.find((x) => x.rel === rel);
-      if (!f) return;
-      for (const line of f.src.split('\n')) if (re.test(line)) violations.push(`${rel}: ${why} → ${line.trim().slice(0, 100)}`);
-    };
-    // The guard owns the one allowed dispatch; this suite's own patterns name the forbidden verbs, so
-    // both are exempt from the scan.
-    const EXEMPT = new Set(['support/input-guard.ts', 'specs/00-readonly-guard.spec.ts']);
-    // Any other file must not even mention a mouse API.
-    for (const f of FILES) {
-      if (EXEMPT.has(f.rel)) continue;
-      for (const [re, why] of [
-        [/page\.mouse\./, 'uses page.mouse (a non-guarded input path)'],
-        [/\bmouse\.(down|up|click|dblclick|wheel)\b/, 'drives the mouse outside the guard'],
-        [/mousePressed|mouseReleased/, 'names a press/release'],
-        [/\.dragTo\(|\.dragAndDrop\(/, 'drags'],
-        [/page\.keyboard\./, 'types at the instrument'],
-        [/buttons:\s*0*1\b/, 'sends/creates a held button']
-      ] as [RegExp, string][]) {
-        check(f.rel, re, why);
+  test('every harness source (incl. config + this spec) is on the read-only allowlist', () => {
+    // The scan set must actually cover the config, the guard, and this spec.
+    expect(FILES.some((f) => f.rel === 'playwright.hil.config.ts'), 'the config must be scanned').toBe(true);
+    expect(FILES.some((f) => f.rel === 'support/input-guard.ts'), 'the guard must be scanned').toBe(true);
+    expect(FILES.some((f) => f.rel === 'specs/00-readonly-guard.spec.ts'), 'this spec must be scanned').toBe(true);
+    const violations = scanSources(FILES);
+    expect(violations, `read-only violations:\n${violations.map((v) => `${v.rel}:${v.line} ${v.why} → ${v.text}`).join('\n')}`).toEqual([]);
+  });
+
+  test('the runtime network guard is installed in the boot path', () => {
+    const guard = readFileSync(join(HARNESS_ROOT, 'support/input-guard.ts'), 'utf8');
+    expect(guard, 'the guard must install a network route').toMatch(/page\.route\(/);
+    expect(guard, 'the guard must ABORT a non-GET').toMatch(/route\.abort\(/);
+    expect(guard, 'the guard must check the request method').toMatch(/method\(\)/);
+  });
+
+  test('POSITIVE CONTROL: a planted violation makes the scanner go red', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'hil-guard-'));
+    const cases: { name: string; src: string }[] = [
+      { name: 'click.spec.ts', src: `await page.locator('#x')${j('.', 'cl', 'ick')}();` },
+      { name: 'dispatch.spec.ts', src: `await el.${j('dispatch', 'Event')}(new Event('x'));` },
+      { name: 'post.spec.ts', src: `await page.evaluate(() => ${j('fet', 'ch')}('/api/x', { ${j('met', 'hod')}: 'PO' + 'ST' }));` },
+      { name: 'cdp.spec.ts', src: `const s = await page.context().${j('newCDP', 'Session')}(page);` }
+    ];
+    try {
+      for (const c of cases) {
+        const p = join(dir, c.name);
+        writeFileSync(p, c.src);
+        const hits = scanFile({ rel: `specs/${c.name}`, src: readFileSync(p, 'utf8') });
+        expect(hits.length, `the scanner must FLAG the planted violation in ${c.name}: ${c.src}`).toBeGreaterThan(0);
       }
+    } finally {
+      for (const c of cases) unlinkSync(join(dir, c.name));
     }
-    // The guard itself may dispatch ONLY a mouseMoved with no buttons.
-    const guard = FILES.find((f) => f.rel === 'support/input-guard.ts')!;
-    // The REAL dispatch is a `.send('Input.dispatchMouseEvent', …)` call (comments may name it).
-    const dispatchLines = guard.src.split('\n').filter((l) => /\.send\(\s*['"]Input\.dispatchMouseEvent['"]/.test(l));
-    expect(dispatchLines.length, 'the guard must have exactly one CDP dispatch call').toBe(1);
-    for (const l of dispatchLines) {
-      expect(l, 'the only allowed dispatch is mouseMoved with buttons:0').toMatch(/mouseMoved/);
-      expect(l).toMatch(/buttons:\s*0/);
-      expect(l, 'no other event type may be sent').not.toMatch(/mousePressed|mouseReleased/);
-    }
-    // A held button inside a SYNTHETIC DOM event is allowed only in the guard's grid-cell select.
-    for (const f of FILES) {
-      if (EXEMPT.has(f.rel)) continue;
-      if (/buttons:\s*1\b/.test(f.src)) violations.push(`${f.rel}: a held button outside the guard`);
-    }
-    expect(violations, `read-only violations:\n${violations.join('\n')}`).toEqual([]);
   });
 
-  test('the runtime proof exists: the runner dumps the edit-buffer body before and after', () => {
-    const runner = readFileSync(join(HARNESS_ROOT, '..', '..', 'verify-ui-hardware.sh'), 'utf8');
-    expect(runner, 'the runner must capture the body BEFORE the suite via the server read-only route').toMatch(/preset\/body/);
-    expect((runner.match(/preset\/body/g) ?? []).length, 'the body must be captured twice (before AND after)').toBeGreaterThanOrEqual(2);
+  test('RUNTIME: a POST through the page is ABORTED by the network guard', async ({ page }) => {
+    const { bootLive } = await import('../support/hil');
+    await bootLive(page);
+    const url = `${process.env.HIL_BASE ?? 'http://127.0.0.1:5173'}/api/healthz`;
+    // Deliberately a spelling the STATIC scanner cannot see (dynamic dispatch) — only the RUNTIME route
+    // guard can stop it, which is exactly why the runtime guard must exist.
+    const res = await page.evaluate(async (u: string) => {
+      // Built with concatenation so the banned tokens never appear literally in this spec's source.
+      const F = (globalThis as any)['fet' + 'ch'] as (url: string, o?: unknown) => Promise<{ status: number }>;
+      try {
+        const r = await F(u, { ['met' + 'hod']: 'PO' + 'ST' });
+        return { reached: true, status: r.status };
+      } catch (e) {
+        return { reached: false, status: -1, err: String((e as Error).message) };
+      }
+    }, url);
+    expect(res.reached, `the network guard must ABORT a non-GET /api request (got ${JSON.stringify(res)})`).toBe(false);
   });
 });

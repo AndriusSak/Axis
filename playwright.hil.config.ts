@@ -33,7 +33,9 @@ export default defineConfig({
   testDir: './e2e-hil/specs',
   fullyParallel: false,
   workers: 1,
-  forbidOnly: !!process.env.CI,
+  // ALWAYS forbid `test.only`: a stray `.only` would run ONE spec, record nothing, and (before the
+  // report was made fail-closed) print GREEN and exit 0. Never condition this on CI.
+  forbidOnly: true,
   retries: 0,
   reporter: [['list']],
   timeout: 60_000,
