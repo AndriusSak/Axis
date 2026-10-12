@@ -146,7 +146,41 @@ Each item names its blocker and what closing it would require.
     selector value is ignored across 1..15. The long `0x2e` (byte 7 = 0) does not contain that run. Cross-check
     that holds: `0x2e[sel=1]`'s `02`-trailer eids are **exactly** the 16 eids whose zeroed-tail `0x1b` record is
     the default/hole record — the eid space's holes are visible from two sub-actions.
-  - ⇒ **The "21 bits" framing is dead.** Tasks 2-4 of the handover remain open.
+  - ⇒ **The "21 bits" framing is dead.**
+
+  **ROUND 14, tasks 2-4 — mostly CLOSED by an offline wave + one VERIFIED hardware run (`deleg_26247cbd`,
+  four read-only children; the parent session re-measured every claim before anything landed).**
+
+  - **Task 3 (`0x03` byte 5) is ANSWERED and it corrects ROUND 12.** `0x5e`'s byte 5 is a **free-running
+    counter at ≈93.8 units/s, mod 128**, sampled when the reply is built — **NOT "+6 per READ"**. Verified on
+    the unit by the parent: tap `03-cadence-5e.tap`, log `review-2026-10-12/probe-03-cadence.out`, tool
+    `scripts/probe-03-cadence.ts`. With **zero frames on the bus** for 20 s / 30 s the field moved **+85** and
+    **+1** (clock predicts 86/2, counter 6/6); 19 reads across 351 ms moved **+33** (clock 33, counter 114);
+    and in the same 20 s eid `0x3a` moved **0**, so it is not a global clock leaking into every reply. Six
+    units is simply 64 ms at 93.8/s — the old arm's fixed cadence. The "cannot separate a bypass-induced step
+    from drift" verdict is now *explained* rather than merely cautious; **nothing about the bypass flag
+    changes**.
+  - **Task 4 (`0x2e`'s ladder) is PARTLY answered: the region was never anonymous.** It IS `SUB_LAYOUT_MAP`
+    (`forgefx-midi/src/devices/gen3/simResponders.ts`) and the repo's own `parseFm3GridLayout` decodes its
+    TAIL to 13 cells whose effectIds are exactly the 13 placed eids (`SET-EQUAL=true`). All 20 one-hot ladders
+    sit in the 8-byte-periodic HEAD, which stays unexplained. Three further hypotheses died offline (ladders
+    are grid fields — no, they precede the grid region; record count = family count — no, 44 vs 46/47/40/48;
+    a family record indexes its params — impossible in 8 B against GLOBAL's 173). **The one falsifiable test
+    left is `H_head`** (move one block / toggle it, count how many of the ~44 head records change, with the
+    no-write drift control) — **not yet run**.
+  - **Task 2 (the content bytes) is SPECIFIED but not run.** The symmetry test is now mechanical: sweep
+    `at1 = 0x00..0x3f` with `at3` fixed non-zero for two different `at3` values, and look for a translation of
+    the `at3` map at fixed eid — "translates" iff some shift gives `mismatch = 0` with `overlap >= 32`,
+    "unrelated" iff the best ratio is ≥ 0.5 (chance ≈ 0.86). No existing tap contains that arm (0 addresses
+    have `at3 != 0` with `at1` varying), so it needs one read-only run; the stability half needs an anchor set
+    read 5× per stage across a scene change with a no-write drift control. Also confirmed: at4=1 gives **5**
+    distinct 9-byte tokens (the old "4" counted only the first three bytes), splitting on the `02`/`03`
+    trailer.
+  - **Independent re-derivation agrees** with task 1's core numbers (64 differing exchanges, byte-identical
+    TX sequences, the 49-eid move set, 9 content bytes, the hole set) — its two flagged "disagreements" were
+    definitional (a different predicate: "differs from the modal" vs "is the hole record"), not conflicts.
+
+  **Remaining work: task 2's read-only run, `H_head`, and a standing hole-record read.** All read-only.
 
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
