@@ -57,6 +57,17 @@ mkdirSync(runDir, { recursive: true });
 
 // ── stub mode: mark the report UNPROVEN at the START of a run ──
 if (stub) {
+  // ARCHIVE BEFORE STUBBING (fixed 2026-10-13). The final pass diffs against ui-verification.prev.json,
+  // and this stub is about to OVERWRITE the previous run's report in place — so the archive has to happen
+  // here or the baseline is gone forever. It did not, and the final pass then re-archived the stub itself
+  // as the baseline: every run reported EVERY assertion as "(new)" against its own stub, and the layer-4
+  // "drift vs the previous run" claim silently did nothing. Only a REAL report is archived, so a crashed
+  // run (which leaves a stub) cannot poison the next baseline.
+  const prevPath = join(reviewDir, 'ui-verification.json');
+  const prevReport = readJson(prevPath);
+  if (prevReport && Array.isArray(prevReport.features) && prevReport.features.length > 0) {
+    copyFileSync(prevPath, join(reviewDir, 'ui-verification.prev.json'));
+  }
   const s = {
     runAt, baseUrl, device: null, verdict: 'UNPROVEN', totals: { pass: 0, fail: 0, pending: 0, info: 0, warn: 0, weak: 0 },
     features: [], failClosed: ['run started — no verdict yet'], readOnly: { claim: 'net device state unchanged', result: 'unproven' }
@@ -147,11 +158,11 @@ const report = {
 
 const jsonPath = join(reviewDir, 'ui-verification.json');
 const prevCopy = join(reviewDir, 'ui-verification.prev.json');
-let baseline = null;
-if (existsSync(jsonPath)) {
-  baseline = readJson(jsonPath);
-  copyFileSync(jsonPath, prevCopy);
-}
+// The baseline is the ARCHIVED previous report, put there by the stub pass that runs first (see above).
+// Reading it back from `jsonPath` is precisely the bug that made every run diff against its own stub, and
+// re-archiving here would overwrite the real baseline with the run being reported. Fall back to `jsonPath`
+// only when there is no archive at all (a first-ever run in this review dir) — that is then the baseline.
+let baseline = readJson(prevCopy) ?? readJson(jsonPath);
 writeFileSync(jsonPath, JSON.stringify(report, null, 2));
 writeFileSync(join(runDir, 'ui-verification.json'), JSON.stringify(report, null, 2));
 
