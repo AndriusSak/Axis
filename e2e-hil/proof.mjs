@@ -42,6 +42,16 @@ const STRICT = [
   '/api/preset/switches',
   '/api/preset/locations'
 ];
+// Endpoints that are NOT SERVED ON THIS UNIT, with the reason. They live in STRICT because that is
+// where they belong semantically, but a permanently unavailable endpoint can never be evidence of
+// "unchanged": before this list existed the proof was either VACUOUSLY OK (status ignored) or
+// permanently UNPROVEN, and a permanent red trains a reader to ignore it. The members are NAMED and
+// the reason is stated, and a status that CHANGES still fails — so the exception cannot hide a write.
+// A NEW unavailable endpoint (not listed here) still makes the run UNPROVEN.
+const KNOWN_UNAVAILABLE = {
+  '/api/preset/blocks/199/raw': 'not served on this unit (503 in both snapshots, round 18/19)',
+  '/api/preset/locations': 'not implemented (501 in both snapshots)'
+};
 // Evidence-only: recorded for provenance, NOT equality-checked. `/device` and friends run the live
 // detect → applyRuntimeCache path, so the harness's OWN readiness gate can swap the served profile —
 // a self-inflicted hazard that must not masquerade as a write.
@@ -88,7 +98,12 @@ async function finalize(beforePath, afterPath, out) {
   // BOTH snapshots, so the old status-blind canon() called it 'unchanged' and the proof printed
   // ok:true on an endpoint that served NO DATA. Same for any 5xx/501/0 (fetch threw) twice.
   const statusOf = (snap, ep) => snap.snaps?.[ep]?.status ?? 0;
-  const failedStatus = (st) => st === 0 || st >= 400; // 0 = fetch threw / no response
+  // A status is evidence of a SUCCESSFUL read only in the 2xx band. 0 = fetch threw / no response,
+  // and a 3xx is a redirect we did not follow — neither is the endpoint answering the question we
+  // asked, so neither may be counted as "unchanged" (round-19 review: `st === 0 || st >= 400` let a
+  // 3xx through as a proven-unchanged endpoint).
+  const okStatus = (st) => st >= 200 && st < 300;
+  const failedStatus = (st) => !okStatus(st);
   const canon = (snap, ep) => {
     const s = snap.snaps?.[ep];
     return JSON.stringify({ status: s?.status ?? 0, body: s?.json ?? s?.text ?? null });
@@ -96,14 +111,18 @@ async function finalize(beforePath, afterPath, out) {
 
   // Three explicit buckets. `ok` is true ONLY when nothing changed AND nothing failed/unproven,
   // so an endpoint that produced no data can never be counted as evidence of "unchanged".
-  const provenUnchanged = []; // 200 (2xx) on BOTH sides with an identical status+payload
-  const failed = [];          // status 0 or >=400 on EITHER side -> cannot prove unchanged
+  const provenUnchanged = []; // 2xx on BOTH sides with an identical status+payload
+  const failed = [];          // unavailable on EITHER side and NOT a named known-unavailable -> UNPROVEN
+  const unchangedUnavailable = []; // named known-unavailable, SAME status on both sides -> listed, not fatal
   const changed = [];         // status or payload moved -> VIOLATION
   for (const ep of STRICT) {
     const sb = statusOf(before, ep);
     const sa = statusOf(after, ep);
     if (failedStatus(sb) || failedStatus(sa)) {
-      failed.push({ endpoint: ep, before: sb, after: sa });
+      // A named known-unavailable endpoint is only excusable while its status is STABLE: a change is
+      // a change, and is reported as one.
+      if (KNOWN_UNAVAILABLE[ep] && sb === sa) unchangedUnavailable.push({ endpoint: ep, status: sb, reason: KNOWN_UNAVAILABLE[ep] });
+      else failed.push({ endpoint: ep, before: sb, after: sa, knownUnavailable: KNOWN_UNAVAILABLE[ep] ?? null });
     } else if (canon(before, ep) !== canon(after, ep)) {
       changed.push(ep);
     } else {
@@ -139,6 +158,7 @@ async function finalize(beforePath, afterPath, out) {
     bodyByteIdentical: bodyOk,
     provenUnchangedEndpoints: provenUnchanged,
     failedOrUnprovenEndpoints: failed,
+    knownUnavailableEndpoints: unchangedUnavailable, // named + reasoned; a status change still fails
     changedEndpoints: changed,
     differingEndpoints: changed, // kept: backward-compatible name for the VIOLATION list
     checkedEndpoints: STRICT,
@@ -153,7 +173,12 @@ async function finalize(beforePath, afterPath, out) {
     }
   };
   writeFileSync(out, JSON.stringify(proof, null, 2));
-  console.log(`proof: ${ok ? 'OK — net device state unchanged' : changed.length ? 'VIOLATION' : 'UNPROVEN'} (body ${hash(hb)?.slice(0, 12)}); changed: ${changed.join(', ') || 'none'}; failed/unproven: ${failed.map((f) => `${f.endpoint}[${f.before}/${f.after}]`).join(', ') || 'none'}`);
+  console.log(
+    `proof: ${ok ? 'OK — net device state unchanged' : changed.length ? 'VIOLATION' : 'UNPROVEN'} (body ${hash(hb)?.slice(0, 12)}); ` +
+      `changed: ${changed.join(', ') || 'none'}; ` +
+      `failed/unproven: ${failed.map((f) => `${f.endpoint}[${f.before}/${f.after}]`).join(', ') || 'none'}; ` +
+      `not served on this unit (disclosed, not evidence): ${unchangedUnavailable.map((u) => `${u.endpoint}[${u.status}]`).join(', ') || 'none'}`
+  );
   process.exit(ok ? 0 : 1);
 }
 
