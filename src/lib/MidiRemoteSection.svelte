@@ -8,12 +8,18 @@
   import { fmtValue } from './format';
   import { buildMidiRemoteRows, MIDI_REMOTE_GAPS } from './midiRemote';
   import { buildControlSwitchRows, CONTROL_SWITCH_GAPS } from './controlSwitch';
+  // FC Config — the served FC-device startup/mirror params (GLOBAL 3602-3604 / 3606-3608). Their only
+  // layout refs live in the FC family "Devices" page, so the GLOBAL board never drew them here; this
+  // group surfaces them from the served params (fcConfig.ts holds the verified ground truth).
+  import { buildFcConfigRows, FC_CONFIG_GAPS } from './fcConfig';
   import type { NamedParam, EnumParam } from './types';
 
   const rows = $derived(buildMidiRemoteRows(editor.params, editor.enums));
   // Control Switches (CS) group — served GLOBAL CS params that the FM3 editor layouts do NOT reference
   // (see controlSwitch.ts for the verified ground truth), so nothing else draws them on the Setup screen.
   const csRows = $derived(buildControlSwitchRows(editor.params, editor.enums));
+  // FC Config group — served GLOBAL FC-device startup + mirror params (see fcConfig.ts).
+  const fcRows = $derived(buildFcConfigRows(editor.params, editor.enums));
   const setKnob = (p: NamedParam, n: number) => editor.setParam(p, n);
   const setSel = (e: EnumParam, v: number) => editor.setEnum(e, v);
   // A served GLOBAL param the device could not resolve (server `unresolved` marker, or no position)
@@ -105,6 +111,62 @@
   {#if CONTROL_SWITCH_GAPS.length}
     <div class="gaps">
       {#each CONTROL_SWITCH_GAPS as g (g.label)}
+        <div class="gated wide" title={`${g.addressing} — ${g.reason}`}>
+          <span class="gl">{g.label}</span>
+          <span class="gw">not possible — {g.reason}</span>
+        </div>
+      {/each}
+    </div>
+  {/if}
+
+  <div class="subhead">FC Config</div>
+  <div class="grid">
+    {#each fcRows as r (r.spec.id)}
+      {#if r.status === 'select'}
+        <!-- The served `name` for these rows is a row/column index ("1 1"), NOT a name — use the
+             spec's device-true label, with the raw param name + pid kept in the tooltip. -->
+        <div class="ctl">
+          <Dropdown
+            label={r.spec.label}
+            value={r.enumParam.value}
+            options={r.enumParam.options}
+            onChange={(v) => setSel(r.enumParam, v)}
+          />
+          {#if r.ordinalOnly}
+            <span class="hint" title={`${r.spec.name} (pid ${r.spec.id})`}>
+              no option labels served — ordinal {eUnknown(r.enumParam) ? '—' : r.enumParam.value}
+            </span>
+          {:else}
+            <span class="hint" title={`${r.spec.name} (pid ${r.spec.id})`}>{r.spec.name}</span>
+          {/if}
+        </div>
+      {:else if r.status === 'knob'}
+        {#if pUnknown(r.param)}
+          <div class="gated" title={`${r.spec.label} — value unavailable: ${r.param.unresolved ?? 'the device did not resolve it'}`}>
+            <span class="gl">{r.spec.label}</span>
+            <span class="gw">value unavailable — {r.param.unresolved ?? 'the device did not resolve it'}</span>
+          </div>
+        {:else}
+          <Knob
+            value={r.param.norm!}
+            label={r.spec.label}
+            valueText={fmtValue(r.param)}
+            onInput={(v) => setKnob(r.param, v)}
+            onReset={() => setKnob(r.param, 0)}
+          />
+        {/if}
+      {:else}
+        <div class="gated" title={`${r.spec.label} (${r.spec.name}) — not served: ${r.reason}`}>
+          <span class="gl">{r.spec.label}</span>
+          <span class="gw">not served on this device — {r.reason}</span>
+        </div>
+      {/if}
+    {/each}
+  </div>
+
+  {#if FC_CONFIG_GAPS.length}
+    <div class="gaps">
+      {#each FC_CONFIG_GAPS as g (g.label)}
         <div class="gated wide" title={`${g.addressing} — ${g.reason}`}>
           <span class="gl">{g.label}</span>
           <span class="gw">not possible — {g.reason}</span>

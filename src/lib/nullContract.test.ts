@@ -131,10 +131,11 @@ describe('ControlSurface — an unresolved control renders inert, not a knob at 
 
 describe('Setup MIDI/Remote — an unresolved GLOBAL knob is inert, not a knob at 0', () => {
   const src = read('./MidiRemoteSection.svelte');
-  it('guards both knob branches with pUnknown (server marker / missing norm) and never passes `norm ?? 0`', () => {
+  it('guards every knob branch with pUnknown (server marker / missing norm) and never passes `norm ?? 0`', () => {
     expect(src).toMatch(/const pUnknown = \(p: NamedParam\) => p\.unresolved != null \|\| p\.norm == null/);
     expect(src).toMatch(/const eUnknown = \(e: EnumParam\) => e\.unresolved != null \|\| e\.value == null/);
-    expect((src.match(/pUnknown\(r\.param\)/g) ?? []).length).toBe(2);
+    // three knob branches now: the MIDI grid, the Control Switches group, and the FC Config group.
+    expect((src.match(/pUnknown\(r\.param\)/g) ?? []).length).toBe(3);
     expect(src).not.toMatch(/value=\{r\.param\.norm \?\? 0\}/);
   });
 });
