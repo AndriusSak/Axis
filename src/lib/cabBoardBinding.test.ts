@@ -1,8 +1,18 @@
 // Regression guard for the owner's 2026-10-12 Cab-block reports, pinned to a LIVE capture of the Cab
-// block — preset 410 "USA Mk IV" (the preset name lives in `preset.name`; the fixture's `type.name`
-// `1x8 PRINCETONE` is the CABINET MODEL of Cab slot 1, NOT the preset name), FM3 fw 13.0 — taken from a
+// block — preset 410 "USA Mk IV" (the preset name lives in `preset.name`), FM3 fw 13.0 — taken from a
 // running ForgeFX (`GET /preset/blocks/62/params` → `cabBoard.fixture.json`, 37 params + 23 enums + the
 // 4-page editor layout).
+//
+// CORRECTION (measured 2026-10-13, ForgeFX round): the fixture's `type.name` `1x8 PRINCETONE` is NOT the
+// cab model. The server decoded the family's layout-variant selector — for CABINET that is CABINET_MODE
+// (pid 31), the Legacy/DynaCab PAGE flag — and indexed the 45-entry cab-model roster with it, so EVERY
+// cab read `roster[1] = '1x8 PRINCETONE'` whatever it held (four cab channels whose CABINET_TYPE1 read
+// 27/31/38/42 all served that same name, while the unit's own screen showed the model the owner had
+// written). ForgeFX now publishes the model of the LIVE page (`CABINET_DYNACAB_TYPE1` on the DynaCab page,
+// `CABINET_TYPE1` on the Legacy page); the capture below therefore predates the fix and is kept as the
+// RECORD of it, not as a description of what the server serves today. It is deliberately NOT re-captured:
+// that needs the unit switched to preset 410, which would discard the un-stored edit buffer holding the
+// owner's in-progress preset 415.
 //
 // TWO KINDS OF ASSERTION, kept apart on purpose:
 //   • BINDING tests (the first describe) — they run the REAL builder over the served payload, so a
@@ -114,11 +124,26 @@ describe('provenance — the fixture is a live capture; these constants are not 
     expect(mic?.options.map((o) => o.label)).toEqual(['Condenser', 'Ribbon', 'Dynamic 1', 'Dynamic 2']);
   });
 
-  it('the fixture names the preset in `preset`, and the cab models in `type`', () => {
+  it('the fixture names the preset in `preset`, and records the server\'s old `type` decode verbatim', () => {
     expect(F.preset).toEqual({ id: 410, name: 'USA Mk IV' });
-    // `type` is the CABINET MODEL of cab slot 1 — NOT the preset name (the two used to be conflated).
+    // NOT a claim that this is the cab model (see the CORRECTION at the top of this file): this is the
+    // value the server USED to serve for `type`, i.e. the CABINET_MODE page flag (1 = DynaCab) rendered
+    // through the cab-model roster. The assertion pins the capture so a silent edit to the fixture shows
+    // up; whether that decode is right is a SERVER question, answered by ForgeFX's
+    // drivers/cab-model-vs-page suite against the real driver — not by this file, which cannot move when
+    // the server does.
     expect(F.type.name).toBe('1x8 PRINCETONE');
+    expect(F.type.value).toBe(1); // the mode, not a model ordinal (a cab model ordinal here would be 0..44)
     expect(F.type.name).not.toBe(F.preset.name);
+  });
+
+  it('the board draws the LAYOUT it was given, so the served model name cannot leak into the cab page', () => {
+    // The board consumes `layout` + the served params/enums — not `payload.type`. That is why the wrong
+    // `type.name` above never showed up on the Cab page itself: its only Axis consumer is the block-tile
+    // label (`editor.svelte.ts` typeNameFor ← meters[].typeName, drawn by SignalGrid). Pinned here so a
+    // future binding change that starts reading `type` for the board has to face this case.
+    expect(widgets().length).toBeGreaterThan(0); // the board bound something — the guard below is not vacuous
+    expect(JSON.stringify(widgets())).not.toContain('PRINCETONE');
   });
 });
 
