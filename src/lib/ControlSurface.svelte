@@ -1541,7 +1541,18 @@
       {/if}
 
       {#each viewHeaders as h (h.id)}
-        <div class="grouphead" style:grid-column="{h.x + 1} / span {h.w}" style:grid-row="{h.y + 1} / span {h.h}">{h.text}</div>
+        <!-- The device's own group label ("CAB 1"). It must never be SILENTLY clipped: a narrow band
+             truncates the visible text with an ellipsis (see .grouphead .gheadtxt) while the FULL text
+             stays available in title + aria-label. (The 2026-10-07 fit-to-view cell shrink is NOT
+             reintroduced — it dropped dials to ~30px on tall boards; the board fills the width and
+             scrolls.) -->
+        <div
+          class="grouphead"
+          style:grid-column="{h.x + 1} / span {h.w}"
+          style:grid-row="{h.y + 1} / span {h.h}"
+          title={h.text}
+          aria-label={h.text}
+        ><span class="gheadtxt">{h.text}</span></div>
       {/each}
 
       {#each viewWidgets as w (w.id)}
@@ -2204,13 +2215,22 @@
     padding: 0 2px;
     overflow: hidden;
     pointer-events: none;
-    white-space: nowrap;
-    text-overflow: ellipsis;
     font: 700 10px/1 var(--font-mono);
     letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--textdim);
     border-bottom: 1px solid var(--border);
+  }
+  /* `text-overflow: ellipsis` on a FLEX container does NOT ellipsize: the text becomes an anonymous
+     flex item that cannot shrink, so the label CLIPS with no marker (the owner's "it just cuts off").
+     The text therefore lives in one span that can both shrink (min-width:0) and ellipsize, while the
+     container's `overflow:hidden` keeps anything from escaping the band. The full string is never
+     lost — the render site puts it in title + aria-label. */
+  .grouphead .gheadtxt {
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
   }
   .ghost {
     border-radius: 11px;
