@@ -1543,7 +1543,9 @@
       {#each viewHeaders as h (h.id)}
         <!-- The device's own group label ("CAB 1"). It must never be SILENTLY clipped: a narrow band
              truncates the visible text with an ellipsis (see .grouphead .gheadtxt) while the FULL text
-             stays available in title + aria-label. (The 2026-10-07 fit-to-view cell shrink is NOT
+             stays available in title + aria-label, and the text itself is hit-testable in use mode so
+             the tooltip can actually fire (see .gheadtxt.hittable below — attributes nobody can hover
+             are not an affordance). (The 2026-10-07 fit-to-view cell shrink is NOT
              reintroduced — it dropped dials to ~30px on tall boards; the board fills the width and
              scrolls.) -->
         <div
@@ -1552,7 +1554,7 @@
           style:grid-row="{h.y + 1} / span {h.h}"
           title={h.text}
           aria-label={h.text}
-        ><span class="gheadtxt">{h.text}</span></div>
+        ><span class="gheadtxt" class:hittable={!editMode} title={h.text}>{h.text}</span></div>
       {/each}
 
       {#each viewWidgets as w (w.id)}
@@ -2231,6 +2233,17 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* The container above stays `pointer-events: none` so the band never swallows the drag surface. But
+     that ALSO made the full label unreachable by mouse: a native `title` tooltip only fires on a
+     hit-testable element, so the ellipsized label's tooltip could never appear (the render site
+     carried the attributes, the e2e only checked they existed, and nobody could hover them).
+     So the TEXT alone is hit-testable — the dead zone is the glyph run, not the whole band — and only
+     in USE mode: in arrange mode the head goes inert again, because that is the surface you drag on
+     (`onWidgetDown` starts a move only when `editMode`). `cursor: help` marks the affordance. */
+  .grouphead .gheadtxt.hittable {
+    pointer-events: auto;
+    cursor: help;
   }
   .ghost {
     border-radius: 11px;

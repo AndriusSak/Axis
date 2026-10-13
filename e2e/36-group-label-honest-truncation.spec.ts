@@ -157,4 +157,49 @@ test.describe('device group label — honest truncation, never a silent clip', (
     expect(m.title).toBe(m.text);
     expect(m.ariaLabel).toBe(m.text);
   });
+
+  test('a label a mouse can reach in USE mode, and inert in ARRANGE mode', async ({ page }) => {
+    // CARRYING the attributes is not the same as them ever firing. A native `title` tooltip only appears
+    // on a HIT-TESTABLE element, and `.grouphead` carries `pointer-events: none` so the band cannot
+    // swallow the drag surface — which silently made the full label unreachable by mouse. The honesty
+    // contract is therefore about reachability, and `document.elementFromPoint` is exactly what the
+    // browser itself uses to decide whether a mouse event lands on the element at all.
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await bootWithRealCab(page);
+
+    const probe = async () =>
+      page.evaluate(() => {
+        const txt = document.querySelector('.grouphead .gheadtxt') as HTMLElement | null;
+        if (!txt) return { present: false, isSpan: false, hit: '<no .gheadtxt>' };
+        txt.scrollIntoView({ block: 'center' });
+        const r = txt.getBoundingClientRect();
+        const x = Math.round(r.left + Math.min(8, r.width / 2));
+        const y = Math.round(r.top + r.height / 2);
+        const hit = document.elementFromPoint(x, y) as HTMLElement | null;
+        return {
+          present: true,
+          // The label's own glyphs must be the hit target (the ancestor `title` then fires); the
+          // BAND must stay inert, which is why this tests the span and not `.grouphead`.
+          isSpan: !!hit && (hit === txt || txt.contains(hit)),
+          hit: hit ? `${hit.tagName}.${hit.className}` : 'null',
+          pointerEvents: getComputedStyle(txt).pointerEvents
+        };
+      });
+
+    const use = await probe();
+    expect(
+      use.isSpan,
+      `in USE mode the label must be hit-testable or its tooltip can never fire (hit=${use.hit}, pointer-events=${use.pointerEvents})`
+    ).toBe(true);
+
+    await page.locator('.arrange').click();
+    const arrange = await probe();
+    if (arrange.present) {
+      expect(
+        arrange.isSpan,
+        'in ARRANGE mode the label must go inert, so a drag that starts on the band still reaches the board'
+      ).toBe(false);
+    }
+    await page.locator('.arrange').click(); // back to use mode
+  });
 });
