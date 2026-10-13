@@ -83,27 +83,64 @@ async function finalize(beforePath, afterPath, out) {
   }
   const before = JSON.parse(readFileSync(beforePath, 'utf8'));
   const after = JSON.parse(readFileSync(afterPath, 'utf8'));
-  const canon = (snap, ep) => JSON.stringify(snap.snaps[ep]?.json ?? snap.snaps[ep]?.text ?? null);
-  const diffs = [];
+  // canon() folds the HTTP STATUS in with the payload. The payload alone cannot tell a repeated
+  // FAILURE apart from "unchanged": on 2026-10-13 `/api/preset/blocks/199/raw` answered 503 in
+  // BOTH snapshots, so the old status-blind canon() called it 'unchanged' and the proof printed
+  // ok:true on an endpoint that served NO DATA. Same for any 5xx/501/0 (fetch threw) twice.
+  const statusOf = (snap, ep) => snap.snaps?.[ep]?.status ?? 0;
+  const failedStatus = (st) => st === 0 || st >= 400; // 0 = fetch threw / no response
+  const canon = (snap, ep) => {
+    const s = snap.snaps?.[ep];
+    return JSON.stringify({ status: s?.status ?? 0, body: s?.json ?? s?.text ?? null });
+  };
+
+  // Three explicit buckets. `ok` is true ONLY when nothing changed AND nothing failed/unproven,
+  // so an endpoint that produced no data can never be counted as evidence of "unchanged".
+  const provenUnchanged = []; // 200 (2xx) on BOTH sides with an identical status+payload
+  const failed = [];          // status 0 or >=400 on EITHER side -> cannot prove unchanged
+  const changed = [];         // status or payload moved -> VIOLATION
   for (const ep of STRICT) {
-    if (canon(before, ep) !== canon(after, ep)) diffs.push(ep);
+    const sb = statusOf(before, ep);
+    const sa = statusOf(after, ep);
+    if (failedStatus(sb) || failedStatus(sa)) {
+      failed.push({ endpoint: ep, before: sb, after: sa });
+    } else if (canon(before, ep) !== canon(after, ep)) {
+      changed.push(ep);
+    } else {
+      provenUnchanged.push(ep);
+    }
   }
+
   const hb = bodyHex(before.snaps);
   const ha = bodyHex(after.snaps);
   const hash = (h) => (h ? createHash('sha256').update(h).digest('hex') : null);
   const bodyOk = hb != null && ha != null && hb === ha;
-  if (hb == null || ha == null) diffs.push('/api/preset/body (unavailable)');
+  // A 2xx with no hex is not independently checkable either — an endpoint that produced no
+  // payload must not count as 'unchanged' evidence.
+  if ((hb == null || ha == null) && !failed.some((f) => f.endpoint === '/api/preset/body')) {
+    failed.push({ endpoint: '/api/preset/body', before: statusOf(before, '/api/preset/body'), after: statusOf(after, '/api/preset/body'), note: 'hex unavailable' });
+  }
+
+  const ok = changed.length === 0 && failed.length === 0;
+  const readOnly = ok
+    ? 'net device state unchanged'
+    : changed.length
+      ? `VIOLATION: ${changed.join(', ')}`
+      : `UNPROVEN: ${failed.map((f) => f.endpoint).join(', ')}`;
 
   const cache = after.snaps['/api/device/cache']?.json;
   const device = after.snaps['/api/device']?.json;
   const preset = after.snaps['/api/preset']?.json;
   const proof = {
-    ok: diffs.length === 0,
-    readOnly: diffs.length === 0 ? 'net device state unchanged' : `VIOLATION: ${diffs.join(', ')}`,
+    ok,
+    readOnly,
     bodyHashBefore: hash(hb),
     bodyHashAfter: hash(ha),
     bodyByteIdentical: bodyOk,
-    differingEndpoints: diffs,
+    provenUnchangedEndpoints: provenUnchanged,
+    failedOrUnprovenEndpoints: failed,
+    changedEndpoints: changed,
+    differingEndpoints: changed, // kept: backward-compatible name for the VIOLATION list
     checkedEndpoints: STRICT,
     evidenceOnlyEndpoints: EVIDENCE,
     at: new Date().toISOString(),
@@ -116,8 +153,8 @@ async function finalize(beforePath, afterPath, out) {
     }
   };
   writeFileSync(out, JSON.stringify(proof, null, 2));
-  console.log(`proof: ${proof.ok ? 'OK — net device state unchanged' : 'VIOLATION'} (body ${hash(hb)?.slice(0, 12)}); differing: ${diffs.join(', ') || 'none'}`);
-  process.exit(proof.ok ? 0 : 1);
+  console.log(`proof: ${ok ? 'OK — net device state unchanged' : changed.length ? 'VIOLATION' : 'UNPROVEN'} (body ${hash(hb)?.slice(0, 12)}); changed: ${changed.join(', ') || 'none'}; failed/unproven: ${failed.map((f) => `${f.endpoint}[${f.before}/${f.after}]`).join(', ') || 'none'}`);
+  process.exit(ok ? 0 : 1);
 }
 
 const cmd = argv[0];
