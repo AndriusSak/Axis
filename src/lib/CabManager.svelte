@@ -251,7 +251,25 @@
   function setOpt<K extends keyof ImportOptions>(k: K, v: ImportOptions[K]) {
     importOpts = { ...importOpts, [k]: v };
     ackUnvalidated = false;
-    stage();
+    // A NAME is content in the container (the close frame is a content XOR), so a rename must still rebuild
+    // the bytes — but ONLY through the codec's cheap parse+rebuild. Restaging on every keystroke ran the whole
+    // WAV → mono → resample → min-phase → container pipeline on the main thread, which a long 96 kHz file
+    // turns into a frozen UI. Options that change the SAMPLES still restage in full.
+    if (k === 'name') relabel();
+    else stage();
+  }
+
+  /** Re-label the already-staged container without re-converting it. Falls back to a full stage when there is
+   *  nothing staged yet (a fresh name still has to be built into a container). */
+  function relabel() {
+    stagedName = importOpts.name;
+    if (!staged || staged.kind === 'error') { stage(importOpts.name); return; }
+    const name = importOpts.name || staged.filename;
+    try {
+      staged = { ...staged, name, container: rewriteName(staged.container, name) };
+    } catch (e) {
+      say(false, `Could not rename the staged container: ${(e as Error).message}`);
+    }
   }
   const destState = $derived(destStateOf(slotMap.get(Number(importDest))));
   const canUpload = $derived(
