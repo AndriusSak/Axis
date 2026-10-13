@@ -190,3 +190,34 @@ export function evidenceNote(page: PerPresetSwitches | null | undefined): string
     : `the HOLD was exercised on ${ppIndexList(h)}`;
   return `Confirmed against real dumps: ${codePart}, ${targetPart}. ${holdPart} — every other row's HOLD reads Unassigned by the same convention the TAP side uses for an unassigned row, which is a convention and not an observation. Every other row shows only what was observed: rows with no observed offset read as “${UNREAD}”.`;
 }
+
+/**
+ * WHICH LAYOUT PUTS THESE SWITCHES UNDER THE PLAYER'S FEET — the sentence this panel was missing.
+ *
+ * MEASURED 2026-10-13 (owner checked it against the unit's own screen): the switches a per-preset row defines
+ * are displayed ONLY while the unit is showing a layout that assigns its switches to Per-Preset. On this FM3's
+ * factory layouts exactly one does — the one the unit's UI calls **Layout 6** and this app's API addresses as
+ * index **5** (the API is 0-based, the unit's UI 1-based; `FcEditor` already labels them 1-based). On that
+ * layout the owner read `Filter 4` / `FB Rtn 2` / `Chorus 1`, matching our decoded PP#1/#2/#3 IN ORDER, so the
+ * decode below is confirmed against the instrument.
+ *
+ * The failure this prevents is the one that WROTE this rule: the owner reported "the unit shows Amp 1 /
+ * USA Mk IV / USA Mk IV" while this panel showed Effect-bypass rows, and the difference was not a decode bug
+ * at all — the unit was on a different layout, and this panel does not know which. **Nothing in this app can
+ * read the unit's current layout or view**, so the panel must never imply that the rows below are what is
+ * currently on screen. It says what they ARE (the preset's definitions), which layout would display them, and
+ * which tool CAN show a layout's own switches (the FC editor, which reads the unit per layout).
+ */
+export const PP_DISPLAY_LAYOUT_UNIT_LABEL = 'Layout 6';
+export const PP_DISPLAY_LAYOUT_API_INDEX = 5;
+
+export function layoutScopeNote(): string {
+  return (
+    `These are the PRESET's per-preset switch definitions, which the unit uses only while it is displaying a ` +
+    `layout whose switches are assigned to Per-Preset — on the FM3's factory layouts that is the unit's own ` +
+    `${PP_DISPLAY_LAYOUT_UNIT_LABEL} (index ${PP_DISPLAY_LAYOUT_API_INDEX} in this app's API; the unit numbers ` +
+    `layouts from 1, the API from 0). This app cannot read which layout or view the unit is currently showing, ` +
+    `so this table is NOT necessarily what is under your feet right now. To see what a given layout actually ` +
+    `displays, open the FC editor — it reads the unit's own configuration per layout.`
+  );
+}

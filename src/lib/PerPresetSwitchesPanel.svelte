@@ -19,9 +19,12 @@
   // `ok:false` is a normal outcome and is shown as one.
   import { forgefx } from './forgefx';
   import {
-    evidenceNote, switchPatchFromFields, switchRows, switchWriteVerdict,
+    evidenceNote, layoutScopeNote, switchPatchFromFields, switchRows, switchWriteVerdict,
     type SwitchFields, type SwitchRow
   } from './perPresetSwitchView';
+  // FOURTH HONESTY RULE (the one the 2026-10-13 owner report cost): the rows below are the PRESET's
+  // definitions, and the app CANNOT read which layout or view the unit is showing — so the panel says which
+  // layout would put them under the player's feet and where to look to see a layout's own switches.
   // The NAMED picker options, derived from the codec's measured tables (categories / function menus /
   // FX-slot anchors) — never a hand-kept list in this component. See perPresetSwitchOptions.ts.
   import { switchEditOptions } from './perPresetSwitchOptions';
@@ -110,9 +113,10 @@
 <section>
   <h3>Per-preset switches</h3>
   <div class="line">
-    <span>Footswitch assignments stored in the current preset (decoded from the edit buffer)</span>
+    <span>Per-preset switch DEFINITIONS stored in the current preset (decoded from the edit buffer) — not necessarily what the footswitches show right now</span>
     <button onclick={read} disabled={loading}>{loading ? 'Reading…' : 'Read switches'}</button>
   </div>
+  <p class="note scope" data-testid="pp-layout-scope">{layoutScopeNote()}</p>
   {#if error}<p class="note err">{error}</p>{/if}
   {#if verdict}<p class="note" class:err={!verdictOk}>{verdict}</p>{/if}
   {#if loaded}
@@ -246,6 +250,9 @@
   .note { margin: 6px 0; font-size: 12px; opacity: 0.8; }
   .note.err { color: #ff6b6b; }
   .note.caveat { font-size: 11px; opacity: 0.65; }
+  /* The layout-scope note is not a footnote: it is the sentence that stops a reader taking the table below
+     for what is on their board. Kept at full opacity with a colour bar so it reads before the rows do. */
+  .note.scope { font-size: 12px; opacity: 0.92; border-left: 3px solid var(--amber, #d6a43f); padding-left: 9px; margin: 8px 0; }
   .list { display: flex; flex-direction: column; gap: 2px; }
   .prow { display: grid; grid-template-columns: 56px 1.1fr 1fr 0.8fr 74px 52px; align-items: center; gap: 8px;
     padding: 4px 6px; border-radius: 6px; font-size: 12px; }
