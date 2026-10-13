@@ -214,10 +214,12 @@ export const PP_DISPLAY_LAYOUT_API_INDEX = 5;
 export function layoutScopeNote(): string {
   return (
     `These are the PRESET's per-preset switch definitions, which the unit uses only while it is displaying a ` +
-    `layout whose switches are assigned to Per-Preset — on the FM3's factory layouts that is the unit's own ` +
+    `layout whose switches are assigned to Per-Preset — on the unit these were measured on, that is its ` +
     `${PP_DISPLAY_LAYOUT_UNIT_LABEL} (index ${PP_DISPLAY_LAYOUT_API_INDEX} in this app's API; the unit numbers ` +
     `layouts from 1, the API from 0). This app cannot read which layout or view the unit is currently showing, ` +
     `so this table is NOT necessarily what is under your feet right now. To see what a given layout actually ` +
-    `displays, open the FC editor — it reads the unit's own configuration per layout.`
+    `displays, open the FC editor — it reads the unit's own configuration per layout, INCLUDING which layouts ` +
+    `assign a switch to Per-Preset, which is the reliable way to find that layout on a config that is not the ` +
+    `one this was measured on.`
   );
 }

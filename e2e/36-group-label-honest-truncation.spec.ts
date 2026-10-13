@@ -194,12 +194,20 @@ test.describe('device group label — honest truncation, never a silent clip', (
 
     await page.locator('.arrange').click();
     const arrange = await probe();
-    if (arrange.present) {
-      expect(
-        arrange.isSpan,
-        'in ARRANGE mode the label must go inert, so a drag that starts on the band still reaches the board'
-      ).toBe(false);
-    }
+    // NOT an `if (present)` guard: a conditional assertion that silently skips when the element is absent is
+    // how this check dies without ever going red. Both acceptable outcomes are asserted explicitly instead —
+    // the head is either GONE (nothing to intercept) or PRESENT and inert — and both are reported in the
+    // message so a skip cannot masquerade as a pass.
+    expect(
+      arrange.isSpan,
+      `in ARRANGE mode the label must not be hit-testable, so a drag starting on the band reaches the board ` +
+        `(present=${arrange.present}, hit=${arrange.hit})`
+    ).toBe(false);
+    expect(
+      !arrange.present || arrange.pointerEvents === 'none',
+      `arrange mode must be accounted for explicitly, not skipped (present=${arrange.present}, ` +
+        `pointer-events=${arrange.pointerEvents})`
+    ).toBe(true);
     await page.locator('.arrange').click(); // back to use mode
   });
 });
