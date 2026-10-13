@@ -26,23 +26,28 @@ interface CabMock {
   order: string[];
   discard: boolean;
   library: { id: string; user: number; name: string; bytes: number[] }[];
+  /** Slots refilled OUTSIDE Axis: the name the unit now reports differs from the library copy. */
+  refilled: Record<number, string>;
 }
 
 const sha = 'a'.repeat(64);
 const libContainer = (name: string): number[] =>
   buildCabIrContainerFromWords(0x11, cabIrUserSlot(1), name, Array.from({ length: CAB_IR_SAMPLE_SLOTS }, (_, i) => i * 7));
 
-async function installCabMock(page: Page, seed: { populated: number[]; held?: { user: number; name: string }[] }): Promise<CabMock> {
+async function installCabMock(page: Page, seed: { populated: number[]; held?: { user: number; name: string }[]; refilled?: Record<number, string> }): Promise<CabMock> {
   const mock: CabMock = {
-    populated: new Set(seed.populated), uploads: [], clears: [], order: [], discard: false,
+    populated: new Set(seed.populated), uploads: [], clears: [], order: [], discard: false, refilled: seed.refilled ?? {},
     library: (seed.held ?? []).map((h, i) => ({ id: `cab-m${i}-0000000${i}`, user: h.user, name: h.name, bytes: libContainer(h.name) }))
   };
   await installGridMock(page);
   const json = (route: Route, body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+  // A populated slot reports its held name (or the REFILLED name if it was changed outside Axis); a slot
+  // with no held/refilled identity reports a loud placeholder so a UI leak is unmistakable.
+  const nameOf = (user: number) => mock.refilled[user] ?? mock.library.find((e) => e.user === user)?.name ?? 'SHOULD NEVER RENDER';
   const row = (page16: number, index: number) => {
     const user = (page16 - 0x10) * 128 + index + 1;
     const pop = mock.populated.has(user);
-    return { index, page: page16, populated: pop, flag: pop ? 1 : 0x7f, nameRegion: [], name: pop ? 'SHOULD NEVER RENDER' : '<EMPTY>' };
+    return { index, page: page16, populated: pop, flag: pop ? 1 : 0x7f, nameRegion: [], name: pop ? nameOf(user) : '<EMPTY>' };
   };
   await page.route('**/api/**', async (route) => {
     const req = route.request();
@@ -276,7 +281,7 @@ test.describe('Manage Cabs (V1)', () => {
     await expect(page.getByTestId('cab-import-go')).toBeDisabled();
   });
 
-  test('restore from the Axis library: the scope line stays visible and the entry uploads to the chosen slot', async ({ page }) => {
+  test('restore needs its OWN confirm (#9): without it nothing uploads; with it the entry goes to the chosen slot', async ({ page }) => {
     const mock = await installCabMock(page, { populated: [], held: [{ user: 4, name: 'Library Four' }] });
     await openManager(page);
     const lib = page.getByTestId('cab-library');
@@ -284,9 +289,50 @@ test.describe('Manage Cabs (V1)', () => {
     await expect(page.getByTestId('cab-library-count')).toContainText('1 of 1 stored IR');
     await expect(page.getByTestId('cab-library-count')).toContainText('library cap 200');
     await lib.getByLabel('Restore Library Four to slot').fill('50');
-    await lib.getByRole('button', { name: 'Restore to slot' }).click();
+    // #9: the destructive write is gated by a per-entry confirm
+    const restore = lib.getByRole('button', { name: 'Restore to slot' });
+    await expect(restore).toBeDisabled();
+    await lib.getByRole('checkbox').check(); // the per-entry confirm
+    await expect(restore).toBeEnabled();
+    await restore.click();
     await expect(page.getByTestId('cab-log')).toContainText('Restore “Library Four” → slot 50: Stored');
     expect(mock.uploads.map((u) => u.user)).toEqual([50]);
     expect(parseCabIrSyx(new Uint8Array(mock.uploads[0]!.bytes)).name).toBe('Library Four');
+  });
+
+  test('restore does not write until its confirm box is ticked (#9)', async ({ page }) => {
+    const mock = await installCabMock(page, { populated: [], held: [{ user: 4, name: 'Library Four' }] });
+    await openManager(page);
+    const lib = page.getByTestId('cab-library');
+    await lib.getByLabel('Restore Library Four to slot').fill('60');
+    await lib.getByRole('button', { name: 'Restore to slot' }).click({ force: true }); // disabled — no-op
+    expect(mock.uploads).toEqual([]);
+    await expect(page.getByTestId('cab-log')).toHaveCount(0);
+  });
+
+  test('move REFUSES (nothing written, source intact) when the source was refilled OUTSIDE Axis (#1)', async ({ page }) => {
+    const mock = await installCabMock(page, { populated: [1], held: [{ user: 1, name: 'One' }], refilled: { 1: 'REFILLED ELSEWHERE' } });
+    await openManager(page);
+    await page.getByRole('button', { name: /^Scan Bank 1/ }).click();
+    await cell(page, 1).click();
+    await page.getByRole('button', { name: 'Move…' }).click();
+    await page.getByTestId('cab-move-dest').fill('20');
+    const panel = page.getByTestId('cab-panel-move');
+    await panel.getByRole('checkbox').check();
+    await panel.getByRole('button', { name: /^Move 1/ }).click();
+    await expect(page.getByTestId('cab-log')).toContainText('REFUSED');
+    await expect(page.getByTestId('cab-log')).toContainText('REFILLED ELSEWHERE');
+    expect(mock.uploads).toEqual([]);
+    expect(mock.clears).toEqual([]);
+    await expect(cell(page, 1)).toHaveAttribute('data-status', 'populated'); // source untouched
+  });
+
+  test('import WARNS (does not silently proceed) when the destination bank was never scanned (#10)', async ({ page }) => {
+    await installCabMock(page, { populated: [] });
+    await openManager(page);
+    await page.getByRole('button', { name: 'Import…' }).click();
+    // slot 500 is in bank 4, which was never scanned → UNKNOWN, not "not populated"
+    await page.getByTestId('cab-import-dest').fill('500');
+    await expect(page.getByTestId('cab-import-dest-warn')).toContainText('has not been scanned — it may hold an IR');
   });
 });

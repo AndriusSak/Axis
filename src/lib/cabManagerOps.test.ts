@@ -6,6 +6,8 @@ import {
   bankCoverage,
   buildBankGrid,
   destinationOf,
+  destStateOf,
+  destWarning,
   libraryByUser,
   manageActions,
   planClear,
@@ -19,6 +21,7 @@ import {
   uploadVerdict,
   userSlotOf,
   validateCabName,
+  verifySlotHolds,
   waveformPoints,
   type CabManagerIo,
   type GridSlot
@@ -168,10 +171,11 @@ describe('planClear', () => {
 describe('planMove', () => {
   const g = slotsOf(buildBankGrid(bank0, [row(0x10, 0, true), row(0x10, 1, true), row(0x10, 9, true)], []));
   const lib = [entry(1), entry(2)];
-  it('maps ascending sources onto consecutive destinations and flags overwrites', () => {
+  it('maps ascending sources onto consecutive destinations and reports each destination THREE-state (#10)', () => {
     const p = planMove([2, 1], 10, g, lib);
     expect(p.ok).toBe(true);
-    expect(p.items.map((i) => [i.from, i.to, i.overwrites])).toEqual([[1, 10, true], [2, 11, false]]);
+    // slot 10 is scanned+populated; slot 11's bank was never scanned → UNKNOWN, not "empty"
+    expect(p.items.map((i) => [i.from, i.to, i.destState])).toEqual([[1, 10, 'populated'], [2, 11, 'unknown']]);
     expect(p.runnable).toHaveLength(2);
     expect(p.needsFile).toHaveLength(0);
   });
@@ -234,6 +238,8 @@ function fakeIo(script: {
   uploadOk?: (user: number) => boolean;
   closeFor?: (user: number) => number;
   populatedAfter?: (user: number) => boolean | null;
+  /** The slot's decoded name as the unit would report it (default `IR <user>` — what `entry(n)` holds). */
+  nameFor?: (user: number) => string;
   clearOk?: (user: number) => boolean;
   bytes?: Uint8Array | null;
 }) {
@@ -248,7 +254,8 @@ function fakeIo(script: {
     readSlot: async (user) => {
       calls.push(`read:${user}`);
       const p = script.populatedAfter?.(user);
-      return row(0x10, user - 1, p === undefined ? true : p);
+      const nm = script.nameFor?.(user);
+      return row(0x10, user - 1, p === undefined ? true : p, { name: nm === undefined ? `IR ${user}` : nm });
     },
     clear: async (user) => {
       calls.push(`clear:${user}`);
@@ -277,13 +284,13 @@ describe('runMove — copy first, erase the source ONLY after a confirmed store'
     expect(calls.some((c) => c.startsWith('clear'))).toBe(false);
   });
   it('a copy the unit reads back as EMPTY never erases the source', async () => {
-    const { io, calls } = fakeIo({ populatedAfter: () => false });
+    const { io, calls } = fakeIo({ populatedAfter: (u) => (u >= 10 ? false : true) });
     const out = await runMove(plan(), io);
     expect(out[0]!.state).toBe('failed');
     expect(calls.some((c) => c.startsWith('clear'))).toBe(false);
   });
   it('a copy whose read-back is unreadable (unconfirmed) never erases the source', async () => {
-    const { io, calls } = fakeIo({ populatedAfter: () => null });
+    const { io, calls } = fakeIo({ populatedAfter: (u) => (u >= 10 ? null : true) });
     expect((await runMove(plan(), io))[0]!.state).toBe('failed');
     expect(calls.some((c) => c.startsWith('clear'))).toBe(false);
   });
@@ -309,6 +316,68 @@ describe('runMove — copy first, erase the source ONLY after a confirmed store'
   });
 });
 
+describe('runMove refuses a source that no longer holds the IR the library copy came from (#1)', () => {
+  const plan = () => planMove([1, 2], 10, new Map(), [entry(1), entry(2)]).items;
+  it('(a) a source that still matches proceeds — re-read BEFORE any write, then upload, then clear', async () => {
+    const { io, calls } = fakeIo({});
+    const out = await runMove(plan(), io);
+    expect(out.map((o) => o.state)).toEqual(['moved', 'moved']);
+    expect(calls.indexOf('read:1')).toBeGreaterThanOrEqual(0);
+    expect(calls.indexOf('read:1')).toBeLessThan(calls.indexOf('upload:10'));
+  });
+  it('(b) a source REFILLED with different content is refused and the source is left intact', async () => {
+    const { io, calls } = fakeIo({ nameFor: (u) => (u === 1 ? 'SEKRIT REFILL' : `IR ${u}`) });
+    const out = await runMove(plan(), io);
+    expect(out[0]!.state).toBe('refused');
+    expect(out[0]!.text).toMatch(/REFUSED — the slot now holds “SEKRIT REFILL”, not “IR 1”/);
+    expect(out[0]!.text).toMatch(/source 1 was NOT erased/);
+    expect(out[1]!.state).toBe('skipped');
+    expect(calls.some((c) => c.startsWith('upload') || c.startsWith('clear'))).toBe(false);
+  });
+  it('(c) a source that reads EMPTY is refused and left intact (existing behaviour, kept)', async () => {
+    const { io, calls } = fakeIo({ populatedAfter: (u) => (u === 1 ? false : true) });
+    const out = await runMove(plan(), io);
+    expect(out[0]!.state).toBe('refused');
+    expect(out[0]!.text).toMatch(/the slot now reads EMPTY/);
+    expect(calls.some((c) => c.startsWith('upload') || c.startsWith('clear'))).toBe(false);
+  });
+  it('(c2) a source whose state cannot be read is refused (fail-closed)', async () => {
+    const { io, calls } = fakeIo({ populatedAfter: (u) => (u === 1 ? null : true) });
+    const out = await runMove(plan(), io);
+    expect(out[0]!.state).toBe('refused');
+    expect(calls.some((c) => c.startsWith('upload') || c.startsWith('clear'))).toBe(false);
+  });
+});
+
+describe('verifySlotHolds — the source identity check (name: the only identity the wire offers)', () => {
+  it('passes only when the slot reads populated AND its name matches the held copy', () => {
+    expect(verifySlotHolds(row(0x10, 0, true, { name: 'Mesa 4x12' }), 'Mesa 4x12').ok).toBe(true);
+  });
+  it('fails closed on null, empty, unreadable, a missing name, and a different name', () => {
+    expect(verifySlotHolds(null, 'Mesa 4x12').reason).toMatch(/could not be read back/);
+    expect(verifySlotHolds(row(0x10, 0, false, { name: '<EMPTY>' }), 'Mesa 4x12').reason).toMatch(/reads EMPTY/);
+    expect(verifySlotHolds(row(0x10, 0, null), 'Mesa 4x12').reason).toMatch(/no parseable slot state/);
+    expect(verifySlotHolds(row(0x10, 0, true), 'Mesa 4x12').reason).toMatch(/no name to match against/);
+    expect(verifySlotHolds(row(0x10, 0, true, { name: 'Other' }), 'Mesa 4x12').reason).toMatch(/now holds “Other”, not “Mesa 4x12”/);
+  });
+});
+
+describe('destStateOf / destWarning — a destination is three-state, never a boolean (#10)', () => {
+  it('populated / empty / unknown (unscanned OR unreadable); a missing cell is unknown', () => {
+    const g = slotsOf(buildBankGrid(bank0, [row(0x10, 0, true), row(0x10, 1, false), row(0x10, 2, null, { note: 'reply did not parse' })], []));
+    expect(destStateOf(g.get(1))).toBe('populated');
+    expect(destStateOf(g.get(2))).toBe('empty');
+    expect(destStateOf(g.get(3))).toBe('unknown'); // unreadable is NOT empty
+    expect(destStateOf(g.get(50))).toBe('unknown'); // unscanned
+    expect(destStateOf(undefined)).toBe('unknown');
+  });
+  it('warns for populated AND for unknown, and stays silent only for a known empty slot', () => {
+    expect(destWarning('populated', 5)).toMatch(/Slot 5 reads populated — this will overwrite its IR/);
+    expect(destWarning('unknown', 5)).toMatch(/Slot 5 has not been scanned — it may hold an IR/);
+    expect(destWarning('empty', 5)).toBe('');
+  });
+});
+
 describe('uploadAndVerify / runClear / runRename', () => {
   it('a transport error becomes a failed verdict (no throw)', async () => {
     const io: CabManagerIo = { ...fakeIo({}).io, upload: async () => { throw new Error('port busy'); } };
@@ -325,19 +394,26 @@ describe('uploadAndVerify / runClear / runRename', () => {
   it('runRename rewrites the bytes with the codec rewrite, uploads to the same slot, and reports the verdict', async () => {
     const { io, calls } = fakeIo({});
     let got = '';
-    const r = await runRename(new Uint8Array([9]), 7, 'New Name', io, (b, n) => { got = n; return new Uint8Array([...b, 1]); });
+    const r = await runRename(new Uint8Array([9]), 7, 'New Name', io, (b, n) => { got = n; return new Uint8Array([...b, 1]); }, entry(7));
     expect(got).toBe('New Name');
     expect(r.verdict?.ok).toBe(true);
     expect(calls).toContain('upload:7');
   });
   it('runRename refuses an invalid name before sending anything', async () => {
     const { io, calls } = fakeIo({});
-    const r = await runRename(new Uint8Array([9]), 7, 'x'.repeat(33), io, (b) => b);
+    const r = await runRename(new Uint8Array([9]), 7, 'x'.repeat(33), io, (b) => b, entry(7));
     expect(r.verdict).toBeNull();
     expect(calls).toEqual([]);
     expect(validateCabName('Café')).toMatch(/7-bit/);
     expect(validateCabName('')).toMatch(/Enter a name/);
     expect(validateCabName('Mesa 4x12')).toBe('');
+  });
+  it('runRename REFUSES (nothing sent) when the slot no longer holds the IR the copy came from (#1)', async () => {
+    const { io, calls } = fakeIo({ nameFor: () => 'SOME OTHER IR' });
+    const r = await runRename(new Uint8Array([9]), 7, 'New Name', io, (b) => b, entry(7));
+    expect(r.verdict).toBeNull();
+    expect(r.text).toMatch(/Refused — the slot now holds “SOME OTHER IR”, not “IR 7”/);
+    expect(calls.filter((c) => c.startsWith('upload'))).toEqual([]);
   });
 });
 

@@ -214,6 +214,61 @@ export function manageActions(
   return { clear, move, rename, import: imp };
 }
 
+// ── destination state: three states, never a boolean ─────────────────────────────────────────────
+
+/**
+ * What a write DESTINATION currently holds, as far as the last scan knows. A destination that has not
+ * been scanned (or whose reply did not parse) is `unknown` — NEVER `empty`: an unscanned slot may hold an
+ * IR, and a boolean "populated?" silently reports it as harmless to overwrite.
+ */
+export type DestState = 'populated' | 'empty' | 'unknown';
+
+export function destStateOf(slot: GridSlot | undefined | null): DestState {
+  if (!slot) return 'unknown';
+  return slot.status === 'populated' ? 'populated' : slot.status === 'empty' ? 'empty' : 'unknown';
+}
+
+/** The warning every destination deserves before it is written, or '' when it is a known empty slot. */
+export function destWarning(state: DestState, user: number): string {
+  return state === 'populated'
+    ? `Slot ${user} reads populated — this will overwrite its IR.`
+    : state === 'unknown'
+      ? `Slot ${user} has not been scanned — it may hold an IR that this will overwrite. Scan its bank first to be sure.`
+      : '';
+}
+
+// ── source identity: the check that stops a destructive write over a slot refilled outside Axis ────
+
+export interface HoldCheck {
+  ok: boolean;
+  /** '' when ok; the named reason otherwise. */
+  reason: string;
+}
+
+/**
+ * Verify that a slot STILL holds the IR a library copy came from, before a write that would erase or
+ * replace it (Move erases the source; Rename re-uploads over the same slot).
+ *
+ * WHAT IS ACTUALLY AVAILABLE: the unit has no slot-samples read, so there is no content hash to compare.
+ * The per-slot state reply gives a `populated` flag and the slot's own NAME — and `nameRegion` is that
+ * same packed name, decoded (`decodeCabSlotName`), NOT a samples-derived fingerprint (measured 2026-10-08:
+ * the region follows the NAME, so two IRs with the same name are indistinguishable and a rename changes
+ * it). The library entry stores the name AS SENT in the container, so the NAME is the strongest identity
+ * the wire offers — comparing it is equivalent to comparing `nameRegion`, and is the check used here.
+ *
+ * FAIL-CLOSED on every unknown: a slot that cannot be read, reads EMPTY, reads populated with no name, or
+ * holds a DIFFERENT name is refused. A name that matches is not proof the samples match (documented limit).
+ */
+export function verifySlotHolds(slot: CabSlotStateResult | null, expectedName: string): HoldCheck {
+  if (!slot) return { ok: false, reason: 'the slot could not be read back' };
+  if (slot.populated === null) return { ok: false, reason: `the unit gave no parseable slot state (${slot.note ?? 'no state reply'})` };
+  if (slot.populated === false) return { ok: false, reason: 'the slot now reads EMPTY — the IR this copy came from is gone' };
+  const name = (slot.name ?? '').replace(/\s+$/, '');
+  if (name === '') return { ok: false, reason: 'the slot reads populated but the unit returned no name to match against' };
+  if (name !== expectedName.replace(/\s+$/, '')) return { ok: false, reason: `the slot now holds “${name}”, not “${expectedName}”` };
+  return { ok: true, reason: '' };
+}
+
 // ── plans ───────────────────────────────────────────────────────────────────────────────────────
 
 export interface ClearPlan {
@@ -233,8 +288,9 @@ export function planClear(selection: readonly number[], slots: ReadonlyMap<numbe
 export interface MoveItem {
   from: number;
   to: number;
-  /** The destination currently reads populated — it will be OVERWRITTEN. */
-  overwrites: boolean;
+  /** Whether the destination will be OVERWRITTEN — three states: `populated`, `empty`, or `unknown`
+   *  (unscanned/unreadable, which must be warned about too, never silently treated as empty). */
+  destState: DestState;
   /** `library`: bytes held, runnable. `file`: not held — the exact reason, and the import fallback. */
   source: { kind: 'library'; entry: CabLibraryListEntry } | { kind: 'file'; reason: string };
 }
@@ -277,7 +333,7 @@ export function planMove(
     return {
       from,
       to,
-      overwrites: slots.get(to)?.status === 'populated',
+      destState: destStateOf(slots.get(to)),
       source: entry
         ? { kind: 'library', entry }
         : {
@@ -403,14 +459,19 @@ export async function uploadAndVerify(io: CabManagerIo, bytes: Uint8Array, user:
 
 export interface MoveOutcome {
   item: MoveItem;
-  state: 'moved' | 'copied-not-erased' | 'failed' | 'skipped';
+  state: 'moved' | 'copied-not-erased' | 'failed' | 'refused' | 'skipped';
   text: string;
 }
 
 /**
- * Run a move's runnable items in order. Per item: re-upload the held bytes to the destination; ONLY when
- * the verdict is `stored` blank the source (erasing after an unconfirmed copy could destroy the only
- * copy). The first failure halts the run: later items are `skipped`, not attempted.
+ * Run a move's runnable items in order. Per item, in this order:
+ *   1. RE-READ the source slot and REFUSE unless it still holds the IR the library copy came from — Move
+ *      would otherwise overwrite the (stale) library copy onto the destination, then ERASE a slot that was
+ *      refilled outside Axis. Nothing is written and nothing is erased on a refusal.
+ *   2. re-upload the held bytes to the destination;
+ *   3. ONLY when the verdict is `stored` blank the source (erasing after an unconfirmed copy could destroy
+ *      the only copy).
+ * The first failure or refusal halts the run: later items are `skipped`, not attempted.
  */
 export async function runMove(items: readonly MoveItem[], io: CabManagerIo): Promise<MoveOutcome[]> {
   const out: MoveOutcome[] = [];
@@ -424,7 +485,19 @@ export async function runMove(items: readonly MoveItem[], io: CabManagerIo): Pro
       out.push({ item, state: 'skipped', text: item.source.reason });
       continue;
     }
-    const bytes = await io.libraryBytes(item.source.entry).catch(() => null);
+    const entry = item.source.entry;
+    const srcSlot = await io.readSlot(item.from).catch(() => null);
+    const hold = verifySlotHolds(srcSlot, entry.name);
+    if (!hold.ok) {
+      halted = `source slot ${item.from} no longer holds “${entry.name}”`;
+      out.push({
+        item,
+        state: 'refused',
+        text: `Slot ${item.from} → ${item.to}: REFUSED — ${hold.reason}. Nothing was written and source ${item.from} was NOT erased.`
+      });
+      continue;
+    }
+    const bytes = await io.libraryBytes(entry).catch(() => null);
     if (!bytes) {
       halted = `the stored bytes for slot ${item.from} could not be read`;
       out.push({ item, state: 'failed', text: `Slot ${item.from} → ${item.to}: the stored bytes could not be read; nothing was sent.` });
@@ -490,16 +563,24 @@ export interface RenameOutcome {
  * `renameCabIrSyx`, which also recomputes the close value), upload it over the same slot, verify through
  * the slot-state read-back. The unit's discard check guards the upload: a close that did not match would be
  * answered 0x13 and leave the slot untouched.
+ *
+ * A rename re-uploads over the SAME slot, so it must not silently substitute content: the slot is RE-READ
+ * first and the rename is REFUSED unless it still holds `entry`'s IR (matched by name — see
+ * `verifySlotHolds`). A slot refilled outside Axis would otherwise be replaced by the old, renamed bytes.
  */
 export async function runRename(
   bytes: Uint8Array,
   user: number,
   newName: string,
   io: CabManagerIo,
-  rewrite: (bytes: Uint8Array, name: string) => Uint8Array
+  rewrite: (bytes: Uint8Array, name: string) => Uint8Array,
+  entry: CabLibraryListEntry
 ): Promise<RenameOutcome> {
   const bad = validateCabName(newName);
   if (bad) return { verdict: null, text: bad };
+  const srcSlot = await io.readSlot(user).catch(() => null);
+  const hold = verifySlotHolds(srcSlot, entry.name);
+  if (!hold.ok) return { verdict: null, text: `Refused — ${hold.reason}. Nothing was written to slot ${user}.` };
   let renamed: Uint8Array;
   try {
     renamed = rewrite(bytes, newName);

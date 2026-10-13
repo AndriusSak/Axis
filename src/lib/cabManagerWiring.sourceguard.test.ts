@@ -53,7 +53,7 @@ describe('Manage Cabs wiring', () => {
     expect(ui).toMatch(/uploadAndVerify\(io, staged\.container, user\)/);
     expect(ui).toMatch(/runMove\(movePlan\.runnable, io\)/);
     expect(ui).toMatch(/runClear\(clearPlan\.users, io\)/);
-    expect(ui).toMatch(/runRename\(bytes, renameSlot\.user, renameTo, io, rewriteName\)/);
+    expect(ui).toMatch(/runRename\(bytes, renameSlot\.user, renameTo, io, rewriteName, held\)/);
     // the only network calls in the component are the three existing cab routes + the read-only library
     expect(ui.match(/forgefx\.\w+/g)!.filter((v, i, a) => a.indexOf(v) === i).sort()).toEqual(
       ['forgefx.cabLibrary', 'forgefx.cabLibraryBytes', 'forgefx.cabSlots', 'forgefx.clearCabSlot', 'forgefx.uploadCabIr']
@@ -68,6 +68,28 @@ describe('Manage Cabs wiring', () => {
 
   it('destructive actions need an explicit confirm and use no window.confirm', () => {
     expect(ui).not.toMatch(/\bconfirm\(/);
+    // the four panels (clear/move/rename/import) share the single `confirmed` flag
     expect((ui.match(/bind:checked=\{confirmed\}/g) ?? []).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('Restore carries its OWN confirm gate, and doRestore must consult it (#9)', () => {
+    // the per-entry confirm binding exists in the markup…
+    expect(ui).toMatch(/bind:checked=\{restoreConfirmed\[[^\]]+\]\}/);
+    // …and the destructive sequencer it arms is scoped, so no other function can satisfy the guard.
+    const doRestore = ui.match(/async function doRestore\([\s\S]*?\n  \}/)?.[0] ?? '';
+    expect(doRestore).not.toBe('');
+    expect(doRestore).toMatch(/if \(!restoreArmed\(e\)\) return;/);
+  });
+
+  it('every destination write is three-state (populated / empty / UNKNOWN), never a bare boolean (#10)', () => {
+    // the warning helper is used for move, import and restore destinations
+    expect(ui).toMatch(/destWarning\(it\.destState, it\.to\)/);
+    expect(ui).toMatch(/destWarning\(destState, Number\(importDest\)\)/);
+    expect(ui).toMatch(/destWarning\(restoreDestState\(e\), Number\(destFor\(e\)\)\)/);
+    // the boolean "is the destination populated?" shortcut is gone
+    expect(ui).not.toMatch(/destPopulated/);
+    expect(ops).toMatch(/export type DestState = 'populated' \| 'empty' \| 'unknown'/);
+    // the refusal is real: an unscanned destination warns rather than reporting "not populated"
+    expect(ops).toMatch(/has not been scanned — it may hold an IR/);
   });
 });

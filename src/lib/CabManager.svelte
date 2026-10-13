@@ -23,6 +23,8 @@
     CAB_USER_SLOTS,
     bankCoverage,
     buildBankGrid,
+    destStateOf,
+    destWarning,
     isUserSlot,
     manageActions,
     planClear,
@@ -75,6 +77,10 @@
   let ackUnvalidated = $state(false);
   let stagedName = $state('');
   let renameTo = $state('');
+  /** #9: Restore is destructive (it writes to a slot that may already hold an IR) — it needs a per-entry
+   *  confirm like every other write path, not just a destination warning. */
+  let restoreConfirmed = $state<Record<string, boolean>>({});
+  const restoreArmed = (e: CabLibraryListEntry) => restoreConfirmed[e.id] === true;
 
   const bank = $derived(CAB_BANKS[bankIdx]!);
   const entries = $derived<CabLibraryListEntry[]>(library?.entries ?? []);
@@ -214,7 +220,7 @@
         say(false, `The stored bytes for slot ${renameSlot.user} could not be read — nothing was sent.`);
         return;
       }
-      const r = await runRename(bytes, renameSlot.user, renameTo, io, rewriteName);
+      const r = await runRename(bytes, renameSlot.user, renameTo, io, rewriteName, held);
       say(!!r.verdict?.ok, r.text);
       await refreshAfter([renameSlot.user]);
     } finally {
@@ -247,7 +253,7 @@
     ackUnvalidated = false;
     stage();
   }
-  const destPopulated = $derived(slotMap.get(Number(importDest))?.status === 'populated');
+  const destState = $derived(destStateOf(slotMap.get(Number(importDest))));
   const canUpload = $derived(
     !!staged && staged.kind !== 'error' && isUserSlot(Number(importDest)) && !busy && deviceReady && (staged.kind !== 'wav' || ackUnvalidated) && confirmed
   );
@@ -274,6 +280,7 @@
   const destFor = (e: CabLibraryListEntry) => restoreDest[e.id] ?? e.user ?? 1;
   async function doRestore(e: CabLibraryListEntry) {
     const user = Number(destFor(e));
+    if (!restoreArmed(e)) return; // #9: no confirm, no write
     if (busy || !isUserSlot(user)) return;
     busy = true;
     try {
@@ -287,12 +294,11 @@
       await refreshAfter([user]);
     } finally {
       busy = false;
+      restoreConfirmed = { ...restoreConfirmed, [e.id]: false };
     }
   }
-  const restoreOverwrites = (e: CabLibraryListEntry) => {
-    const s = slotMap.get(Number(destFor(e)));
-    return s?.status === 'populated' ? 'overwrites a populated slot' : s?.status === 'empty' ? '' : 'destination not scanned — may overwrite';
-  };
+  /** #10: the destination may be populated, empty, or — if its bank was never scanned — UNKNOWN. */
+  const restoreDestState = (e: CabLibraryListEntry) => destStateOf(slotMap.get(Number(destFor(e))));
 
   const wavePts = $derived(staged && staged.kind === 'wav' ? waveformPoints(staged.samples, 480, 60) : '');
   const slotLabel = (s: GridSlot) =>
@@ -377,7 +383,8 @@
       <h3>Move {selection.length} slot{selection.length === 1 ? '' : 's'}</h3>
       <p>
         A move is two uploads: the IR is re-uploaded to the destination, then the source is blanked. That needs the IR's bytes, which Axis holds only for IRs
-        it uploaded. The unit has no slot-data read.
+        it uploaded. Before writing, Axis RE-READS each source slot and REFUSES the move unless it still holds the same IR (matched by the slot's own name) —
+        if the slot was refilled outside Axis, nothing is written and no source is erased.
       </p>
       <label>First destination slot <input type="number" min="1" max={CAB_USER_SLOTS} bind:value={moveDest} data-testid="cab-move-dest" /></label>
       {#if !movePlan.ok}
@@ -388,7 +395,7 @@
             <li data-from={it.from} data-kind={it.source.kind}>
               {it.from} → {it.to}
               {#if it.source.kind === 'library'}
-                — from the Axis library (“{it.source.entry.name}”){#if it.overwrites}<b class="warn"> · overwrites a populated slot</b>{/if}
+                — from the Axis library (“{it.source.entry.name}”){#if it.destState !== 'empty'}<b class="warn"> · {destWarning(it.destState, it.to)}</b>{/if}
               {:else}
                 — <span class="warn">{it.source.reason}</span>
                 <button class="link" onclick={() => importInstead(it.to)}>Import a file to slot {it.to}</button>
@@ -397,7 +404,7 @@
           {/each}
         </ul>
       {/if}
-      <label class="check"><input type="checkbox" bind:checked={confirmed} /> I understand — copy, then erase each source</label>
+      <label class="check"><input type="checkbox" bind:checked={confirmed} /> I understand — copy to the destination only after Axis confirms the source still holds this IR, then erase each source</label>
       <button class="btn danger" disabled={!confirmed || busy || !movePlan.ok || movePlan.runnable.length === 0} onclick={doMove}>
         {busy ? 'Moving…' : `Move ${movePlan.ok ? movePlan.runnable.length : 0}${movePlan.ok && movePlan.needsFile.length ? ` of ${movePlan.items.length}` : ''}`}
       </button>
@@ -409,11 +416,12 @@
       <h3>Rename {renameSlot ? `slot ${renameSlot.user}` : 'the staged import'}</h3>
       <p>
         Rewrites the name inside the container Axis holds, recomputes its close value, uploads it over the same slot and verifies it through the slot-state
-        read-back.
+        read-back. Axis first re-reads the slot and REFUSES the rename unless it still holds this IR (matched by name) — otherwise the rename would silently
+        replace content the unit changed outside Axis.
       </p>
       <label>New name <input type="text" maxlength="32" bind:value={renameTo} data-testid="cab-rename-input" /></label>
       {#if renameErr}<p class="warn">{renameErr}</p>{/if}
-      <label class="check"><input type="checkbox" bind:checked={confirmed} /> I understand — this re-uploads the IR to the slot</label>
+      <label class="check"><input type="checkbox" bind:checked={confirmed} /> I understand — this re-uploads the IR to the slot, only after Axis confirms the slot still holds it</label>
       <button class="btn" disabled={!confirmed || busy || !!renameErr || renameTo === ''} onclick={doRename}>{busy ? 'Renaming…' : 'Rename'}</button>
     </div>
   {/if}
@@ -465,7 +473,7 @@
           {/if}
         </div>
       {/if}
-      {#if destPopulated}<p class="warn">Slot {importDest} reads populated — this will overwrite it.</p>{/if}
+      {#if isUserSlot(Number(importDest)) && destWarning(destState, Number(importDest))}<p class="warn" data-testid="cab-import-dest-warn">{destWarning(destState, Number(importDest))}</p>{/if}
       <label class="check"><input type="checkbox" bind:checked={confirmed} /> Write to user slot {importDest}</label>
       <button class="btn" disabled={!canUpload} onclick={doImport} data-testid="cab-import-go">{busy ? 'Uploading…' : 'Upload'}</button>
     </div>
@@ -491,13 +499,14 @@
             <span class="nm">{e.name || '(unnamed)'}</span>
             <span class="meta">last uploaded to {e.user != null ? `slot ${e.user}` : `page 0x${e.page.toString(16)} #${e.index}`}{e.available ? '' : ' · stored bytes missing'}</span>
             <input type="number" min="1" max={CAB_USER_SLOTS} value={destFor(e)} oninput={(ev) => (restoreDest = { ...restoreDest, [e.id]: Number((ev.target as HTMLInputElement).value) })} aria-label={`Restore ${e.name} to slot`} />
+            <label class="check"><input type="checkbox" bind:checked={restoreConfirmed[e.id]} data-testid={`cab-restore-confirm-${e.id}`} /> I understand — write to slot {destFor(e)}</label>
             <button
-              class="btn"
-              disabled={!e.available || busy || !deviceReady || !isUserSlot(Number(destFor(e)))}
-              title={!e.available ? 'The stored bytes for this entry are missing.' : !deviceReady ? deviceReason : restoreOverwrites(e)}
+              class="btn danger"
+              disabled={!e.available || busy || !deviceReady || !isUserSlot(Number(destFor(e))) || !restoreArmed(e)}
+              title={!e.available ? 'The stored bytes for this entry are missing.' : !deviceReady ? deviceReason : restoreArmed(e) ? 'Write this IR to the slot' : 'Tick the box to confirm this destructive write.'}
               onclick={() => doRestore(e)}
             >Restore to slot</button>
-            {#if restoreOverwrites(e)}<small class="warn">{restoreOverwrites(e)}</small>{/if}
+            {#if destWarning(restoreDestState(e), Number(destFor(e)))}<small class="warn">{destWarning(restoreDestState(e), Number(destFor(e)))}</small>{/if}
           </li>
         {/each}
       </ul>
