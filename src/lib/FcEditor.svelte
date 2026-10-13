@@ -571,15 +571,21 @@
                 <div class="field">
                   <span class="flbl">{slot.role}</span>
                   {#if slot.type === 'bool'}
-                    <select value={curSlot(side, slot.i) ?? 0} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                    <!-- An UNREAD value (curSlot == null) must NOT be coerced to 0 ('Off'): render an
+                         explicit, DISABLED placeholder so the user sees "not read" and cannot mistake it
+                         for a real selection; writing requires a real pick. Same shape for enum/channel. -->
+                    <select value={curSlot(side, slot.i) ?? ''} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                      {#if curSlot(side, slot.i) == null}<option value="" disabled>— no value read</option>{/if}
                       <option value={0}>Off</option><option value={1}>On</option>
                     </select>
                   {:else if slot.type === 'enum'}
-                    <select value={curSlot(side, slot.i) ?? 0} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                    <select value={curSlot(side, slot.i) ?? ''} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                      {#if curSlot(side, slot.i) == null}<option value="" disabled>— no value read</option>{/if}
                       {#each slot.options ?? [] as opt, oi (oi)}<option value={oi}>{opt}</option>{/each}
                     </select>
                   {:else if slot.type === 'channel'}
-                    <select value={curSlot(side, slot.i) ?? 0} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                    <select value={curSlot(side, slot.i) ?? ''} onchange={(e) => writeSlot(side, slot.i, +e.currentTarget.value)}>
+                      {#if curSlot(side, slot.i) == null}<option value="" disabled>— no value read</option>{/if}
                       {#each model!.channels as ch, ci (ci)}<option value={ci}>{ch}</option>{/each}
                     </select>
                   {:else if slot.type === 'block'}
