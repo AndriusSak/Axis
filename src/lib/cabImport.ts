@@ -6,10 +6,14 @@
 //   .ir   → NO format for it is documented in this stack. A file that carries a RIFF/WAVE header is read as
 //           WAV (a statement about its bytes, shown to the user); anything else is refused with that reason.
 //
-// ⚠ CONVERTED CONTAINERS ARE UNVALIDATED ON THE UNIT. The close check proves the bytes arrived intact; it
-// cannot tell whether the sample WORDS are encoded the way the unit reads them (that encoding is an
-// assumption — see forgefx-midi `cabIrConvert.ts`). Everything staged from a .wav carries
-// `unvalidated: true` and the UI must say so until a converted upload has been auditioned on a unit.
+// ⚠ CONVERTED CONTAINERS ARE CONSTRAINED, NOT PROVEN (reworded 2026-10-13 to match what was measured). One
+// converted container HAS been auditioned on the unit: it was accepted by the unit's close check and sounded
+// transparent, which proves the transport, the name round-trip and end-to-end acceptance. What that does NOT
+// prove is the sample ENCODING: an impulse reads the same whether its words are IEEE-754 float32 or int32 Q31,
+// so the audition cannot discriminate them — see forgefx-midi `cabIrConvert.ts`. The close check proves the
+// bytes arrived intact; it cannot tell whether the sample WORDS are encoded the way the unit reads them.
+// Everything staged from a .wav carries `unvalidated: true` (the flag the acknowledgement gate reads) and the
+// UI must keep saying so.
 //
 // Browser-safe: imports ONLY the self-contained codec subpath (never the barrel).
 import {

@@ -232,7 +232,7 @@ test.describe('Manage Cabs (V1)', () => {
     await expect(cell(page, 1)).toHaveAttribute('data-status', 'populated');
   });
 
-  test('import a .wav with MPT + auto-trim: UNVALIDATED is shown and gated, the container is a valid 2040-slot IR, and the result is the unit\'s verdict', async ({ page }) => {
+  test('import a .wav with MPT + auto-trim: the NOT-PROVEN warning is shown and gated, the container is a valid 2040-slot IR, and the result is the unit\'s verdict', async ({ page }) => {
     const mock = await installCabMock(page, { populated: [] });
     await openManager(page);
     await page.getByRole('button', { name: /^Scan Bank 1/ }).click();
@@ -248,7 +248,7 @@ test.describe('Manage Cabs (V1)', () => {
     await panel.getByLabel('Minimum-phase transform (MPT)').check();
     await panel.getByLabel('Auto-trim (strip leading silence + normalise)').check();
     await page.getByTestId('cab-import-dest').fill('7');
-    await expect(page.getByTestId('cab-unvalidated')).toContainText('UNVALIDATED');
+    await expect(page.getByTestId('cab-unvalidated')).toContainText('CONSTRAINED');
     await expect(page.getByTestId('cab-import-steps')).toContainText('minimum-phase transform');
     await expect(page.getByTestId('cab-import-steps')).toContainText('auto-trim');
     await expect(page.getByTestId('cab-import-staged')).toContainText('“My Cab 57”');

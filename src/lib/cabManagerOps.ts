@@ -29,7 +29,14 @@ export const CAB_LIBRARY_SCOPE_FALLBACK =
 export const RENAME_NOT_HELD_REASON =
   'Axis can only rename an IR it holds. This slot has no stored copy (it was not uploaded through Axis) and the unit has no slot-data read, so its container cannot be rewritten. Import the .syx/.wav file instead and set its name there.';
 
-export const CAB_CONVERSION_UNVALIDATED_BADGE = 'UNVALIDATED — converted IRs have not been tried on a unit yet';
+// The badge text (the constant NAME is kept for the wiring guard's sake) must match what was actually measured,
+// 2026-10-13. It used to read "converted IRs have not been tried on a unit yet" — which stopped being true when
+// a converted (impulse) container was uploaded, ACCEPTED by the unit's close check and auditioned: it sounded
+// transparent, i.e. the transport, the name round-trip and end-to-end acceptance are proven. What is NOT proven
+// is the sample encoding itself (the impulse reads the same under IEEE-754 float32 and int32 Q31, so the
+// audition cannot discriminate them) — and the unit's close check rejects a CORRUPT container, never a
+// semantically wrong one. So the honest warning is "constrained", not "never tried".
+export const CAB_CONVERSION_UNVALIDATED_BADGE = 'CONSTRAINED — a converted IR has been auditioned on the unit, but its sample encoding is NOT proven';
 
 export interface BankInfo {
   index: number;

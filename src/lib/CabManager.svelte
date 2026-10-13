@@ -487,7 +487,7 @@
               Sample encoding: <b>{staged.report.encoding.label}</b>. The unit's close check proves the bytes arrive intact — it cannot tell whether the samples are
               encoded the way the unit reads them. “Populated” afterwards does not mean “converted correctly”; only listening on the unit does.
             </p>
-            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR is unvalidated on the unit</label>
+            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR's sample encoding is NOT proven on the unit</label>
           {/if}
         </div>
       {/if}
