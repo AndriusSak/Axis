@@ -35,6 +35,7 @@ describe('Axis Workbench integration contracts', () => {
       'axis.live',
       'axis.quickBuild',
       'axis.batchSet',
+      'axis.cabManager',
       'axis.convertGrid',
       'axis.convertBlockEditor',
       'axis.convertMinimap',
@@ -81,6 +82,7 @@ describe('Axis Workbench integration contracts', () => {
       'live',
       'setup',
       'batchSet',
+      'cabManager',
       'theme',
       'account'
     ]);

@@ -20,6 +20,8 @@ export const AXIS_WORKBENCH_BASE_PANEL_TYPES = [
   'axis.quickBuild',
   // Cross-preset batch parameter set (parity audit §2.11) — "Set a parameter in multiple presets".
   'axis.batchSet',
+  // Manage Cabs (V1) — slot grid / clear / move / rename / import / restore for the 512 user cabs.
+  'axis.cabManager',
   // Cross-device preset converter page panels (M4 · META-24). Each sets the OFFLINE editor surface
   // (convertEditor) into context so the embedded SignalGrid/BlockEditor/GridMap render the converted
   // scratch buffer with zero device I/O.
@@ -72,6 +74,8 @@ export const AXIS_WORKBENCH_NAVIGATION_IDS = [
   // §2.11 batch-set ACTION entry (R22) — renders the registered `axis.batchSet` panel via
   // `axis.openBatchSet`. Additive: a new rail entry, no existing id renamed/removed.
   'batchSet',
+  // Manage Cabs ACTION entry (V1) — renders the registered `axis.cabManager` panel via `axis.openCabManager`.
+  'cabManager',
   'theme',
   'account'
 ] as const;
@@ -87,6 +91,7 @@ export const AXIS_WORKBENCH_ACTION_IDS = [
   'axis.openSetup',
   'axis.openTheme',
   'axis.openBatchSet',
+  'axis.openCabManager',
   'axis.openQuickBuild',
   AXIS_PIN_SELECTED_PARAMETERS_ACTION
 ] as const;

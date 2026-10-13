@@ -22,6 +22,7 @@
     setup: '⚙',
     // §2.11 batch-set (R22): apply one value across many presets.
     batchSet: '⇶',
+    cabManager: '▤',
     account: '◈'
   };
 

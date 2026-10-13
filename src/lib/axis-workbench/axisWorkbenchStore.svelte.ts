@@ -15,7 +15,7 @@ import {
 } from './axisWorkbenchBackups';
 import { registerAxisWorkbenchBindings } from './axisWorkbenchBindings';
 import { createAxisWorkbenchDefaultDocument, ensureAxisGridControlWidgets, pruneAxisRetiredRailWidgets } from './axisWorkbenchDefaults';
-import { ensureAxisBatchSetNavEntry, ensureAxisConvertPage, ensureAxisLivePanel, ensureAxisSceneManagerPanel, ensureAxisSeedPages } from './axisWorkbenchPages';
+import { ensureAxisBatchSetNavEntry, ensureAxisCabManagerNavEntry, ensureAxisConvertPage, ensureAxisLivePanel, ensureAxisSceneManagerPanel, ensureAxisSeedPages } from './axisWorkbenchPages';
 import { AXIS_MOBILE_PROFILE_ID } from './axisWorkbenchLayoutActions';
 
 export const AXIS_WORKBENCH_CONFIG_DOC = 'workbench';
@@ -69,7 +69,7 @@ export function normalizeAxisWorkbenchDocument(input: unknown): WorkbenchDocumen
       ensureAxisLivePanel(
         ensureAxisSceneManagerPanel(
           ensureAxisGridControlWidgets(
-            ensureAxisConvertPage(ensureAxisBatchSetNavEntry(ensureAxisSeedPages(migrateWorkbenchDocument(input))))
+            ensureAxisConvertPage(ensureAxisCabManagerNavEntry(ensureAxisBatchSetNavEntry(ensureAxisSeedPages(migrateWorkbenchDocument(input)))))
           )
         )
       )

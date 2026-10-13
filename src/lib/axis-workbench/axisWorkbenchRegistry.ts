@@ -4,6 +4,7 @@ import FallbackPanel from '../workbench/svelte/FallbackPanel.svelte';
 import FallbackWidget from '../workbench/svelte/FallbackWidget.svelte';
 import AxisBlockEditorPanel from './panels/AxisBlockEditorPanel.svelte';
 import AxisBatchSetPanel from './panels/AxisBatchSetPanel.svelte';
+import AxisCabManagerPanel from './panels/AxisCabManagerPanel.svelte';
 import AxisConvertBlockEditorPanel from './panels/AxisConvertBlockEditorPanel.svelte';
 import AxisConvertGridPanel from './panels/AxisConvertGridPanel.svelte';
 import AxisConvertMinimapPanel from './panels/AxisConvertMinimapPanel.svelte';
@@ -58,6 +59,7 @@ AXIS_WORKBENCH_BASE_PANEL_TYPES.forEach((type) => {
     type === 'axis.sceneManager' ? AxisSceneManagerPanel :
     type === 'axis.quickBuild' ? AxisQuickBuildPanel :
     type === 'axis.batchSet' ? AxisBatchSetPanel :
+    type === 'axis.cabManager' ? AxisCabManagerPanel :
     type === 'axis.live' ? AxisLivePanel :
     type === 'axis.convertGrid' ? AxisConvertGridPanel :
     type === 'axis.convertBlockEditor' ? AxisConvertBlockEditorPanel :
@@ -173,6 +175,17 @@ registry.registerAction(
     panelId: 'axis.batchSet',
     panelType: 'axis.batchSet',
     title: 'Batch Set Parameter',
+    region: 'main'
+  })
+);
+// Manage Cabs (V1) — the browsable multi-select manager for the 512 user cab slots. Opens/focuses the
+// panel in the main region; every destructive step inside it is previewed and needs an explicit confirm.
+registry.registerAction(
+  createAxisNavigationPanelAction({
+    actionId: 'axis.openCabManager',
+    panelId: 'axis.cabManager',
+    panelType: 'axis.cabManager',
+    title: 'Manage Cabs',
     region: 'main'
   })
 );

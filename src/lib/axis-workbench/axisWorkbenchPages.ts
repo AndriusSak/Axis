@@ -288,6 +288,17 @@ const batchSetNavEntry = (): NavigationEntryState =>
   actionNavEntry(AXIS_BATCH_SET_NAV_ID, AXIS_BATCH_SET_NAV_LABEL, 'axis.openBatchSet');
 
 /**
+ * Manage Cabs ACTION nav entry (V1). Like the batch-set entry it owns no page — it fires
+ * `axis.openCabManager`, which docks-or-focuses the registered `axis.cabManager` panel in `main`. Shared by
+ * the seed navigation AND {@link ensureAxisCabManagerNavEntry} so a persisted document gains the entry
+ * without a version bump.
+ */
+export const AXIS_CAB_MANAGER_NAV_ID = 'cabManager';
+export const AXIS_CAB_MANAGER_NAV_LABEL = 'Manage Cabs';
+const cabManagerNavEntry = (): NavigationEntryState =>
+  actionNavEntry(AXIS_CAB_MANAGER_NAV_ID, AXIS_CAB_MANAGER_NAV_LABEL, 'axis.openCabManager');
+
+/**
  * The Axis seed navigation: the seven page-bound entries (each activates its page),
  * the batch-set ACTION entry (§2.11, R22 — opens the registered `axis.batchSet`
  * panel), plus the two other ACTION entries — Theme (opens the appearance modal) and
@@ -307,13 +318,14 @@ export function createAxisSeedNavigation(mode: NavigationMode): NavigationLayout
       live: pageNavEntry('live', NAV_LABELS.live, AXIS_PAGE_LIVE),
       setup: pageNavEntry('setup', NAV_LABELS.setup, AXIS_PAGE_SETUP),
       [AXIS_BATCH_SET_NAV_ID]: batchSetNavEntry(),
+      [AXIS_CAB_MANAGER_NAV_ID]: cabManagerNavEntry(),
       theme: actionNavEntry('theme', 'Theme', 'axis.openTheme'),
       account: actionNavEntry('account', 'Axis Cloud', 'axis.openAccount', {
         locked: true,
         fixedSlot: 'rail.footer'
       })
     },
-    order: ['grid', 'library', 'fc', 'controllers', 'scenes', 'live', 'setup', AXIS_BATCH_SET_NAV_ID, 'theme', 'account']
+    order: ['grid', 'library', 'fc', 'controllers', 'scenes', 'live', 'setup', AXIS_BATCH_SET_NAV_ID, AXIS_CAB_MANAGER_NAV_ID, 'theme', 'account']
   };
 }
 
@@ -449,6 +461,23 @@ export function ensureAxisBatchSetNavEntry(doc: WorkbenchDocument): WorkbenchDoc
     entries[AXIS_BATCH_SET_NAV_ID] = batchSetNavEntry();
     const order = Array.isArray(layout.navigation.order) ? layout.navigation.order : [];
     layout.navigation.order = order.includes(AXIS_BATCH_SET_NAV_ID) ? order : [...order, AXIS_BATCH_SET_NAV_ID];
+  }
+  return doc;
+}
+
+/**
+ * Ensure the Manage Cabs ACTION nav entry exists on every layout (V1). Same contract as
+ * {@link ensureAxisBatchSetNavEntry}: additive, idempotent, only when the entry is entirely ABSENT (a
+ * deliberately hidden or moved entry is never overridden), no version bump.
+ */
+export function ensureAxisCabManagerNavEntry(doc: WorkbenchDocument): WorkbenchDocument {
+  for (const layout of Object.values(doc.layouts ?? {})) {
+    if (!layout || typeof layout !== 'object' || !layout.navigation) continue;
+    const entries = (layout.navigation.entries = layout.navigation.entries ?? {});
+    if (entries[AXIS_CAB_MANAGER_NAV_ID]) continue;
+    entries[AXIS_CAB_MANAGER_NAV_ID] = cabManagerNavEntry();
+    const order = Array.isArray(layout.navigation.order) ? layout.navigation.order : [];
+    layout.navigation.order = order.includes(AXIS_CAB_MANAGER_NAV_ID) ? order : [...order, AXIS_CAB_MANAGER_NAV_ID];
   }
   return doc;
 }
