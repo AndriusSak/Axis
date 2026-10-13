@@ -162,7 +162,13 @@ const prevCopy = join(reviewDir, 'ui-verification.prev.json');
 // Reading it back from `jsonPath` is precisely the bug that made every run diff against its own stub, and
 // re-archiving here would overwrite the real baseline with the run being reported. Fall back to `jsonPath`
 // only when there is no archive at all (a first-ever run in this review dir) — that is then the baseline.
-let baseline = readJson(prevCopy) ?? readJson(jsonPath);
+// A STUB is never a baseline: it has no features. Without this check the first-ever run in a review dir
+// (no archive yet, and jsonPath already overwritten by this run's own stub) would diff against its own
+// stub — the original bug, one branch further in. Found by review 2026-10-13.
+const isRealReport = (r) => !!r && Array.isArray(r.features) && r.features.length > 0;
+const archivedReport = readJson(prevCopy);
+const currentReport = readJson(jsonPath);
+let baseline = isRealReport(archivedReport) ? archivedReport : isRealReport(currentReport) ? currentReport : null;
 writeFileSync(jsonPath, JSON.stringify(report, null, 2));
 writeFileSync(join(runDir, 'ui-verification.json'), JSON.stringify(report, null, 2));
 
