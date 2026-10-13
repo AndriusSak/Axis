@@ -266,9 +266,38 @@
   // yielding, never by a smaller tile. Measured: 6-row board @1280×800 went 48px cell / 30px dials /
   // 440px board in a 672px pane → back to the width split (77px cell, 39px dials, 672px board).
   const cell = $derived(widthCell);
+
   // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
   // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
   const viewHeaders = $derived(viewWidgets.filter((w) => w.view === 'header'));
+
+  /**
+   * Device group headings ("CAB 1" / "CAB 2") are LABELS, so they must not consume a full control row.
+   *
+   * MEASURED 2026-10-13 on the live FM3, Cab block, 1280x800: the group row was 146 px inside a 170 px
+   * block-editor pane, so the "CAB 1" strip filled the visible area and the DynaCab mic graph — the first
+   * card of its column, correctly ordered — began at exactly the pane's bottom edge (top 501 vs pane
+   * 331..501). The owner's report was "the mic placement UI is nowhere to be seen"; the cause was the
+   * label's row height, not the control's position.
+   *
+   * A row that carries ONLY a heading collapses to a strip; any row that also carries controls keeps the
+   * full cell height. The grid template AND the board height both derive from this list, so they stay
+   * consistent and the controls below shift up by (cell - HEAD_H).
+   */
+  const HEAD_H = 22;
+  const rowSizes = $derived.by(() => {
+    const out = Array.from({ length: viewRows }, () => cell);
+    for (const h of viewHeaders) {
+      if (h.h !== 1 || h.y < 0 || h.y >= viewRows) continue;
+      // Never shrink a row that also holds a real control. NOTE: viewWidgets INCLUDES the headers
+      // (viewHeaders is a filter of it), so the header itself must be excluded from this test or every
+      // header row looks "shared" and nothing ever shrinks.
+      if (viewWidgets.some((w) => w.view !== 'header' && h.y >= w.y && h.y < w.y + w.h)) continue;
+      out[h.y] = Math.min(out[h.y], HEAD_H);
+    }
+    return out;
+  });
+  const boardH = $derived(rowSizes.reduce((a, b) => a + b, 0) + (rowSizes.length - 1) * GAP);
   const effCompact = $derived(compact || isMobile);
 
   // persisted global grid prefs
@@ -1499,14 +1528,14 @@
 <!-- board -->
 <div class="content scroll" bind:this={containerEl}>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div class="boardwrap" bind:this={boardEl} onpointerdown={onBoardDown} style:width="{displayCols * cell + (displayCols - 1) * GAP}px" style:height="{viewRows * cell + (viewRows - 1) * GAP}px">
+  <div class="boardwrap" bind:this={boardEl} onpointerdown={onBoardDown} style:width="{displayCols * cell + (displayCols - 1) * GAP}px" style:height="{boardH}px">
     {#if editMode}
       <div class="gridlayer" style:grid-template-columns="repeat({cols}, {cell}px)" style:grid-template-rows="repeat({rows}, {cell}px)" style:gap="{GAP}px">
         {#each Array(cols * rows) as _, i (i)}<div class="gcell"></div>{/each}
       </div>
     {/if}
 
-    <div class="gridlayer" style:grid-template-columns="repeat({displayCols}, {cell}px)" style:grid-template-rows="repeat({viewRows}, {cell}px)" style:gap="{GAP}px">
+    <div class="gridlayer" style:grid-template-columns="repeat({displayCols}, {cell}px)" style:grid-template-rows={rowSizes.map((s) => `${s}px`).join(' ')} style:gap="{GAP}px">
       {#if drag}
         <div class="ghost" class:bad={!drag.valid} style:grid-column="{drag.x + 1} / span {drag.w}" style:grid-row="{drag.y + 1} / span {drag.h}"></div>
       {/if}

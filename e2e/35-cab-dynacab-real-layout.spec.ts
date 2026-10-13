@@ -164,4 +164,44 @@ test.describe('Cab mic graph — real served layout (Cab 1, preset 410)', () => 
     expect(m.cardTop, 'the graph is on screen without scrolling').toBeLessThan(m.paneBottom);
     expect(m.tileTop, 'the tile itself begins inside the pane').toBeGreaterThanOrEqual(m.paneTop - 1);
   });
+
+  /**
+   * MEASURED on the live FM3, 2026-10-13: the group heading ("CAB 1") occupied a FULL control row —
+   * 146px inside a 170px block-editor pane — so the heading filled the visible area and the mic graph,
+   * correctly ordered first in its column, began exactly at the pane's bottom edge (top 501 vs pane
+   * 331..501). A label must not eat a control row. After the fix the heading row is 22px, the board
+   * dropped 1840 → 1182px, and the graph card sits at top 377 — on screen on open.
+   */
+  test('the group heading is a strip, and the graph is on screen on open', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await bootWithRealCab(page);
+    const m = await page.evaluate(() => {
+      const bw = document.querySelector('.boardwrap') as HTMLElement;
+      let pane: HTMLElement | null = bw.parentElement;
+      while (pane && !(getComputedStyle(pane).overflowY !== 'visible' && pane.scrollHeight > pane.clientHeight + 2))
+        pane = pane.parentElement;
+      const pr = pane!.getBoundingClientRect();
+      const head = document.querySelector('.grouphead') as HTMLElement;
+      const hr = head.getBoundingClientRect();
+      const tile = document.querySelector('.dynabox') as HTMLElement;
+      const card = tile.closest('.card') as HTMLElement;
+      const cr = card.getBoundingClientRect();
+      const rows = (getComputedStyle(document.querySelector('.gridlayer') as HTMLElement).gridTemplateRows || '')
+        .split(' ')
+        .map((s) => parseFloat(s));
+      return {
+        headH: Math.round(hr.height),
+        firstRow: Math.round(rows[0] ?? -1),
+        cardTop: Math.round(cr.top),
+        paneTop: Math.round(pr.top),
+        paneBottom: Math.round(pr.bottom)
+      };
+    });
+    // A heading is a label, not a control: its row must be a strip, never a full cell.
+    expect(m.headH, 'the group heading row is a strip, not a control row').toBeLessThan(40);
+    expect(m.firstRow, 'the grid template gives the heading row the same strip height').toBeLessThan(40);
+    // ...and that is what puts the mic graph on screen without scrolling.
+    expect(m.cardTop, 'the graph is on screen on open').toBeLessThan(m.paneBottom);
+    expect(m.cardTop, 'the graph starts inside the pane').toBeGreaterThanOrEqual(m.paneTop - 1);
+  });
 });
