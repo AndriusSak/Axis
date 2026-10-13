@@ -44,7 +44,7 @@ before touching the device, not after.
 
 Each item names its blocker and what closing it would require.
 
-**INCIDENT (2026-10-08) — read `ForgeFX/docs/incident-2026-10-08.md` before probing this unit**
+**Standing guard — read `ForgeFX/docs/incident-2026-10-08.md` before probing this unit**
 
 - Blind probing of the **firmware-update function family** (`fn=0x7D/0x7E/0x7F/0x79`) left the FM3 in its
   bootloader showing *"Updating Firmware / Transfer Error / Please reboot the device and try again"*; it
@@ -53,487 +53,106 @@ Each item names its blocker and what closing it would require.
   `--allow-firmware-family` is passed, every hardware probe now writes a **frame tap**, and no unmeasured
   function byte may be sent to a unit holding a library.
 
-**Open — surfaced by the capture analyser (2026-10-08)**
-
-- **The three `fn=0x01` sub-actions the editor uses constantly are ANSWERED BY THE UNIT — no longer unmapped, and
-  no longer capture-gated (2026-10-12).** `0x03`, `0x1b` and `0x2e` were listed here as "unmapped, surfaced by the
-  capture analyser", with the FM3-Edit captures that revealed them living on the owner's deck and not in this
-  repo. Upstream's gen-3 codec already carries a sub-action table mined from the 2026-06-03 FM9 capture
-  (`forgefx-midi/src/devices/gen3/simResponders.ts`: `0x2e` = LAYOUT MAP expected 755B, `0x1b` = PARAM FLAGS
-  expected 23B, `0x03` absent), so the question was put to the device with
-  `ForgeFX/server/scripts/probe-query-subs.ts` (read-only, both controls in the same run):
-  `0x4b` → 60B as known · `0x99` → **SILENT** (so "not implemented" reads as silence here, not as a `0x64`) ·
-  **`0x03` → 23B, address-dependent** (the amp's eid in byte 8 yields data bytes `1d 76`, other addresses all-zero)
-  · **`0x1b` → 23B, address-dependent** · **`0x2e` → 590B, or 23B when byte 7 is `0x01`** (a selector switches it
-  between the table and one small record).
-  **The 590-byte reply is address-INDEPENDENT and edit-buffer-INDEPENDENT** — tested by reading it, changing the
-  edit buffer through the route (`PP#5`'s HOLD, then restoring) and reading again: the three reads differ ONLY in
-  three volatile data bytes (`+22`/`+23`/`+24`), so it is a static model-side table rather than preset state. Its
-  576-byte data region is bit-level (220 bytes hold a single-bit value, zero bytes 241/576) and is NOT a
-  per-block geometry table — checked against `FM3_BLOCK_GEOMETRY`'s 28 blocks and reported `NO HITS`.
-  **ROUND 12 (2026-10-12) ran that README's three next steps. Evidence:
-  `ForgeFX/server/test/fixtures/query-subs-decode/` (six taps + a README stating what each row measures) —
-  still NOT decoded, but the space is much smaller:**
-
-  - **The `0x2e` volatile trio is per-READ, and it is NOT a counter.** Two connections (constant 500 ms steps,
-    then 250/500/1000/2000/4000/8000 ms) predicted different numbers under "counter" and "nonce": 16/16 trios
-    distinct with Δ tracking neither spacing nor read ordinal, and the 8000 ms step moved no further than the
-    250 ms one. Over 64 samples `+22` **never left `0..3`** while `+23`/`+24` span their 7-bit range — so it is
-    not three random bytes either, and `+22`'s boundedness is unexplained. **Everything else in the reply is
-    byte-identical across all 80 reads taken**, so masking `+22..+24` is sufficient and no byte of the region
-    is a stable identity until further notice. The SHORT `0x2e` reply is fully reproducible (1/64 distinct for
-    each of two addresses) — ROUND 11's "byte flipped between runs" was the address change, not volatility.
-  - **The 576-byte region is periodic at 8 bytes** (top autocorrelation lags are 8, 40, 72, 32, 16 — all
-    multiples of 8) and contains ~20 occurrences of the one-hot ladder `40 20 10 08 04 02 01`. Two hypotheses
-    are now KILLED, both reported by `scripts/decode-layout-map-matrix.ts` on every run: **"a family's bit-run
-    length equals its param count"** (REFUTED — the longest single-bit run is 7 and the smallest family has far
-    more params) and **"the region is a column-major one-bit-per-byte matrix"** (REFUTED — every
-    `start 0..72 × width 4..10` alignment was enumerated and none is violation-free; the best still leaves 92
-    multi-bit bytes).
-  - **`0x03[sel=01]` is a per-eid read whose bytes 5-7 are NOT stable identity.** Its reply is
-    `01 <eid> 00 00 00 <b5> <b6> <b7> 00…` with real per-eid content (`0x2a → 28 03`, `0x3a → 6f 0e 01`);
-    `sel=00` gives all zeros. The amp's byte 5 advances by **exactly +1 per write to that block** and is stable
-    across reads, while **`0x5e`'s advances +6 per READ with nothing written** — so "0x03 mirrors the block's
-    state" is NOT established, and the bypass question is OPEN in both directions, not answered.
-  - **The bypass arm that first read this nearly published the opposite.** Its first version compared
-    before/during/after a toggle and saw `6f → 70 → 71`, which reads as "carries live state" — but an unrelated
-    eid moved with no write near it. A before/during/after comparison **without a no-write baseline** cannot
-    attribute anything; the arm now runs a drift control (3 reads, nothing written) and 5 reads per stage, and
-    the superseded tap is kept as evidence of the trap. **Rule: measure the no-write baseline on the same rows
-    before believing a write moved them.**
-  - **`0x1b` is the stable one**: `sel=00` answers reproducible per-eid bytes, `sel=01` all zeros, and nothing
-    moved it on any read or write.
-
-  **ROUND 13 (same day) took `0x1b` apart and it is NOT a per-block flag query.** Evidence:
-  `query-subs-decode/README.md` (ROUND 13 section) + four more taps; tool `scripts/probe-1b-structure.ts`,
-  read-only, and the two table sweeps were re-run and reproduced their maps exactly.
-
-  - **The reply echoes the whole 5-byte address region at data 0-4** (`<at0>..<at4>`); with a zeroed tail the
-    content is data 5-7 and data 8-13 are zero. ROUND 12 read the head as "zero"; it is an echo.
-    **ROUND 14 corrected the byte count — see below: with a selector set the content runs to data 9.**
-  - **Address bytes 9 and 11 are mode SELECTORS** (each for every value 1..15 tested). **Address byte 10 walks a
-    value table** — 23 distinct values over `0x00..0x3f` on the delay, 37 on the amp, and it produces values
-    (`4b 19 03`, `7c 0f 00`) that the 96-eid sweep never does. The byte-10 table is **joint with the eid, not
-    global** (the two maps do not correspond), which refutes "at[3] indexes a shared family table".
-  - **Three hypotheses killed in ROUND 13**: one-family-one-value, placed/unplaced sentinel, and sized-by-param-
-    count (the amp has 143 parameters and reads **0 bits**; OUTPUT has 26 and reads 15).
-  - ⇒ **Upstream's name PARAM FLAGS is unsupported by anything measured** and now looks wrong: a flags reply
-    would not depend on three address bytes this way. `0x1b` is an *addressed read of a table*.
-  - ⚠ **ROUND 13's quoted "fixed values" are NOT fixed — corrected by ROUND 14 (same day), do not quote them.**
-    See the ROUND 14 block below and `query-subs-decode/README.md` (ROUND 14 section).
-
-  **ROUND 14 (same day, task 1 of the handover) — the "two fixed records" are not fixed, and `0x2e` reads the
-  same table.** Evidence: `query-subs-decode/README.md` (ROUND 14 section), taps `1b-fixed-records.tap` +
-  `1b-address-selectors-rerun.tap`, console log `review-2026-10-12/probe-1b-fixed-records.out`, tool
-  `scripts/probe-1b-fixed-records.ts` (read-only; prints a ROUND 13 CLAIM CHECK on every run).
-
-  - **The content is NINE bytes** (data 5-9), not three: every selector reply carries `1b 14 4c 7a 0a` there.
-    ROUND 13's tool printed `data[0..7]` in selector mode, so bytes 8-13 were never read.
-  - **`byte 9 ≠ 0` is NOT `01 00 00`.** The same tool with a **byte-identical TX sequence** answered
-    `01 00 00 00 00 02 00 00 00` at 13:57 and `1b 14 4c 7a 0a 02 00 00 00` at 14:26, and the new tool reproduced
-    the latter at 14:50 — same preset name ("USA Mk IV", read with `fn=0x0d`), same 13 placed eids, no write by
-    any ROUND 12-14 probe. Only ONE record moved, and it is the one 64 exchanges carry: the 49 **unused eids**
-    (the hole/default record) plus the 15 `byte 9 ≠ 0` rows, which return exactly that same record. So byte 9
-    lands on the **hole record**, which is **time-varying with no trigger found**: it is not a fast clock
-    (identical at 14:20/14:26/14:50), the owner confirms he never touched the unit, `journalctl -k` shows the
-    FM3 stayed enumerated (no USB connect/disconnect since 10:43:41, so not a re-enumeration), and no ROUND 12-14
-    probe writes. **An uncommanded internal state change — a defect candidate, not a decode, and never a stable
-    identity.** `byte 11 ≠ 0` reproduced byte-for-byte: `1b 14 4c 7a 0a 00 00 00 00`.
-  - **Neither selector returns a device constant** (task 1(a)): with the selector fixed at 1 the content takes
-    **8** distinct values over `at[1]` = `0x00..0x3f` under byte 9 and **4** under byte 11.
-  - **`0x2e` exposes the SAME record** (task 1(b)): request byte 7 ∈ `0x01..0x0f` answers a 23-byte reply whose
-    data 5-9 are `1b 14 4c 7a 0a`, byte-identical to `0x1b[at4 ≠ 0]` on eid `0x46` in the same session, and the
-    selector value is ignored across 1..15. The long `0x2e` (byte 7 = 0) does not contain that run. Cross-check
-    that holds: `0x2e[sel=1]`'s `02`-trailer eids are **exactly** the 16 eids whose zeroed-tail `0x1b` record is
-    the default/hole record — the eid space's holes are visible from two sub-actions.
-  - ⇒ **The "21 bits" framing is dead.**
-
-  **ROUND 14, tasks 2-4 — mostly CLOSED by an offline wave + one VERIFIED hardware run (`deleg_26247cbd`,
-  four read-only children; the parent session re-measured every claim before anything landed).**
-
-  - **Task 3 (`0x03` byte 5) is ANSWERED and it corrects ROUND 12.** `0x5e`'s byte 5 is a **free-running
-    counter at ≈93.8 units/s, mod 128**, sampled when the reply is built — **NOT "+6 per READ"**. Verified on
-    the unit by the parent: tap `03-cadence-5e.tap`, log `review-2026-10-12/probe-03-cadence.out`, tool
-    `scripts/probe-03-cadence.ts`. With **zero frames on the bus** for 20 s / 30 s the field moved **+85** and
-    **+1** (clock predicts 86/2, counter 6/6); 19 reads across 351 ms moved **+33** (clock 33, counter 114);
-    and in the same 20 s eid `0x3a` moved **0**, so it is not a global clock leaking into every reply. Six
-    units is simply 64 ms at 93.8/s — the old arm's fixed cadence. The "cannot separate a bypass-induced step
-    from drift" verdict is now *explained* rather than merely cautious; **nothing about the bypass flag
-    changes**.
-  - **Task 4 (`0x2e`'s ladder) is PARTLY answered: the region was never anonymous.** It IS `SUB_LAYOUT_MAP`
-    (`forgefx-midi/src/devices/gen3/simResponders.ts`) and the repo's own `parseFm3GridLayout` decodes its
-    TAIL to 13 cells whose effectIds are exactly the 13 placed eids (`SET-EQUAL=true`). All 20 one-hot ladders
-    sit in the 8-byte-periodic HEAD, which stays unexplained. Three further hypotheses died offline (ladders
-    are grid fields — no, they precede the grid region; record count = family count — no, 44 vs 46/47/40/48;
-    a family record indexes its params — impossible in 8 B against GLOBAL's 173). **The one falsifiable test
-    left is `H_head`** (move one block / toggle it, count how many of the ~44 head records change, with the
-    no-write drift control) — **not yet run**.
-  - **Task 2 (the content bytes) is SPECIFIED but not run.** The symmetry test is now mechanical: sweep
-    `at1 = 0x00..0x3f` with `at3` fixed non-zero for two different `at3` values, and look for a translation of
-    the `at3` map at fixed eid — "translates" iff some shift gives `mismatch = 0` with `overlap >= 32`,
-    "unrelated" iff the best ratio is ≥ 0.5 (chance ≈ 0.86). No existing tap contains that arm (0 addresses
-    have `at3 != 0` with `at1` varying), so it needs one read-only run; the stability half needs an anchor set
-    read 5× per stage across a scene change with a no-write drift control. Also confirmed: at4=1 gives **5**
-    distinct 9-byte tokens (the old "4" counted only the first three bytes), splitting on the `02`/`03`
-    trailer.
-  - **Independent re-derivation agrees** with task 1's core numbers (64 differing exchanges, byte-identical
-    TX sequences, the 49-eid move set, 9 content bytes, the hole set) — its two flagged "disagreements" were
-    definitional (a different predicate: "differs from the modal" vs "is the hole record"), not conflicts.
-
-  - **Task 2's SYMMETRY half is RUN and positive-negative: `H_FLAT` is REFUTED.** Five 64-row sweeps
-    (`probe-1b-symmetry.ts`, READ-ONLY, tap `1b-symmetry.tap`, log `review-2026-10-12/probe-1b-symmetry.out`).
-    The flat-index reading predicts a shift of exactly `D − E`; at that shift the mismatch is **0.71–0.93** over
-    the rows that exist, never 0, and for `E = 0x46` the predicted shift (−69) falls outside a ±63 scan so that
-    pair cannot test it at all. `V(0x46)` = 23 distinct and `V(0x3a)` = 37 distinct reproduce ROUND 13's maps
-    exactly. The positive content is the same-axis rows: moving at3 `0x00 → 0x01` changes **11 of 64** rows of
-    the at1 axis and `0x01 → 0x08` changes **13 of 64**, so **at3 perturbs the at1-keyed records** rather than
-    indexing a shared table. A residual above-chance agreement at an unpredicted shift is recorded as
-    **unexplained, not as a finding** (both maps are dominated by their modal token, which can produce it alone).
-  - **Task 2's STABILITY half is NOT run: it needs a scene change (`fn=0x0c`), i.e. a WRITE.** The tool holds it
-    behind `--with-scene` and refuses by default; the anchor set and four-stage design are in the handover.
-    **A write needs the owner's explicit go-ahead** — the same class as the `H_head` bypass toggle.
-
-  - **Task 2's STABILITY half is RUN (owner authorised the scene write).** `probe-1b-symmetry.ts --with-scene`,
-    one self-restoring scene change, 8 anchors × 5 reads × 4 stages (A, A′ no-write control, B scene 1, C
-    restored); every anchor was stable within every stage, so the gate passed. **Verdict `H_SCENE_DEPENDENT`,
-    from ONE anchor of eight**: `C9(0x46, at3=0/1/8)`, `0x2a`, `0x3a`, `0x25`, `0x2e` are all identical across
-    the scene change (the `0x1b` content is NOT scene state), and only the hole/default record moved, reverting
-    on restore.
-  - **`H_head` is RUN (owner authorised the bypass toggle) and it lands the null result.** The region does
-    **not** carry bypass state: **0 of 44 head records and 0 tail grid cells changed** while the write was
-    proven landed and restored through the `fn=0x13` status dump (a different path), with the index mapping
-    cross-checked first (content 576B = head 355B + tail 221B). Instrument
-    `scripts/probe-2e-head-bypass.ts` → `scripts/diff-2e-head-vs-grid.ts --mask 22,23,24`; the mask is
-    required because the per-read volatile trio sits inside head records #2/#3. Since a scene switch does not
-    change grid structure either, the remaining `H_head` question needs a **PLACEMENT** change (moving a block
-    between cells) — a structural preset edit whose only restore oracle is the same reply being diffed.
-    **Proposed, not run.**
-  - **NEW DECODE — the "hole/default" record's first byte IS THE SCENE INDEX, 8 for 8.** Tool
-    `scripts/probe-hole-vs-scene.ts` (one self-restoring scene write per step, original restored and re-read),
-    tap `1b-hole-vs-scene.tap`. Scene s → `s 00 00 00 00 02 00 00 00`, eight distinct, control anchor `0x46`
-    unmoved. **This revises the earlier "uncommanded state change"**: the 13:18–13:57 value
-    `01 00 00 00 00 02` is exactly the scene-1 value, so a scene change between 13:57 and 14:20 explains that
-    half of the move. **Still unexplained:** `1b 14 4c 7a 0a 02` (read 14:20–≈15:2x), whose first byte `0x1b`
-    is not a legal scene index — the field has at least two regimes and the map holds in the current one.
-  - **⇒ Standing instrument to add:** every probe should log (hole record, `fn=0x0d` preset, `fn=0x13` placed
-    set, **scene index**) — four frames that date the next regime change instead of costing a round.
-
-  **Remaining work: a PLACEMENT-change arm for `H_head` (proposed, not run), the hole-record regime question,
-  and the standing read.** All other writes the owner authorised have been run and restored.
-
 **Blocked on hardware (an FM3 / the Deck must be attached)**
 
-- **The `0x64` write-refusal latency question (Q5) — MEASURED 2026-10-08, and the framing was wrong twice
-  over.** The probe now runs **two arms**, and both were run on the unit (3 times, consistent):
-  1. **an unknown effect id** (bogus eid 16382) — NOT refused: the device answers with a reply frame
-     **1–2 ms** after the write, and that reply is **not an echo of what was sent** (asked for value
-     0, the reply carries different value bytes). So it is neither a refusal nor an acceptance;
-  2. **a REAL param with an OUT-OF-RANGE value** (Cab 2 Mute/Solo, a 3-option enum, written 900) — also
-     NOT refused: it replies in **12–14 ms**, and the read-back shows the unit **stored 2** — the value
-     was **silently CLAMPED and applied**, replacing what was sent.
-  **So neither arm provokes a `0x64`, and the FM3's answer to a bad write is SUBSTITUTION, not rejection.**
-  The 250 ms write-confirm window is **not marginal**: every reply arrived in **1–14 ms** — but note that
-  250–266 ms is what a `request()` *reports*, because the transport resolves on a **quiet gap** and does
-  not timestamp frames; the probe now times arrivals itself (via `onFrame`), which is the only reason the
-  real number is known. The item's own lesson stands and is now sharper: **absence of a refusal is not
-  acceptance** — and, worse, a non-refusal reply is not evidence the value you sent is the value in force.
-  **What closing the refusal path itself would still require:** a write the device genuinely rejects
-  (probably not reachable from the param-write opcode), or the editor's own refusal handling captured.
-- **§3.7 Cab 2 Mute/Solo write — CLOSED (2026-10-08) with TWO independent witnesses.** The gap was that the
-  probe read the original and the write-back on the SAME path, so it could prove the write landed but not that
-  it had read the unit's real state. Both gaps are now covered, neither by that path:
-  1. **The human eye.** The wire read said Cab 2 Mute/Solo = `1` (MUTE); Andy looked at the unit and reported
-     it on MUTE — the read and the front panel agree, so the original was captured correctly. Then the write
-     was run slowly (`scripts/watch-cab-mute.ts --cycles 1 --hold 8`): the unit showed the change and he
-     confirmed it ("I saw it change"), and it was left back at MUTE as it started.
-  2. **The device's own UNSOLICITED burst.** As the value moved, the unit PUSHED a `0x74/0x75/0x75/0x76`
-     burst naming the cab block (eid 62, 424 items) — a different mechanism from the bulk read, so the write
-     reaching the cab block is corroborated on a second path.
-     HONEST LIMIT: the burst decoder attributed **no moved param** inside that burst, so the burst corroborates
-     "the cab block reacted", NOT "pid 25 moved". The named witness for the param itself is the human.
-- **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck. **Andy reports it worked the
-  last time he used it on the unit** (his observation, 2026-10-08) — recorded as his eyewitness rather than
-  re-tested; a wire-level capture has still never been taken for it.
-- **§2.5 user-cab IR upload — SOLVED (captured + load-tested 2026-10-08).** The `.syx` export IS the
-  wire stream: a USBPcap capture of FM3-Edit 1.07.16 loading an IR onto fw 13.0 shows `0x7A` + 8×`0x7B`
-  (byte-identical to the file) + `0x7C`, each answered `0x64 <fn> 00 <fn&0x0f>`. The **only** difference
-  from the export is the start frame's first two bytes: the file carries `7F 7F` ("no destination") and
-  the editor writes a real `[index, page]` — page `0x10`–`0x13` = the 512 user banks, `0x20` =
-  scratchpad. Load test: sending the file's frames with a written destination drew the **same acks the
-  editor gets** (start + 8 data + end), so `uploadCabIr` now requires a destination, **refuses the
-  scratchpad** (measured-refused in every probe, as is the `7F 7F` sentinel), and reports `ok` from the
-  acks rather than from "the frames were handed over".
-  **Confirmed on the unit by Andy (2026-10-08):** the slot the load test wrote (user slot 1, which
-  already held that IR) **reads the same and sounds the same** — so the verbatim path is confirmed
-  end-to-end from both sides of the glass, not just from the acks. (A byte-identical re-upload into the
-  same slot is a weak content test by construction; what it establishes is that the path stores and does
-  not corrupt, which is the property that was in doubt.)
-  **A RENAME IS SOLVED (measured 2026-10-08)** — see §2.5e: the close frame is a checksum over the
-  container's content, `buildCabIrSyx` recomputes it for an edit, and a renamed container uploaded to an
-  EMPTY slot drew close-code `0x00` with the slot becoming POPULATED. The shipped rename that carried the
-  old close was not merely "unverified" — it was **silently discarded by the unit**.
-  **Still open:** there is **no cab-NAME read-back** (`fn=0x12` is refused), but there IS a **slot-state
-  read-back** — see below. Do not re-derive any of this from the gen-2 wiki page.
+- **The `0x64` write-refusal latency question (Q5) — the framing was wrong twice over.** Measured on the unit
+  (three times, consistent), two arms: an **unknown effect id** (bogus eid 16382) is NOT refused — the device
+  answers 1–2 ms later, and the reply is **not an echo of what was sent**; a **real param with an
+  OUT-OF-RANGE value** (Cab 2 Mute/Solo, a 3-option enum, written 900) is NOT refused either — it replies in
+  12–14 ms and the read-back shows the unit **stored 2**, i.e. the value was **silently CLAMPED and applied**.
+  So the FM3's answer to a bad write is **SUBSTITUTION, not rejection**, and the 250 ms write-confirm window is
+  **not marginal** (every reply arrived 1–14 ms; a `request()` reports 250–266 ms only because the transport
+  resolves on a **quiet gap** and does not timestamp frames — the probe times arrivals itself, via `onFrame`).
+  **What closing the refusal path itself would still require:** a write the device genuinely rejects (probably
+  not reachable from the param-write opcode), or the editor's own refusal handling captured. The item's own
+  lesson stands and is sharper: **absence of a refusal is not acceptance** — and a non-refusal reply is not
+  evidence the value you sent is the value in force.
+- **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck. Andy reports it worked the last
+  time he used it on the unit (his observation, 2026-10-08), recorded as his eyewitness rather than re-tested;
+  a wire-level capture has still never been taken for it.
 
-- **§2.5e the close frame is a CONTENT CHECK, and a mismatch makes the unit DISCARD the upload —
-  MEASURED in four controlled arms (2026-10-08).** Each arm uploaded to an EMPTY user slot, so "was it
-  stored" is observable through the slot-state read-back rather than inferred from acks:
+**Blocked on a capture / an owner-authorised device edit (offline-reproducible once provided)**
 
-  | arm | container sent | close frame answered | destination slot afterwards |
-  |---|---|---|---|
-  | A | verbatim specimen | `0x00` | **POPULATED** (region == slots 1/12) |
-  | B | name rewritten, close carried verbatim | `0x13` | **still EMPTY** |
-  | C | samples zeroed (and a one-byte-spike variant) | `0x13` | **still EMPTY** |
-  | D | content unchanged, close value mutated | `0x13` | **still EMPTY** |
+- **The `fn=0x01` sub-action decode (`0x03` / `0x1b` / `0x2e`) — narrowed hard; three things still open.** The
+  three sub-actions the editor uses constantly are **ANSWERED BY THE UNIT** (no longer unmapped and no longer
+  capture-gated). Evidence: `ForgeFX/server/test/fixtures/query-subs-decode/` (taps + a README that states what
+  each row measures, kept per round) and the read-only observers `scripts/probe-1b-*.ts`,
+  `scripts/probe-2e-*.ts`, `scripts/probe-03-cadence.ts`, `scripts/probe-hole-vs-scene.ts`. Settled, all
+  measured: `0x2e` **IS** `SUB_LAYOUT_MAP` (its tail decodes to the 13 placed eids via `parseFm3GridLayout`;
+  only its 8-byte-periodic HEAD stays unexplained); `0x03` byte 5 is a free-running **counter at ≈93.8 units/s,
+  mod 128**, NOT per-read; `0x1b` is an **addressed table read** (upstream's name "PARAM FLAGS" is unsupported
+  by anything measured); the "hole/default" record's first byte **IS the scene index** (8 for 8); the region
+  carries **no bypass state** (every head record and tail grid cell unchanged under the bypass toggle) and is
+  **scene-invariant**. Still open:
+  1. **the `H_head` PLACEMENT-change arm** — a structural preset edit (move a block between cells) whose only
+     restore oracle is the same reply being diffed. Proposed, not run; needs the owner's explicit go-ahead
+     (the same class as the bypass toggle that was authorised and run).
+  2. **the hole-record second regime** — the value `1b 14 4c 7a 0a 02` has a first byte that is not a legal
+     scene index, so the field has at least two regimes and the scene-index map holds only in the current one.
+  3. **the standing read to add** — every probe should log (hole record, `fn=0x0d` preset, `fn=0x13` placed set,
+     **scene index**) so the next regime change is dated instead of costing a round.
 
-  So `0x00` = the container's close value MATCHES its content (stored), and `0x13` = mismatch → the whole
-  upload is **DISCARDED and the destination is left untouched**. Every frame is still acknowledged in the
-  `0x13` arms — which is the trap: **reading only the frame acks reports "acknowledged" for an upload the
-  device threw away.** The driver now requires the `0x00` close answer for `ok` and reports
-  `discarded`/`closeCode`/`reason`; Axis's strip says "DISCARDED by the unit — nothing was stored".
-  **THE ENCODING IS DECODED (2026-10-08) — the close value is the XOR of every decoded 32-bit chunk word
-  of the data frames, the 8 NAME chunks INCLUDED (2048 words on both geometries), re-encoded as five
-  LSB-first septets.** Reproduced byte for byte by two independent implementations against **11
-  containers** spanning model bytes `0x03`, `0x07`, `0x10`, `0x11` and both frame geometries (66×32-chunk
-  and 10×256-chunk). Falsified on the way: sum, CRC-32/CRC-32c, Adler-32, FNV-1a, DJB2, a length field,
-  an opaque constant, samples-only coverage, and the last byte being a separate flag (it is the top septet
-  of the same 32-bit value). Shipped as `cabIrContentXor` / `computeCabIrClosePayload`; `buildCabIrSyx`
-  recomputes the close for any edit (a no-op for an untouched container), and the driver **refuses to send
-  a container it knows the unit will discard** unless asked to measure that. So an EDITED container is now
-  possible — a rename is measured-working, and a converted `.wav`/`.ir` is no longer blocked by this.
+**Closed this cycle — demoted to one-line pointers (the narrative lives in the commit history)**
 
-- **§2.5b per-slot cab state — the read-back that exists, MEASURED and now SHIPPED (2026-10-08).** `fn=0x01 sub=0x4B` takes the **same `[index, page]` pair** as the IR
-  upload's start frame (byte 12 = index, byte 13 = page; `0x10`–`0x13` user banks, `0x20` scratchpad);
-  the editor issues it for all 528 slots (512 user + 16 scratchpad) and each draws a 60-byte `01 4B`
-  reply. Decoded from that reply: **payload byte 6 is `0x01` for a POPULATED slot and `0x7F` for an empty
-  one**, and payload bytes 15–29 are a **content-derived region** — the two slots holding the same IR
-  (U0001 and U0012) share it byte for byte, while all 500 empty user slots and all 16 empty scratchpad
-  slots share one identical payload. Confirmed on the live unit with
-  `scripts/probe-cab-slot-state.ts`: U0001–U0012 `0x01`, U0013+ and the scratchpad `0x7F`, 0 silent.
-  **CORRECTED 2026-10-08 — the region is NAME-derived, not sample-derived.** Measured with three
-  containers that share the name "LT TV Mix 7" but hold wildly different samples (the real IR, an
-  all-zero sample set and a one-byte spike): all three give an IDENTICAL region, while the SAME samples
-  under a renamed container give a DIFFERENT one. So the region follows the NAME — which means it CAN
-  confirm a rename (it moves) but CANNOT tell two IRs that share a name apart. It is still **not a name
-  oracle**: no 4-per-5-septet, 8-per-7 or plain-7-bit decoding at any offset yields the known name, and
-  its encoding is undecoded. Report **"populated"**, never "holds `<name>`". The EMPTY-slot payload is
-  **not stable across sessions** (the same empty slots read `…3e 00 1e 04 03 38…` in the morning and
-  `…3e 00 0d 26 70…` hours later) — treat it as unstable and never build on its bytes. Natural next
-  increment: a read-only `queryCabSlot` driver method + route that returns the raw flag/region and the
-  measured populated/empty reading.
-  **Shipped:** the codec (`forgefx-midi/devices/gen3/cabSlotState.ts`), `Gen3Driver.queryCabSlots()`,
-  `GET /cab/slots` on both surfaces (`?user=N` or `?page=&from=&to=`, sweep capped at 128), and Axis's
-  IR-import strip now reads the destination **before and after** the send and reports the unit's own
-  answer ("reads OCCUPIED now, it was empty before") instead of leaving confirmation to a human.
-  **Verified live:** an upload to user slot 13 (which was empty) drew the full ack set AND then read
-  back `populated: true` with a content region **byte-identical to slots 1 and 12**, which hold the same
-  IR — the content test the byte-identical replay could not do. `?page=0x30` answers a clean 400.
+- **§2.2 per-preset Performance Pages — SOLVED, read AND write, verified on the unit** (`5030535`, `215576c`,
+  `1a9328f`); the read-only route and the Device-Tools panel shipped with it.
+- **§2.5 user-cab IR upload — SOLVED, captured + load-tested** (`fa75d77`, `127d516`); the close frame is a
+  **content check** (`cabIrContentXor` / `computeCabIrClosePayload`) — a mismatched close makes the unit
+  **DISCARD** the upload.
+- **§2.5b per-slot cab state read-back — measured and SHIPPED** (`1fe4d75`, `a9ab856`): `cabSlotState.ts`,
+  `Gen3Driver.queryCabSlots()`, `GET /cab/slots`.
+- **§2.5d cab-slot DELETE — SOLVED, no capture needed** (`4945aef`): the blank `0x7F` fill container, plus
+  `Gen3Driver.clearCabSlot` and `POST /cab/slots/clear`.
+- **§2.5c the `0x4B` region IS the slot NAME — decoded and shipped** (`a0a40e8`, `7750e08`):
+  `decodeCabSlotName`, carried on `CabSlotStateResult.name`; the cab picker shows real user-slot names.
+- **§2.7 server-side cab-IR byte library — SHIPPED** (`GET /cab/library`, `GET /cab/library/:id/bytes`).
+- **§3.7 Cab 2 Mute/Solo write — CLOSED with two independent witnesses** (the human eye, and the device's own
+  unsolicited `0x74/0x75/0x75/0x76` burst naming the cab block — a different mechanism from the bulk read).
+- **§3.8 per-preset FC/switch definitions — DECODED AND WIRED** (`7d98e94`, `fafd1be`, `cdaaf14`, `3131a62`);
+  the geometry is the per-index observed-offset table in §3.8 at the end of this file (`PP_SWITCH_COUNT`
+  remains an explicit assumption).
 
-- **§2.5d cab-slot DELETE — SOLVED, and NO capture was needed (2026-10-08).** There is no remove opcode,
-  but there IS a delete: a container whose entire chunk area is **`0x7F`** — the blank fill Fractal's own
-  loader ships as `empty_ir.syx` — is ACCEPTED (all 2048 words identical ⇒ their XOR is 0 ⇒ close
-  `00 00 00 00 00`) and the destination slot then reads **EMPTY**, indistinguishable from a
-  never-written slot. Verified on the unit with the slot-state read-back: an already-empty slot stayed
-  empty, and **eight slots that held real IRs flipped `populated` → `empty`** while an untouched
-  neighbour kept reading populated. Shipped as `buildBlankCabIrContainer` (refuses an unmeasured
-  geometry), `Gen3Driver.clearCabSlot` (fail-closed: `ok` needs the `0x00` close AND a post-read of
-  `empty`), `POST /cab/slots/clear` on both surfaces (registered in the write gate, refused in remote
-  mode), an **erase (×) control** on occupied rows in Axis's USER bank, and `scripts/clear-cab-slot.ts`
-  (dry-run by default). Verified end-to-end through the routes: upload → populated → clear → `ok:true`,
-  `wasPopulated:true`, `nowPopulated:false`.
-  **The earlier "delete-by-zeroing" test does NOT generalise** — zeroing the *samples* keeps a real name,
-  is stored, and reads *populated* (a silent IR). The blank FILL is the device's own "unwritten" pattern,
-  which is why it reads empty.
-  **Still open in the Manage Cabs family:** *reorder* and whether FM3-Edit reveals a user-slot NAME
-  (§2.5c). Both now depend on a **slot-data read**, and that has been PROBED for (§2.5f) — it does not
-  appear to exist. A capture of Manage Cabs renaming or reordering is what would settle them.
+## Not possible on FM3 / parked — do not re-open
 
-- **§2.5f is there a slot-DATA read (or a user-slot name)? — PROBED 2026-10-08, boundary now measured.**
-  Two families were swept, read-shaped and bounded, guarded by a full before/after bank snapshot:
-  1. ~~**`fn=0x7D/0x7E/0x7F/0x79` with the `[index, page]` pair** — every one REFUSED with `0x64`~~ —
-     **WITHDRAWN as evidence about cabs (2026-10-08).** Those function bytes are the **FIRMWARE-UPDATE
-     family**, not cab opcodes: their refusals carry **image codes** (`0x11` image size incorrect, `0x14`
-     buffer overrun), and probing them blind left the unit in its bootloader demanding a reboot (see the
-     incident note below and `ForgeFX/docs/incident-2026-10-08.md`). They refuse a *cab-shaped* payload
-     because it is not a firmware image — which says nothing about cabs either way. **No conclusion about a
-     cab slot-data read may rest on this arm.**
-  2. **`fn=0x01` sub-actions adjacent to the state query** — `0x4A`, `0x4C`, `0x4D`, `0x4E` are all
-     IMPLEMENTED and answer, but **none carries a name or slot data**: `0x4A`/`0x4E` are identical for
-     every slot including empty ones, `0x4D` is identical across slots (33 bytes), and `0x4C` varies per
-     slot but contains no readable text and its meaning is undecoded. Mapped in
-     `CAB_SLOT_FN_SUBACTIONS`.
-  **So the surviving evidence for "no slot-data read" is arm 2 alone** — and it is weaker than it was
-  written: the editor's cab list is served entirely by `fn=0x01 sub=0x4B` (measured in the refresh capture:
-  1056 queries, no other read), so either the 15-byte region decodes to the name or FM3-Edit keeps its own
-  record. Until one of those is settled, "no slot-data read exists" stays a **probable** reading, not a
-  measured one. The claim that stood on arm 1 is retracted. **Probable, and very likely by design** — extractable user IR data is
-  exactly what protects commercial IR vendors. Consequence: **reorder cannot be done by read+write**
-  (we cannot read a slot's samples), and a user-slot NAME is not obtainable from any per-slot reply
-  probed. Both need the device's own op, and the fixture for that is a capture of FM3-Edit renaming or
-  reordering a user cab.
-  **Instrument:** `scripts/snapshot-cab-bank.ts` (save/diff) is the guard for any future slot probe, and
-  it compares only the region's **stable 9-byte prefix** — the tail drifts on its own (the same empty
-  slots read `…00 1e 04 03 38…` in the morning and `…00 0d 26 70…` hours later), and a naive full-region
-  diff reports 600+ "changes" that are nothing but that drift, hiding any real one inside the noise.
-  `scripts/probe-cab-subs.ts` and `scripts/probe-cab-data-read.ts` are the probes themselves.
+The owner has authorised these as **labelled permanent limitations / parked decisions**, removed from the open
+backlog. Each carries its reason and an evidence pointer. Do not re-open or re-litigate any of them.
 
-- **§2.7 server-side cab-IR BYTE LIBRARY — the bytes of IRs uploaded THROUGH Axis, persisted so they can
-  be moved / restored / re-uploaded without re-finding the file (2026-10-08).** A user-cab **move** is a
-  device-side no-op: FM3-Edit performs it as two container uploads (the IR re-uploaded to the
-  destination, the source blanked — §2.5d), so it needs the IR's **bytes**. Today those bytes exist only
-  in the file the user picked, so once an IR is on the unit the stack cannot move it without the user
-  re-finding that file.
-  **Storage:** no database, no new dependency. On a verified upload (`ok` — every frame acked AND the
-  close answered `0x00`) the driver's `uploadCabIr` result triggers `saveCabIr`, which writes one
-  metadata doc per entry into the store collection `cabLibrary` (an index — `store/cabLibrary.json` on
-  Node) and the bytes as a **content-addressed blob** `cab-<sha256>` in the same blob dir the preset
-  versions use (identical bytes stored once). It survives a restart and skips + counts a malformed /
-  partial entry rather than crashing a read; an entry whose blob is missing lists `available:false` and
-  its bytes route 404s. A **discarded** upload (`ok:false`) is NOT stored — a move must not resurrect an
-  IR the unit rejected. **Cap: 200 entries** (`CAB_LIBRARY_MAX`), oldest evicted, blob GC'd when
-  unreferenced.
-  **SCOPE — the failure mode this avoids:** there is no slot-DATA read (§2.5f), so the library holds
-  **only IRs uploaded through Axis**. IRs that were already on the unit (e.g. a preloaded "Res Psycho"
-  set) are **not** captured. Every surface says so verbatim (`CAB_LIBRARY_SCOPE`) — never "your cab
-  library". **Shipped:** `ForgeFX/server/src/runtime/cabLibrary.ts`, `GET /cab/library` +
-  `GET /cab/library/:id/bytes` on **both** route surfaces (plain GET reads — not in the write gate, not
-  in the remote-refusal list), and Axis's IR strip gains a **"⇄ Move stored IR…"** panel that prefers the
-  stored bytes (no file needed) and, when the source slot is not in the library, says so and falls back
-  to ＋ Import IR… — never fails silently (`src/lib/cabMove.ts`).
-
-- **§2.5c why a user IR shows no NAME in Axis (FM3-Edit shows one) — ANSWERED (2026-10-08).** Three
-  measured facts, none of them an oversight to "just fix":
-  1. the offline cache builds `cabIrs` from **FACTORY 1/2 + LEGACY only** — `CAB_BANK_IDS` deliberately
-     excludes `0xfff3+`, the USER/SCRATCHPAD banks, because those are the donor unit's own IR library
-     rather than shippable firmware content;
-  2. the live path, `Gen3Driver#liveCabIrs()`, was an unimplemented **stub returning `{}`**;
-  3. the cab/IR bank name tables are the device's **special table records (ids ≥ 0xff00) and are NOT
-     param-addressable** — probed live: a definition query for `0xfff0` (FACTORY 1) and `0xfff3` (USER)
-     at the CABINET block answers nothing, exactly as `liveWalk`'s coverage note documents ("absent from
-     a live walk by design"). They exist only in the device's `.cache` byte dump.
-  Neither capture contains the name in ANY simple encoding (ascii / 5-septet / 8-per-7, all offsets), the
-  per-slot `0x4B` reply is state not text, and the device's own formatted value for a user-cab reference
-  is `"#11"` — an index, not a name.
-
-  **CORRECTED 2026-10-08 (the earlier conclusion below was WRONG, and the test that disproved it took 60
-  seconds).** A silent, correctly-checksummed container named **`LYKOS-NAMETEST`** was written to `U0030`
-  **over the wire** — FM3-Edit had never seen the file, never uploaded it, and had no record of it. Andy
-  opened FM3-Edit and it displayed **`LYKOS-NAMETEST`**. So **the editor reads the name FROM THE UNIT.** The
-  previous conclusion — "FM3-Edit most plausibly displays names from its own local record" — is retracted.
-  Consequences, all measured:
-  1. **A user-cab name IS readable over the wire**, by some path this stack has not found yet. Axis therefore
-     *can* eventually show real names; it is a missing read, not a device limitation.
-  2. **The `0x4B` region IS the name — SOLVED, and shipped (2026-10-08, same day).** The field carries the
-     slot's 32-character name **re-packed for the wire**: each character as an 8-bit value, concatenated
-     **MSB-first** into one bit stream, and re-split into **7-bit septets** (SysEx payload bytes must be
-     ≤ 0x7F), **NUL-terminated**. 32×8 = 256 bits → 37 septets, which is exactly the payload from byte 15 to
-     its end (52 − 15 = 37) — the geometry closes. `decodeCabSlotName` recovers it exactly, verified against
-     three independent names: `U0001`/`U0012` = `LT TV Mix 7` (owner-confirmed), `U0030` = `LYKOS-NAMETEST`
-     (written over the wire by the stack), and `U0002`–`U0011` = `Res Psycho 1`…`Res Psycho X` (nobody on this
-     host had supplied those, so the decode is not circular).
-     **THIS REPLACES a wrong interim conclusion.** It was argued twice that the region could not be a name —
-     "the encoding is undecoded, it is a fingerprint", then "a hash-like fingerprint, proved by the fact that
-     a name with E/S/T repeated twice each shows 14 distinct region bytes". That proof was invalid: a
-     **bit-level repack destroys per-character byte alignment**, so repeated letters have no reason to
-     repeat. A wrong inference, presented as proof, is the thing to remember here.
-     The earlier editor question is answered by the same field: the editor's cab list is served entirely by
-     `sub=0x4B` (1088 queries at connect — every slot), so it reads the names exactly as this decoder does.
-     One more measured detail: an **EMPTY** slot is not blank in that field — the unit puts the literal text
-     `<EMPTY>` there, followed by stale bytes that vary between slots and sessions. Only a `populated` slot's
-     name means anything, and the decoder stops at the terminator.
-  3. **Shipped for this:** `decodeCabSlotName` (+ golden cases on the device's own bytes, including the
-     `<EMPTY>` case), the name on `CabSlotStateResult` through the driver and `GET /cab/slots`, and the Axis
-     cab picker now showing **real names** for USER slots instead of "name not readable on this firmware".
-  4. **§2.5g REORDER — SOLVED, and it needs no new opcode (2026-10-08).** A capture of FM3-Edit's
-     *"move to a different slot"* contains **two ordinary container uploads and nothing else** that explains
-     it: the IR re-uploaded to the DESTINATION (`U0015` ← container named `LT TV Mix 7`, close `4d 12 08 5d
-     03`, consistent with its content) and **the SOURCE erased** (`U0012` ← a container whose name is
-     `"<EMPTY>"`). Both were reassembled from the capture and parsed with the shipped codec.
-     **Consequences, all measured:**
-     - **Reorder = upload to the destination + erase the source.** Both halves are already shipped
-       (`uploadCabIr`, the blank-container delete, each verified by the unit's own read-back), so a move is
-       implementable for any IR whose BYTES we have — no device-side move op exists to look for;
-     - **no slot-data read is involved.** The editor had the IR's bytes from its own library. That is exactly
-       why it can move a cab whose samples nobody can read, and why we cannot: the missing piece is the
-       bytes, not the opcode. `Res Psycho`-style cabs stay unmovable from here until a slot-data read exists
-       (still: none found);
-     - it also **explains the `"<EMPTY>"` text** in an empty slot's name field — that is the editor's erase
-       marker, stored by the unit, and it is why the name decoder must stop at the terminator;
-     - one frame remains **UNEXPLAINED and unprobed**: `fn=0x19` payload `0b 10 16` (once, during the move).
-       Recorded as a candidate "cab list changed" notice. It is NOT needed for the move, and it will not be
-       sent blind — that is how the unit ended up in its bootloader earlier today.
-  5. **What is still capture-gated is now `fn=0x19` alone.** The three sub-actions the editor uses constantly
-     (`0x03`, `0x1b`, `0x2e`) are answered by the unit and were narrowed again in ROUND 12 — see the
-     "surfaced by the capture analyser" item above and `ForgeFX/server/test/fixtures/query-subs-decode/`. None
-     of them is needed for names or for reorder. `U0030` still holds `LYKOS-NAMETEST` and
-     should be erased when convenient (blank-container delete, read-back verified).
-
-
-**Blocked on a capture / fixture (offline-possible once provided)**
-
-- **§2.2 per-preset Performance Pages — SOLVED, READ *and* WRITE, verified on the unit (2026-10-08).**
-  Layout (measured from a fixture pair — factory 406 vs the owner's copy 409 — by diffing the DECOMPRESSED
-  bodies; the raw dump diff is useless, the body is compressed):
-  ```
-  10 × u16 EFFECT ids  →  10 × u16 PARAM ids  →  32-byte-stride EFFECT labels  →  32-byte-stride PARAM labels
-  ```
-  `parsePerformPage` decodes it and `patchPerformSlot` writes it (tables AND labels in one write, because a
-  round trip that patched the tables alone left a STALE label — structurally valid, showing the wrong name).
-  Verified against a six-control fixture the owner built for the purpose (preset 410): Amp master volume,
-  Delay feedback, Reverb pre-delay, Reverb bypass, Cab proximity frequency, Drive tone decode to eids
-  58/70/66/66/62/118 with pids 11/10/9/22/41/2 — and pid 22 = REVERB_BYPASS is confirmed independently by
-  the profile. Seven golden cases pin the parser to that preset's own bytes.
-  **THE WRITE DIRECTION IS REAL:** a host-written, host-RECOMPRESSED dump was sent to the EDIT BUFFER and the
-  unit took it — the patched page read back from the device, twice (the second run restored the original).
-  This retires the long-standing caveat that a serialised dump was file-backup bytes rather than a verified
-  device-bound restore stream. Caveats that remain, all measured: a label longer than 32 bytes is truncated
-  ("Proximity Frequ"); an unassigned slot keeps STALE text from whatever occupied it before, so a label means
-  nothing unless the eid is non-zero.
-  **READ is now shown in Axis (2026-10-08):** the read-only route `GET /preset/perform` (shared handler
-  `performPageH` in `runtime/handlers.ts`, registered on BOTH surfaces) and the Device-Tools panel
-  `PerformPagePanel.svelte` (via `forgefx.performPage()`). Unassigned slots (effectId 0) render as
-  "unassigned" — their stale label text is blanked by `performPageView.ts`.
-  **The WRITE side is wired end to end (2026-10-08).** `PUT /preset/perform/:slot` (shared handler
-  `performSlotH`, registered on BOTH surfaces) exposes `DeviceDriver.setPerformSlot`, which is the proven
-  path as a method: dump the edit buffer → `patchPerformSlot` (ids AND labels together) → recompress +
-  rebuild + retarget to 0x3FFF → re-send frame-by-frame → **re-dump**. `ok` is the READ-BACK verdict, never
-  the absence of a rejection: a dump the unit silently ignores answers `{ok:false, reason:'readback-mismatch'}`
-  with the slot as it actually reads. The route is a DEVICE WRITE (read-only server → 403) and is
-  deliberately NOT `?dryRun`-previewable, because its frames come from a device READ — a dry-run request is
-  refused 400 `dry-run-unsupported` instead of being answered with a guaranteed decode failure, and a
-  preview can never fall through to a live write. `PerformPagePanel.svelte` gained a per-slot editor: an
-  EMPTY input means "leave this field alone" (never "write an empty label"), a non-numeric id is dropped
-  rather than sent, all-empty refuses to send, and after the write the panel re-reads the page and reports
-  the verdict — including "not saved; reloading the preset discards it", because the target is the EDIT
-  BUFFER. Suite: `drivers/perform-slot-write` (9 cases, incl. a stateful mock whose edit buffer ADOPTS what
-  is written to it — a mock that always echoes the patch would make every write look accepted).
-  Writing a *saved* preset slot is still proven only as far as the edit buffer is.
-- **§3.8 per-preset FC/switch definitions — DECODED AND WIRED (2026-10-08/09).** The block layout and the
-  per-switch target field are measured (see §3.8 at the end of this file); the route (`GET /preset/switches`,
-  `PUT /preset/switches/:index`), the shared handlers on BOTH route tables and the Axis panel all landed, and
-  the write rides the same recompress/reframe/retarget path the perform-page WRITE proves. The write bound is
-  per FIELD, not per index — see §3.8. The last two table rows are still unlabelled (cosmetic; bounded to
-  indices 8-16).
-- **§2.3 Setlists — PARKED.** Requires an FC-6/FC-12 foot controller, which Andy does not have.
-  Do not build.
-
-**Blocked on a new endpoint (out of scope for the offline rounds)**
-
-- **§2.7 Preset+Cab bundle / `.bnk` bank import** — the only cab route is `GET /cab/irs` (names);
-  nothing returns user-cab **bytes**, so a bundle needs a new server route.
-
-**Honestly impossible (no wire op — keep the honest negatives)**
-
-- **PRESET-slot** Move / Delete everywhere (no preset slot-erase op — §3.4; note this says nothing about
-  **cab** slots, see §2.5d), **Clear Preset** (no clear/init op),
-  **Scene MIDI block** (eid 190, zero calibration), **Devices / mirroring**, **MLM warning**
-  (stopped as unverifiable), **generic per-block Mute** (no served param — points at Bypass).
-  *CS MIDI is NOT in this list* — the P2.5 narrowing showed it is a *layout* gap (its trio
-  6979/6985/6986 serve and the exclusives render), and FC Config is PARTIAL via the
-  layout-widget rule; the P4 Control Switch group shipped. Only **Devices/mirroring** remains
-  genuinely wire-absent.
-- **N/A on FM3:** global blocks (Axe-Fx only), NAM Manager (Axe-Fx III only), IR Capture (does
-  not exist on these units).
+- **Clear Preset — no clear/init wire op exists.** The gen-3 write codec exposes no clear/init/edit-buffer-reset,
+  the server route table has no clear/erase route, and `src/lib/presetSlotOps.ts` documents "no slot-erase op
+  at all". Evidence: audit §2.7.
+- **Preset-slot Move / Delete — the FM3 wire protocol exposes no slot copy/erase primitive.** The current
+  behaviour is honest disabled entries, not fakes. The Manage-Cabs clear/blank trick
+  (`buildBlankCabIrContainer`) applies to **CAB** slots only, never preset slots. Evidence: audit §2.4, §3.4.
+- **MIDI / Remote per-slot PC + CC mapping tables, and the Scene MIDI block — impossible on the served param
+  set.** `GLOBAL_MIDI_MAPPING` (pid 97) is only the enable; the mapping table is a structured array with no wire
+  param. The Scene MIDI block (eid 190, "MIDIBLOCK") is virtual and carries zero ranges / enum vocab, so
+  `blockParams(190)` is empty — the section shows honest disabled rows. Evidence: audit §2.8, `MIDI_REMOTE_GAPS`.
+- **FC Devices / mirroring — no served param exposes it.** The MIDI/Remote section renders the *served* GLOBAL
+  params; Devices/mirroring is genuinely wire-absent. (CS MIDI and FC Config are **not** parked — CS MIDI is a
+  *layout* gap and FC Config is partial via the layout-widget rule.) Evidence: audit §2.8.
+- **`.bnk` bank import, and Preset+Cab bundle export/import — nothing returns user-cab BYTES.** The only cab
+  route is `GET /cab/irs` (names); a bundle would need a new device read that does not exist. Evidence: audit §2.7.
+- **Setlists / Songs — requires an FC-6 or FC-12 foot controller**, which the owner does not own; not a target
+  for this rig. Evidence: audit §2.3 (PARKED, no FC).
+- **Global blocks — Axe-Fx only. NAM Manager — Axe-Fx III only** (FM3 support unconfirmed — do not plan for it).
+  Evidence: audit §7 "Deferred / N/A on FM3".
+- **AM4 — out of scope by owner decision** (he owns an FM3 only). The `/am4/*` alias fallback was removed
+  outright; the AM4 load-timeout question is closed *by decision, not by verification*. Do not propose AM4
+  testing or a probe run. Evidence: Decisions index.
+- **Manage Cabs REORDER and reading a user-slot NAME off the unit — parked; the general case needs a capture of
+  FM3-Edit doing it.** There is **no slot-DATA read** (probed — §2.5f; probable by design, since extractable
+  user IR data is what protects commercial IR vendors), so a cab already on the unit has no sample-byte source
+  here. *Which is which, measured:* **rename** is measured-working (§2.5e); **clear/delete** is shipped (§2.5d);
+  **move** is upload-to-destination + erase-source (§2.5g, no new opcode); **import** is the `.syx` path — these
+  ARE possible and proceed. A user slot's **NAME** is decoded from the unit's own `0x4B` reply
+  (`CabSlotStateResult.name`; the cab picker shows it). What stays parked without a capture of FM3-Edit: a
+  **bank-wide REORDER across cabs whose bytes we do not hold**, and any operation that would need a slot's
+  samples. Evidence: §2.5e/§2.5f/§2.5g, audit §2.5.
+- **IR Capture — does not exist on these units** (no IR-capture feature on the FM3; FM3-Edit's capture is
+  front-panel / III-editor). Already corrected in the audit; recorded here so it is not re-litigated.
+  Evidence: audit §7.
+- **MLM warning** — stopped as unverifiable. **Generic per-block Mute** — no served param; the editor's Mute
+  points at Bypass and is honestly disabled. Evidence: audit §3.5, §3.1.
 
 ## Decisions index
 
@@ -621,7 +240,7 @@ claims already found to be non-issues.
 - **Edit-watch sweep vs channel-A baseline** (`gen3.ts` `#editSnapshot` / `#watchedChannel`): the
   sweep slice and its baseline are *both* channel 0, so a front-panel edit on channel B–D emits no
   event. The `watchedChannel` branch is for the open block, which is the case that needed fixing.
-- **"Axis ignores the save result"**: `save()` reads `r.ok` (`editor.svelte.ts:2931`). Only the
+- **"Axis ignores the save result"**: `save()` reads `r.ok` (in `editor.svelte.ts`). Only the
   write-confirmation window is exposed — and that is **250 ms** since `987dfb7`, not 120 ms.
 - **`GLOBAL_REMOTE_MUTE` as a rendering gap**: 0 layout refs in the FM3 layout — unserved, but
   also unreferenced.
