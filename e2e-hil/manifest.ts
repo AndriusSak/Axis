@@ -112,6 +112,20 @@ export const MANIFEST: readonly ManifestEntry[] = [
     spec: 'specs/preset-switch-naming.spec.ts',
     implemented: true,
     note: 'The Device Tools per-preset table is reached through the robust openDeviceTools() helper and reported PENDING with a stated reason when the workbench shell exposes no entry point (it does not today); the FC TAP pickers are the reachable, named surface.'
+  },
+  {
+    feature: 'preset-picker-list-cap',
+    title: 'Preset picker · the slot list reaches every slot the device serves',
+    area: 'Preset picker overlay (opened from the preset widget, `.axis-preset .preset-main`)',
+    controls: [
+      { label: 'Slot row', selector: '.bg .card[role="dialog"] .rowwrap' },
+      { label: '"Show all {N} presets" expander', selector: '.bg .card[role="dialog"] .showall' }
+    ],
+    assertions: ['PRESENCE', 'VISIBILITY', 'NAME'],
+    oracle: '/device (capabilities.presets.count) + /presets/:n/summary through the app proxy',
+    spec: 'specs/preset-picker-cap.spec.ts',
+    implemented: false,
+    note: 'NO DEVICE WAS ATTACHED when this shipped (2026-10-14), so layer 3 was NOT run — this row is a known gap, not a pass. Reachability is proven in the mocked layer only (e2e/37-preset-picker-browse.spec.ts: 300 rows on open, all 512 after the expander, the last slot inside the list pane`s own scroll box). When a unit is next attached: assert PRESENCE (after expanding, one row per slot the server serves) and NAME (row label = served summary name), and never click a row — a row click LOADS A PRESET onto the unit.'
   }
 ] as const;
 

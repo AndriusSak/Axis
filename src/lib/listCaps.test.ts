@@ -33,9 +33,18 @@ describe('list caps — capped lists must disclose the total', () => {
     expect(src).toMatch(/showing \{CAP\} of \{view\.total\}/);
   });
 
-  it('PresetPicker: "+N more" hint when the list is capped', () => {
+  it('PresetPicker: "Show all {total} presets" expander when the soft cap applies', () => {
+    // A cap that only HIDES rows is the defect class this file guards (see the history-panel guard
+    // above), and the picker used to be the mild version of it: slots past 299 were reachable only by
+    // searching for them. The cap itself is `applyPresetPickerRowCap`'s job and is unit-tested
+    // (presetListCap.test.ts); what this pins is that the caller RENDERS the expander, and that the
+    // rows come from the cap helper rather than a bare `slice` with a dead-end hint.
     const src = read('./PresetPicker.svelte');
-    expect(src).toMatch(/\{mainList\.length - 300\} more/);
+    expect(src).toMatch(/Show all \{shown\.totalRows\} presets/);
+    expect(src).toMatch(/shown\.capped/);
+    expect(src).toMatch(/\{#each shown\.rows as r/);
+    expect(src).not.toMatch(/mainList\.slice\(/);
+    expect(src).not.toMatch(/more — type a number or name to filter/);
   });
 
   it('AxisFcPartPanel: "+N more" hint when the flat config strip is capped', () => {

@@ -584,12 +584,14 @@ derivation is read too.
 | `CommandPalette.svelte` model + block rows (now `paletteRows.ts`) | `list.slice(0, 80)` | **No** — and the header count came off the *truncated* array, so the FM3's 331 amp models showed as "80 results" (251 hidden) | **FIXED** — `local/list-cap-fixes` (`e8e476b`); guards in `paletteRows.test.ts` |
 | `AxisHistoryDockPanel.svelte` | `80` of up to 200 | **No** — and the row click is the *only* jump-back control (`history.revertTo(i)`), so entries past 80 were **unreachable**, not just invisible | **FIXED** — `local/list-cap-fixes` (`55d8563`); guard in `listCaps.test.ts` |
 | `CabPicker.svelte:92` | `CAP = 250` (1024 factory IRs) | **Yes** — "showing 250 of N, search to narrow" | OK as-is |
-| `PresetPicker.svelte:149` | `300` (512 slots) | **Yes** — "+N more — type a number or name to filter" | OK as-is |
+| `PresetPicker.svelte` | `PRESET_PICKER_SOFT_ROW_CAP = 300` (512 slots) | **Yes** — expander "Show all {N} presets" + "showing the first 300 of N" (`presetListCap.ts`, `presetListCap.test.ts`) | **CHANGED 2026-10-14** — the old "+N more — type a number or name to filter" hint disclosed the cap but left slots 300+ reachable ONLY by searching, which the owner hit as "the preset browser doesn't go beyond 299". Same *unreachable* shape as the history panel, so the cap now ships with an expander |
 | `AxisFcPartPanel.svelte:220` | `64` flat configs | **Yes** — "+N more" (corrected; first draft said undisclosed) | OK as-is |
 | `presetBrowserWorkbenchLayout.ts:19` | `AXIS_PB_SOFT_ROW_CAP = 14` | **Yes** — expander "Show all N presets" (`AxisPresetBrowserPartPanel.svelte`); `applyRowCap` already returns `totalRows`/`capped`/`hiddenCount` and is unit-tested | OK as-is |
 
 The rule is executable now: `src/lib/listCaps.test.ts` guards the uncapped surfaces stay uncapped and
-the four capped ones keep rendering their disclosure.
+the four capped ones keep rendering their disclosure. **Disclosure is the floor, not the bar:** a
+disclosed cap still fails if the hidden rows cannot be BROWSED (the history panel's defect) — a cap needs
+either an expander or a control that reaches every row.
 
 Related *diagnostic* half of this class: when a parameter is dropped by an allowlist gate, the UI shows
 nothing rather than "hidden because …". `GET /diag/ranges` exists (`ForgeFX` `server/src/app.ts`) but is

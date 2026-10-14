@@ -2,6 +2,7 @@
   import { editor } from './editor.svelte';
   import { library } from './library.svelte';
   import { loadRecents, recordRecent, type RecentPreset } from './recentPresets';
+  import { PRESET_PICKER_SOFT_ROW_CAP, applyPresetPickerRowCap } from './presetListCap';
 
   type Recent = { n: number; name: string };
   // Recents now live in the SHARED MRU store (`axs.recent.v1`) so the picker and both preset
@@ -39,10 +40,14 @@
   }
 
   let filter = $state<'all' | 'fav' | 'recent'>('all');
+  // §5.1: the first paint of "All" is capped so the overlay opens fast, and the expander below is what
+  // keeps the tail REACHABLE (a bare cap made slots past 299 reachable only by searching for them).
+  let showAll = $state(false);
   $effect(() => {
     if (!editor.presetOpen) return;
     query = '';
     filter = 'all';
+    showAll = false;
     loadStore();
     setTimeout(() => inputEl?.focus(), 0);
   });
@@ -71,6 +76,10 @@
     if (filter === 'recent') return recentRows.map((r) => ({ n: r.n, name: r.name || nameOf(r.n) }));
     return rows;
   });
+
+  // What the list renders, plus the disclosure the cap owes the reader. A search can exceed the cap
+  // too (a one-letter query matches hundreds of slots), so the cap applies to every source of rows.
+  const shown = $derived(applyPresetPickerRowCap(mainList, showAll));
 
   // Pick-a-slot mode: when the editor set a pick callback, the picker RETURNS the chosen slot (number +
   // name) to it and closes, instead of loading the preset onto the device. Used by the cross-device
@@ -147,11 +156,16 @@
           </div>
         {/if}
         <div class="section mono">
-          {query.trim() ? `${mainList.length} MATCH${mainList.length === 1 ? '' : 'ES'}` : filter === 'fav' ? 'FAVORITES' : filter === 'recent' ? 'RECENT' : 'ALL PRESETS'}
+          {query.trim() ? `${shown.totalRows} MATCH${shown.totalRows === 1 ? '' : 'ES'}` : filter === 'fav' ? 'FAVORITES' : filter === 'recent' ? 'RECENT' : 'ALL PRESETS'}
         </div>
-        {#each mainList.slice(0, 300) as r (r.n)}{@render presetRow(r)}{/each}
-        {#if mainList.length > 300}
-          <div class="empty">+{mainList.length - 300} more — type a number or name to filter</div>
+        {#each shown.rows as r (r.n)}{@render presetRow(r)}{/each}
+        {#if shown.capped}
+          <div class="morewrap">
+            <button class="showall" onclick={() => (showAll = true)}>
+              Show all {shown.totalRows} presets
+            </button>
+            <span class="morehint">showing the first {PRESET_PICKER_SOFT_ROW_CAP} of {shown.totalRows} — {shown.hiddenCount} more below · search filters by number or name</span>
+          </div>
         {/if}
         {#if mainList.length === 0}
           <div class="empty">{filter === 'fav' ? 'No favorites yet — tap ☆ on a preset.' : `No presets match “${query}”.`}</div>
@@ -427,6 +441,38 @@
     border-radius: 5px;
     padding: 4px 7px;
     letter-spacing: 0.06em;
+  }
+  .morewrap {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 7px;
+    padding: 10px 8px 16px;
+  }
+  .showall {
+    width: 100%;
+    padding: 10px 12px;
+    border-radius: 10px;
+    border: 1px solid var(--surface-3);
+    background: var(--panel-2);
+    color: var(--accent);
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    outline: none;
+  }
+  .showall:hover {
+    border-color: var(--accent-border);
+    background: rgba(53, 201, 214, 0.08);
+  }
+  .showall:focus-visible {
+    border-color: var(--accent);
+  }
+  .morehint {
+    color: var(--text-faint);
+    font-size: 11px;
+    text-align: center;
   }
   .empty {
     padding: 40px 20px;

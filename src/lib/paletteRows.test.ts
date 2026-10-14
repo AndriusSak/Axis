@@ -80,7 +80,8 @@ describe('CommandPalette result path (source guard)', () => {
   it('does not cap the result list', () => {
     // The defect: `list.slice(0, 80)`. Any numeric cap on the filtered result list silences part of
     // the catalogue without saying so; if a cap is ever genuinely needed, it must be disclosed in the
-    // header the way CabPicker ("showing N of M") and PresetPicker ("+N more") do.
+    // header the way CabPicker ("showing N of M") and PresetPicker (soft cap + "Show all N presets"
+    // expander) do.
     expect(source).not.toMatch(/list\.slice\(\s*0\s*,\s*\d+\s*\)/);
   });
 

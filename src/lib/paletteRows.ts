@@ -6,8 +6,9 @@
 // and because the header count is derived from these rows, a cap also makes the UI *report the
 // truncated length as the total* ("80 results" for a 331-model roster). If a cap is ever genuinely
 // required for performance, it must be applied at render time AND disclosed in the header the way
-// `CabPicker.svelte` ("showing 250 of 1024, search to narrow") and `PresetPicker.svelte` ("+N more")
-// already do — never silently here.
+// `CabPicker.svelte` ("showing 250 of 1024, search to narrow") and `PresetPicker.svelte` (a soft cap
+// plus the "Show all {N} presets" expander, so the hidden rows stay reachable) already do — never
+// silently here.
 
 export interface PaletteTypeOpt {
   value: number;
