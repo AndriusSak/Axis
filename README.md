@@ -21,9 +21,9 @@ It runs three ways from the same code: as a **desktop app** (bundles ForgeFX, on
 
 ## Install (desktop app)
 
-Prebuilt apps are served from a personal dashboard —
-[`a private build host`](a private build host) (home network only) — not from GitHub
-releases. Each artifact ships with a `.sha256` beside it; verify before installing.
+Prebuilt apps are distributed privately, not through GitHub releases; build from source with the
+commands below if you don't have one. Each artifact ships with a `.sha256` beside it; verify before
+installing.
 
 | Platform | Artifact |
 |---|---|
@@ -52,9 +52,8 @@ Both commands only touch the app bundle in `/Applications`; each asks for your p
 
 ## Run in a browser (no install)
 
-Open **[`a private build host`](a private build host)** (or
-[axisapp.live](https://axisapp.live)) in **Chrome or Edge on a desktop**, plug the unit into *that*
-computer, and pick the connection:
+Open **[axisapp.live](https://axisapp.live)** in **Chrome or Edge on a desktop**, plug the unit into
+*that* computer, and pick the connection:
 
 - **FM3** — over Web Serial. Desktop Chromium only: iOS, Android and Firefox cannot open the port.
 - **FM9 / Axe-Fx III / AM4** — over Web MIDI, which also works in Firefox and on Android.
