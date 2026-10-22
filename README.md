@@ -105,7 +105,7 @@ artifact has a matching `.sha256` — verify it before installing.
 | Platform | Artifact |
 |---|---|
 | macOS (Apple silicon / Intel) | `Axis-<version>-arm64-mac.zip`, `Axis-<version>-mac.zip` |
-| Linux (x86_64 / Steam Deck) | `Axis-<version>.AppImage` |
+| Linux (x86_64) | `Axis-<version>.AppImage` |
 
 The app bundles the ForgeFX engine, so there's no separate setup. Connect your FM3 over USB and
 launch. On Windows the FM3 is a COM port via Fractal's USB driver; on Linux/macOS it's native CDC,
