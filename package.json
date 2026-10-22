@@ -1,6 +1,6 @@
 {
   "name": "axis",
-  "version": "1.0.3",
+  "version": "1.0.18",
   "description": "Axis — editor for Fractal devices (FM3), bundling the ForgeFX engine",
   "author": {
     "name": "sKuhLight",
@@ -21,6 +21,7 @@
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "electron:dev": "ELECTRON_DEV=1 electron .",
     "desktop:build": "VITE_FORGEFX_BASE= vite build && electron-builder",
+    "desktop:zip:mac": "VITE_FORGEFX_BASE= vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64 --arm64 --publish never",
     "build:mobile": "VITE_AXIS_MOBILE=1 VITE_OTA_MANIFEST_URL=https://github.com/sKuhLight/Axis/releases/download/ota-ios-latest/latest-ios.json vite build",
     "mobile:sync": "npm run build:mobile && cap sync ios",
     "test": "vitest run",
