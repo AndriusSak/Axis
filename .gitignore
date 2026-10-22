@@ -39,3 +39,6 @@ CLAUDE.local.md
 
 # Session git worktrees / stack-worktree.sh parallel-work checkouts
 .wt-*/
+
+# Local web build (browser mode), staged to the dashboard, never committed.
+build-web/

@@ -760,6 +760,9 @@
     <div class="offline">
       <p class="hint">Device offline.</p>
       <p class="sub">Connect your device and make sure the ForgeFX engine is running, then reconnect.</p>
+      {#if editor.offlineReason}
+        <p class="sub reason">{editor.offlineReason}</p>
+      {/if}
       <button class="retry" onclick={() => editor.load()}>Retry</button>
     </div>
   {:else}
@@ -1757,6 +1760,12 @@
     flex-direction: column;
     gap: 8px;
     align-items: flex-start;
+  }
+  .reason {
+    max-width: 46ch;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11px;
+    opacity: 0.9;
   }
   .retry {
     border: 1px solid var(--border-strong);

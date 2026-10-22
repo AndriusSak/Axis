@@ -23,6 +23,9 @@ export interface EditorSurface {
   // ── grid reads ──
   layout: Layout;
   status: 'loading' | 'ready' | 'offline';
+  /** Human-readable cause of the `offline` status (engine unreachable / no port / open error). Optional:
+   *  the offline panel is the only consumer, and alternate surfaces (convert/compare) have no engine. */
+  readonly offlineReason?: string | null;
   readonly shuntBase: number;
   readonly canGridRoute: boolean;
 

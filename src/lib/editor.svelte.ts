@@ -741,6 +741,9 @@ class EditorStore {
     } catch {
       /* detect failed — proceed; load() falls back to the gen-3 path */
     }
+    // No unit yet (unplugged, or enumeration arrived late): keep asking, so a replug or a slow USB node
+    // recovers by itself instead of needing a relaunch.
+    if (!this.detected?.connected) this.#pollForDevice();
     // negotiate the API version + capabilities BEFORE the first load(), so every caps gate below
     // (unified vs legacy routes, polling, meters, renames) is decided correctly from the start
     await this.#handshake();
@@ -1505,15 +1508,74 @@ class EditorStore {
       }
       this.sceneNames = grid.scenes ?? [];
       this.everLoaded = true;
+      this.offlineReason = null;
       this.status = 'ready';
       this.fetchMeters(); // background: fill every block's level meter
       this.#invalidatePinned(); // preset changed → re-hydrate pinned custom-panel controls
       this.startLiveMeters(); // background: live audio meters (per-block monitor level → dB)
     } catch (e) {
-      if (!this.everLoaded) this.status = 'offline';
       // We were connected and a (re)load failed — a real device-comm error worth a debug report. Debounced
       // + dismissible + only if upload is configured, so it never spams (see offerDebugReport).
-      else this.offerDebugReport({ kind: 'device-comm', route: '/preset/grid', message: (e as Error)?.message?.slice(0, 200) });
+      if (this.everLoaded) this.offerDebugReport({ kind: 'device-comm', route: '/preset/grid', message: (e as Error)?.message?.slice(0, 200) });
+      if (!this.everLoaded) {
+        this.status = 'offline';
+        void this.diagnoseOffline();
+        this.#pollForDevice();
+      }
+    }
+  };
+
+  #devicePoll: ReturnType<typeof setTimeout> | null = null;
+  #devicePollTries = 0;
+  /** While no unit answers, re-run the detect handshake every 4 s (~1 min of tries). A single failed
+   *  detect used to leave the app offline until relaunch — a replug could never recover it. */
+  #pollForDevice = () => {
+    if (this.detected?.connected) return;
+    if (this.#devicePollTries++ >= 15) return;
+    this.#devicePoll = setTimeout(async () => {
+      try {
+        const d = await forgefx.detect();
+        this.detected = d;
+        if (d.connected) {
+          this.#devicePollTries = 0;
+          this.offlineReason = null;
+          this.showToast(`${d.name} connected`, '#3fa66a');
+          await this.load();
+          return;
+        }
+        await this.diagnoseOffline();
+      } catch {
+        /* engine asleep — try again */
+      }
+      this.#pollForDevice();
+    }, 4000);
+  };
+
+  /** Why the app is offline, in words: engine unreachable, engine up with no Fractal port, or the port
+   *  refused to open. The server's /diag carries the open error; without this the screen only said
+   *  "Device offline" and every cause looked identical. */
+  offlineReason = $state<string | null>(null);
+  diagnoseOffline = async () => {
+    try {
+      const d = (await forgefx.diag()) as {
+        openError?: string | null;
+        listError?: string | null;
+        resolved?: { transport?: string; id?: string } | null;
+      } | null;
+      if (!d) {
+        this.offlineReason = 'ForgeFX did not answer — another Axis instance may be holding port 5056.';
+        return;
+      }
+      const err = d.openError ?? d.listError;
+      if (err) {
+        this.offlineReason = `Could not open the device: ${err}`;
+      } else if (d.resolved?.id) {
+        this.offlineReason = `Port ${d.resolved.id} is present but the unit did not answer the handshake — check the cable and that the FM3 is powered on.`;
+      } else {
+        this.offlineReason = 'ForgeFX is running but sees no Fractal serial port — replug the USB cable.';
+      }
+    } catch {
+      this.offlineReason = 'ForgeFX is not reachable — is another Axis instance running, or did the engine fail to start?';
     }
   };
 
@@ -2831,7 +2893,16 @@ class EditorStore {
   loadPorts = async () => {
     try {
       const r = await forgefx.listPorts();
-      this.ports = [...r.ports].sort((a, b) => Number(b.fractal) - Number(a.fractal)); // Fractal first
+      const list = [...r.ports].sort((a, b) => Number(b.fractal) - Number(a.fractal)); // Fractal first
+      // A live connection always gets a row: enumeration can come back empty (macOS while the node is
+      // open), and a picker that shows "No ports found" while the app is demonstrably editing a preset
+      // reads as a bug in the app, not as a missing unit.
+      const c = r.chosen;
+      if (c && !list.some((p) => p.id === c.id || p.inId === c.id || p.outId === c.id)) {
+        const dev = r.profile?.model ? ` · ${r.profile.model}` : '';
+        list.unshift({ ...c, label: `${c.id}${dev} · connected`, fractal: true });
+      }
+      this.ports = list;
       this.portChosen = r.chosen;
       this.portOverride = r.override;
       this.profileOverride = r.profileOverride ?? null;
