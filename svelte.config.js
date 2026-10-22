@@ -10,7 +10,10 @@ const config = {
   kit: {
     // Axis is a pure SPA (adapter-static, index.html fallback).
     adapter: adapter({ fallback: 'index.html', strict: false }),
-    paths: { relative: !remote },
+    // `base` lets the web build live under a path prefix (e.g. /live on the dashboard) without changing
+    // the catch-all: SvelteKit rewrites every asset/route URL, so hosting it as /live/ just works. Desktop
+    // and axisapp.live builds leave it empty.
+    paths: { relative: !remote, base: process.env.AXIS_BASE ?? '' },
     // Don't auto-register the service worker. The desktop build is served same-origin over
     // http://localhost, where an SW would intercept the ForgeFX API/SSE — so we register it MANUALLY,
     // and only in the remote web build (see +layout.svelte). The bundled app stays PWA-free.

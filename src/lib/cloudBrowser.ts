@@ -22,7 +22,12 @@ export const remoteConfigured = (): boolean => !!URL && !!ANON;
 export type WebMode = 'remote' | 'direct';
 export function webMode(): WebMode {
   if (typeof location === 'undefined') return 'remote';
-  return new URLSearchParams(location.search).get('mode') === 'direct' ? 'direct' : 'remote';
+  const asked = new URLSearchParams(location.search).get('mode');
+  if (asked === 'direct' || asked === 'remote') return asked;
+  // No Supabase creds baked in (a self-hosted build) → Remote can never connect, so land in Direct
+  // instead of showing "This build isn't configured for remote access". axisapp.live has creds, so its
+  // default stays Remote.
+  return remoteConfigured() ? 'remote' : 'direct';
 }
 
 let client: SupabaseClient | null = null;
