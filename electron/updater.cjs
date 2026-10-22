@@ -11,6 +11,14 @@ const CAN_AUTO_INSTALL = process.platform !== 'linux' || !!process.env.APPIMAGE;
 
 function setupUpdater(logLine = () => {}) {
   if (!app.isPackaged) return; // dev: nothing to update
+  // No publish feed configured → electron-builder ships no app-update.yml, and electron-updater throws
+  // ENOENT on every check. Builds come from the dashboard, so treat "no feed file" as "updates off".
+  const fs = require('node:fs');
+  const path = require('node:path');
+  if (!fs.existsSync(path.join(process.resourcesPath, 'app-update.yml'))) {
+    logLine('[update] no update feed configured — updates disabled for this build');
+    return;
+  }
 
   let autoUpdater;
   try {
