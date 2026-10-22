@@ -42,8 +42,8 @@ over a relay).
 | 1.0.15 – 1.0.18 | **Firmware 13.0** block and sub-type tables: amp 336, drive 87, chorus 27, three reverbs renamed, `DISTORT_TUBETYPE` 26, fuzz diodes 22 — plus the per-parameter enums of blocks that have no type selector (formant, multiplexer, output, feedback return). |
 | 1.0.18 | GitHub auto-updater removed: upstream's feed stopped at 0.9.25-beta, so every launch logged a refused downgrade. |
 
-Builds here are macOS zips and a Linux AppImage only — the Windows installer and the `.dmg` came
-from upstream's CI and are not produced by this fork.
+Builds here are macOS zips, a Windows x64 installer and a Linux AppImage. No `.dmg` — producing one
+needs macOS tooling, and upstream's CI was the only place that ever made them.
 
 ## Device support
 
@@ -71,7 +71,7 @@ catalog snapshot holds, or whatever an imported editor cache provides.
 | macOS, Apple silicon | zip — verified on an M4 Pro | ✓ (needs the two Gatekeeper commands) | Expected |
 | macOS, Intel | zip — built, untested | Expected | Expected |
 | Linux x86_64 | AppImage — engine verified, GUI untested | Expected | Expected |
-| Windows 10/11 x64 | **none** | Untested | Untested |
+| Windows 10/11 x64 | exe installer — install verified, app untested | Expected (COM port) | Expected |
 | Chrome / Edge, desktop | web build | ✓ Web Serial | ✓ Web MIDI |
 | ChromeOS | web build | ✓ Web Serial | ✓ Web MIDI |
 | Firefox, desktop | web build | ✗ no Web Serial | ✓ Web MIDI |
@@ -121,7 +121,11 @@ artifact has a matching `.sha256` — verify it before installing.
 | Platform | Artifact |
 |---|---|
 | macOS (Apple silicon / Intel) | `Axis-<version>-arm64-mac.zip`, `Axis-<version>-mac.zip` |
+| Windows 10/11 (x64) | `Axis-<version>-win-x64.exe` — per-user installer, no admin prompt |
 | Linux (x86_64) | `Axis-<version>.AppImage` |
+
+On Windows the installer is also unsigned: SmartScreen shows "Windows protected your PC" — **More
+info → Run anyway**. It installs per user into `%LOCALAPPDATA%\Programs\axis`, no admin prompt.
 
 The app bundles the ForgeFX engine, so there's no separate setup. Connect your FM3 over USB and
 launch. On Windows the FM3 is a COM port via Fractal's USB driver; on Linux/macOS it's native CDC,
