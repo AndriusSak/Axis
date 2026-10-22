@@ -97,6 +97,22 @@ catalog snapshot holds, or whatever an imported editor cache provides.
 - **No mobile apps.** There is no iOS or Android build, and none is planned here.
 - **Back up your presets.** Community beta, no warranty — see [DISCLAIMER.md](./DISCLAIMER.md).
 
+## Compared with FM3-Edit
+
+FM3-Edit is the reference editor; this is not a drop-in replacement for all of it. Still missing:
+
+| FM3-Edit feature | Here |
+|---|---|
+| **Setlists / Songs** | Not implemented. The hardware feature needs an FC-6 or FC-12, and the nav entry only reaches the Scenes page. |
+| **Preset + cab bundles, `.bnk` bank import** | Not implemented. A bundle needs the user-cab *bytes* off the unit, and no endpoint returns them. |
+| **Clear Preset** | Not possible on this protocol — the gen-3 write codec has no erase/init op, so the entry is an honest negative rather than a fake. |
+| **Move / delete device slots** | Same cause: no slot-erase primitive on the wire. Duplicate, swap and reorder *are* there; reorder is a checked permutation over copy-by-store. |
+| **FC "Devices" tab / controller mirroring** | Absent — no served parameter exposes it on the FM3. |
+| **Firmware updates** | Out of scope: Axis never writes firmware. That stays with Fractal's tooling. |
+| **Cloud library / preset sharing** | No. Presets live in the local library (IndexedDB in the browser build); the account sync path needs credentials this build doesn't carry. |
+
+Everything else audited against FM3-Edit — grid and block operations, channel operations, scenes, modifier read-back, FC layouts, colour tags, keyboard shortcuts — is implemented. The full working list, with evidence per row, is `docs/axis-fm3edit-feature-parity-audit.md`.
+
 ## Install (desktop app)
 
 Prebuilt apps are attached to **[Releases](https://github.com/AndriusSak/Axis/releases)**. Every
