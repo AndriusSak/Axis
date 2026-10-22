@@ -12,6 +12,9 @@
   import PresetBrowser from '$lib/PresetBrowser.svelte';
   import FcEditor from '$lib/FcEditor.svelte';
   import CommandPalette from '$lib/CommandPalette.svelte';
+  // Owned by the page, not by ToolRail: the workbench shell renders its own rail and no ToolRail,
+  // so a picker living inside ToolRail made the workbench's connection widget a dead button.
+  import ConnectionPicker from '$lib/ConnectionPicker.svelte';
   import CabPicker from '$lib/CabPicker.svelte';
   import DeviceTools from '$lib/DeviceTools.svelte';
   import ConvertDialog from '$lib/ConvertDialog.svelte';
@@ -286,6 +289,7 @@
     </div>
   {/if}
   <CommandPalette />
+  <ConnectionPicker />
   <CabPicker />
   <DeviceTools />
   <ConvertDialog />

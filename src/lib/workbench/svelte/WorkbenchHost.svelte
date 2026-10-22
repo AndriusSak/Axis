@@ -133,6 +133,7 @@
       clearTimeout(railHoverTimer);
       railHoverTimer = null;
     }
+    if (railPinned) return; // pinned: the pointer may leave, the rail stays open
     railExpanded = false;
   }
   // Keyboard focus expands immediately (no intent delay) so tabbing into the
@@ -143,6 +144,33 @@
       railHoverTimer = null;
     }
     railExpanded = true;
+  }
+  // PIN. Hover expansion alone made rail widgets that sit to the right of the
+  // strip unreachable: the expanded inner layer is a DOM descendant of a 58px
+  // <aside>, so moving onto a widget at x>58 fires pointerleave and the rail
+  // collapses before the click lands (reported for the connection LED). The pin
+  // latches the rail open so those widgets are simply clickable; it is a user
+  // choice, persisted, and cleared by the same button.
+  // Neutral key: this framework file must stay host-agnostic (frameworkBoundary.test.ts).
+  const RAIL_PIN_KEY = 'workbench.rail.pinned';
+  let railPinned = $state(false);
+  $effect(() => {
+    try {
+      railPinned = localStorage.getItem(RAIL_PIN_KEY) === '1';
+    } catch {
+      /* private mode / SSR — stay unpinned */
+    }
+  });
+  $effect(() => {
+    try {
+      localStorage.setItem(RAIL_PIN_KEY, railPinned ? '1' : '0');
+    } catch {
+      /* persistence is best-effort */
+    }
+  });
+  function toggleRailPin() {
+    railPinned = !railPinned;
+    railExpanded = railPinned; // pinning opens it now; unpinning collapses it now
   }
 </script>
 
@@ -173,7 +201,8 @@
       class="aw-rail"
       class:open={navDrawerOpen}
       class:aw-sheet={isPhone && navDrawerOpen}
-      class:aw-rail-expanded={railExpanded}
+      class:aw-rail-expanded={railExpanded || railPinned}
+      class:aw-rail-pinned={railPinned}
       class:aw-rail-widgets-only={!showRailNav}
       data-zone-shell="rail"
       data-rail-nav={showRailNav ? 'true' : 'false'}
@@ -200,6 +229,21 @@
           <NavigationHost />
         {/if}
         <WidgetZone zone="rail" />
+        <!-- Expand/collapse latch. Hover expansion cannot serve widgets that sit at the far
+             edge of the expanded layer (moving onto them leaves the 58px strip and collapses
+             it first), so the rail gets an explicit control instead of hover-only intent. -->
+        <button
+          class="aw-rail-pin"
+          class:on={railPinned}
+          type="button"
+          title={railPinned ? 'Collapse rail' : 'Keep the rail open'}
+          aria-label={railPinned ? 'Collapse rail' : 'Keep the rail open'}
+          aria-pressed={railPinned}
+          onclick={toggleRailPin}
+        >
+          <span class="aw-rail-pin-glyph" aria-hidden="true">{railPinned ? '«' : '»'}</span>
+          <span class="aw-rail-pin-label">{railPinned ? 'Collapse' : 'Keep open'}</span>
+        </button>
       </div>
     </aside>
     {/if}
@@ -451,6 +495,7 @@
     .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner {
       pointer-events: none;
     }
+    .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner .aw-rail-pin,
     .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.axis-nav-entry),
     .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-nav-add-page),
     .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global(.aw-menu-scrim),
@@ -460,6 +505,42 @@
     .aw-rail.aw-rail-expanded:not(.aw-rail-widgets-only) .aw-rail-inner :global([data-zone='rail'] .axis-widget) {
       pointer-events: auto;
     }
+  }
+
+  /* Rail expand/collapse latch — bottom of the strip, always visible in both states. */
+  .aw-rail-pin {
+    flex: none;
+    margin-top: 6px;
+    width: 100%;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 0 4px;
+    border: 1px solid var(--aw-border);
+    border-radius: 8px;
+    background: transparent;
+    color: var(--aw-text-2);
+    font: 600 10px/1.1 inherit;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .aw-rail-pin:hover {
+    border-color: var(--aw-border-3);
+    color: var(--aw-text);
+  }
+  .aw-rail-pin.on {
+    border-color: var(--aw-accent);
+    color: var(--aw-accent);
+  }
+  .aw-rail-pin-glyph {
+    font-size: 12px;
+    line-height: 1;
+  }
+  /* Icon-only at rest, like every other rail affordance. */
+  .aw-rail:not(.aw-rail-expanded) .aw-rail-pin-label {
+    display: none;
   }
 
   .aw-mark {
