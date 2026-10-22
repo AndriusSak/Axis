@@ -21,9 +21,8 @@ It runs three ways from the same code: as a **desktop app** (bundles ForgeFX, on
 
 ## Install (desktop app)
 
-Prebuilt apps are distributed privately, not through GitHub releases; build from source with the
-commands below if you don't have one. Each artifact ships with a `.sha256` beside it; verify before
-installing.
+Prebuilt apps are attached to **[Releases](https://github.com/AndriusSak/Axis/releases)**. Every
+artifact has a matching `.sha256` — verify it before installing.
 
 | Platform | Artifact |
 |---|---|
@@ -52,8 +51,17 @@ Both commands only touch the app bundle in `/Applications`; each asks for your p
 
 ## Run in a browser (no install)
 
-Open **[axisapp.live](https://axisapp.live)** in **Chrome or Edge on a desktop**, plug the unit into
-*that* computer, and pick the connection:
+**axisapp.live is not this build.** It's the upstream project's own deployment, serving upstream's
+code, so it won't have this fork's fixes or its firmware 13.0 tables. This fork's browser build is
+deployed privately; to run *this* version with no install, build the web variant and serve it:
+
+```bash
+VITE_AXIS_REMOTE=1 npm run build                        # served from the domain root
+AXIS_BASE=/axis/live VITE_AXIS_REMOTE=1 npm run build   # served from a subpath
+```
+
+Then open it in **Chrome or Edge on a desktop**, plug the unit into *that* computer, and pick the
+connection:
 
 - **FM3** — over Web Serial. Desktop Chromium only: iOS, Android and Firefox cannot open the port.
 - **FM9 / Axe-Fx III / AM4** — over Web MIDI, which also works in Firefox and on Android.

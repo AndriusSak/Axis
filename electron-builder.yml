@@ -7,8 +7,8 @@
 appId: dev.skuhlight.axis
 productName: Axis
 copyright: Axis — independent, not affiliated with Fractal Audio Systems
-# No `publish` block on purpose. Builds are distributed from the household dashboard
-# (a private build host) and installed by hand, so there is no update feed to publish to.
+# No `publish` block on purpose. Builds are installed by hand, so there is no update
+# feed to publish to.
 # With no publish config electron-builder omits resources/app-update.yml, and electron/updater.cjs
 # skips the check when that file is absent — otherwise electron-updater throws ENOENT on every launch.
 # (The old github sKuhLight/Axis feed stopped at 0.9.25-beta, so each launch logged
