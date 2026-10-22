@@ -45,6 +45,58 @@ over a relay).
 Builds here are macOS zips and a Linux AppImage only — the Windows installer and the `.dmg` came
 from upstream's CI and are not produced by this fork.
 
+## Device support
+
+"Verified" means it was driven against real hardware here. "Expected" means the code path is shared
+with the FM3 but nobody has plugged that unit into this build. "Early" means partial code, no
+verification. "Not supported" means the handshake identifies it and nothing else happens.
+
+| Device | Status | What actually works |
+|---|---|---|
+| **FM3** (0x11) | **Verified**, firmware 13.0 | Full editing: grid, blocks, params, channels, scenes, tuner, tempo, cab/IR board, preset save + conversion. Front-panel edits reflect (polled — the FM3 never pushes them). FC live switch state. Definitions walk. |
+| **FM9** (0x12) | Expected, untested | Same gen-3 codec, 6×14 grid, preset dump and conversion, definitions walk offered, front-panel edits pushed by the unit. **Not wired:** per-block preset-body decode and FC live switch read are FM3-only, so param pages come from the served catalog rather than the preset body. |
+| **Axe-Fx III** (0x10) | Expected, untested | Same as FM9. |
+| **VP4** (0x14) | Early | Gen-3 codec on a 4-slot surface: reads work, writes are gated beta. Not verified. |
+| **AM4** (0x15) | Partial | Its own codec, 4 linear slots. Definitions are **import-only** — the unit is never walked. Front-panel reflection has an open bug list (`docs/AM4-AXIS-REFLECTION-BUGS.md` upstream). |
+| **Axe-Fx II XL+** (0x07) | Early | A gen-2 codec exists (dump + writes per its own opcodes); never verified against a unit, and its blocks come from the catalog, not a firmware cache. |
+| Axe-Fx Standard/Ultra, II, II XL, FX8, AX8 | **Not supported** | Identified by the handshake, then reported as unsupported. |
+
+The firmware 13.0 type and sub-type tables are FM3 work. Other devices get whatever their shipped
+catalog snapshot holds, or whatever an imported editor cache provides.
+
+## Platform support
+
+| Platform | Build from this fork | FM3 (USB serial) | FM9 / III / AM4 / VP4 (USB MIDI) |
+|---|---|---|---|
+| macOS, Apple silicon | zip — verified on an M4 Pro | ✓ (needs the two Gatekeeper commands) | Expected |
+| macOS, Intel | zip — built, untested | Expected | Expected |
+| Linux x86_64 | AppImage — engine verified, GUI untested | Expected | Expected |
+| Windows 10/11 x64 | **none** | Untested | Untested |
+| Chrome / Edge, desktop | web build | ✓ Web Serial | ✓ Web MIDI |
+| ChromeOS | web build | ✓ Web Serial | ✓ Web MIDI |
+| Firefox, desktop | web build | ✗ no Web Serial | ✓ Web MIDI |
+| Android, Chrome | web build | ✗ | ✓ Web MIDI, if the unit shows up as a MIDI device |
+| iOS / iPadOS | web build | ✗ | ✗ no USB device APIs |
+
+## Known limitations
+
+- **Unsigned builds.** No code signing or notarization anywhere: macOS needs `xattr` + `codesign`
+  after every fresh copy, and the AppImage installs nothing (no menu entry unless you add one).
+- **No updater.** Updates mean downloading a new release. There's no update feed and no delta patching.
+- **Remote mode is unusable in this build.** It relays through a Supabase project, and no credentials
+  are compiled in, so the browser build falls back to Direct. Driving the unit from another machine
+  means running the desktop app where the unit is plugged in and reaching it over a VPN or remote
+  desktop — not the Remote toggle.
+- **FM3 in a browser needs desktop Chromium.** Web Serial doesn't exist on iOS, Android or Firefox.
+  A MIDI interface into the FM3 works anywhere Web MIDI does.
+- **FM9 / Axe-Fx III are second-class citizens.** Per-block preset-body decode and live FC state are
+  FM3-only. Anything that reads a block's own body — rather than the catalog — is FM3-shaped today.
+- **One program per port.** Quit FM3-Edit / Axe-Edit before connecting; the serial port is exclusive.
+- **Preset export is FM3-proven.** FM9 and III export files round-trip through the decoder but have
+  never been loaded onto a unit; AM4, VP4, II and gen-1 targets are not exportable at all.
+- **No mobile apps.** There is no iOS or Android build, and none is planned here.
+- **Back up your presets.** Community beta, no warranty — see [DISCLAIMER.md](./DISCLAIMER.md).
+
 ## Install (desktop app)
 
 Prebuilt apps are attached to **[Releases](https://github.com/AndriusSak/Axis/releases)**. Every
