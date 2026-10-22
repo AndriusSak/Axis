@@ -2,7 +2,9 @@
 
 > **FROZEN as of 2026-07-16.** Release notes now live on the GitHub releases page (auto-generated
 > from merged PRs + `.github/release.yml` categories, plus a Shipped-stack footer). This file is
-> kept as history of releases up to v0.9.22-beta and is no longer updated.
+> kept as history of releases up to v0.9.22-beta and is no longer updated. For the 1.0.x line built
+> in this fork, see the "Upstream, and what changed here" section of the README and the
+> [releases page](https://github.com/AndriusSak/Axis/releases).
 
 Notable changes per release, for Axis and its bundled ForgeFX engine. Newest first.
 

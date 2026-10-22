@@ -19,6 +19,32 @@ It runs three ways from the same code: as a **desktop app** (bundles ForgeFX, on
 > ⚠️ **Independent, third-party project — not affiliated with or endorsed by Fractal Audio
 > Systems. Use at your own risk.** Always back up your presets. See [DISCLAIMER.md](./DISCLAIMER.md).
 
+## Upstream, and what changed here
+
+This is a fork of [sKuhLight/Axis](https://github.com/sKuhLight/Axis), whose last release was
+**v0.9.25-beta (20 July 2026)** — public Windows/macOS/Linux installers, FM3 **firmware 12.0**.
+Everything below is that project plus this fork's line of work.
+
+**Inherited from upstream:** the workbench shell and signal grid, block editor, rearrangable control
+surface, EQ graphs, cab IR / DynaCab board, tuner, tempo, scenes, cross-device preset conversion with
+`.syx` export, device-definition capture, and both browser modes (Direct over Web Serial/MIDI, Remote
+over a relay).
+
+**Added here, in short:**
+
+| Version | What changed |
+|---|---|
+| 1.0.0 · 13 Oct 2026 | First release of this fork: the **foot-controller editor** (layout, per-switch function, TAP/HOLD, per-preset layout scope), a **Manage Cabs** panel with IR import and conversion, and the local board / DynaCab layout line. |
+| 1.0.1 – 1.0.2 · 13 Oct | The FC panel names the layout its switches belong to. The cab board stops re-converting a WAV on every keystroke, and never overwrites a slot the library copy no longer matches. |
+| 1.0.3 · 14 Oct | Desktop bundle rebuilt on the post-1.0.2 engine. |
+| 1.0.4 – 1.0.10 | USB/serial hardening: open the `cu.*` callout node on macOS, list the real ports, retry an open, report **why** it failed, keep the definitions capture alive, and keep rescan reachable. |
+| 1.0.12 – 1.0.14 | Device detection: the type selector is picked by label count instead of by name, and every editor cache on disk is offered for import. |
+| 1.0.15 – 1.0.18 | **Firmware 13.0** block and sub-type tables: amp 336, drive 87, chorus 27, three reverbs renamed, `DISTORT_TUBETYPE` 26, fuzz diodes 22 — plus the per-parameter enums of blocks that have no type selector (formant, multiplexer, output, feedback return). |
+| 1.0.18 | GitHub auto-updater removed: upstream's feed stopped at 0.9.25-beta, so every launch logged a refused downgrade. |
+
+Builds here are macOS zips and a Linux AppImage only — the Windows installer and the `.dmg` came
+from upstream's CI and are not produced by this fork.
+
 ## Install (desktop app)
 
 Prebuilt apps are attached to **[Releases](https://github.com/AndriusSak/Axis/releases)**. Every
