@@ -54,12 +54,17 @@
   const midiIns = $derived(editor.ports.filter((p) => p.transport === 'midi' && p.dir === 'input'));
   const midiOuts = $derived(editor.ports.filter((p) => p.transport === 'midi' && p.dir === 'output'));
   let mode = $state<'serial' | 'midi'>('serial');
+  /** Two-step consent for the full capture requested from the Device tab (it writes test values). */
+  let fullConfirm = $state(false);
   let inSel = $state('');
   let outSel = $state('');
   let serSel = $state('');
   // sync the local selectors from the engine's chosen connection whenever the tab is shown
   $effect(() => {
     if (editor.axisTab !== 'device') return;
+    // The definitions import list must be current whenever this tab is open — the once-per-connect
+    // refresh may have run before the engine answered.
+    void deviceDefs.loadSources();
     const cc = editor.portChosen;
     mode = cc?.transport === 'midi' ? 'midi' : 'serial';
     inSel = cc?.inId ?? (cc?.transport === 'midi' ? cc.id : '') ?? '';
@@ -441,10 +446,49 @@
             <span class="badge" class:ok={deviceDefs.activeSource.origin !== 'bundled'}>{deviceDefs.activeSource.origin === 'bundled' ? 'BUNDLED' : 'PROFILE'}</span>
             {deviceDefs.activeSource.label}{#if editor.conn.fw} · fw {editor.conn.fw}{/if}
           </p>
-          {#if deviceDefs.canRebuild}
-            <p class="muted">After a firmware update, discard the definitions and read them from the device again.</p>
-            <button class="signout" onclick={() => deviceDefs.rebuild()}>Re-read definitions</button>
+          {#if deviceDefs.building}
+            <p class="muted">
+              Reading definitions from the device… {deviceDefs.building.done}/{deviceDefs.building.total}
+              {#if deviceDefs.building.queries}· {deviceDefs.building.queries.toLocaleString()} queries · {deviceDefs.building.avgReplyMs ?? 0} ms avg{/if}
+            </p>
+            <button class="signout" onclick={() => deviceDefs.cancel()}>Cancel capture</button>
+          {:else}
+            <!-- Re-capture, always reachable. The connect-time prompt only offers a build when NO profile
+                 exists, and hiding these buttons while the active definitions were BUNDLED left this panel
+                 with no way to start a scan at all — the one state where a scan is most needed. -->
+            {#if deviceDefs.activeSource.origin === 'bundled'}
+              <p class="muted">No stored profile yet — the app is using its bundled tables. Scanning reads them off the unit and stores a profile for this firmware.</p>
+            {:else}
+              <p class="muted">Re-read the tables from the unit. The quick read is safe; the full capture also measures each knob's taper — it takes much longer and briefly writes test values into the current preset.</p>
+            {/if}
+            {#if deviceDefs.canScan}
+              <p class="statline"><button class="signout" onclick={() => deviceDefs.build('read-only', true)}>{deviceDefs.activeSource.origin === 'bundled' ? 'Scan definitions from device' : 'Re-read from device'}</button></p>
+              {#if fullConfirm}
+                <p class="slownote">The full capture writes test values into the preset you're on right now, then reloads it. Leave the unit idle and don't save on it while it runs.</p>
+                <div class="modes">
+                  <button class="mbtn on" onclick={() => { fullConfirm = false; deviceDefs.build('full', true); }}>Start full capture</button>
+                  <button class="mbtn" onclick={() => (fullConfirm = false)}>Cancel</button>
+                </div>
+              {:else}
+                <p class="statline"><button class="signout" onclick={() => (fullConfirm = true)}>Full capture (knob tapers)</button></p>
+              {/if}
+            {/if}
+            {#if deviceDefs.canRebuild}
+              <p class="legal"><button class="link" onclick={() => deviceDefs.rebuild()}>Discard the stored profile</button> to fall back to bundled definitions.</p>
+            {/if}
+            <!-- The official editor keeps a full definitions cache on disk (effectDefinitions_<model>_<fw>.cache).
+                 Importing it gives firmware-true types without touching the unit — and unlike the connect-time
+                 prompt, this list is always reachable from settings. -->
+            {#if deviceDefs.sources?.candidates?.length}
+              <p class="muted">Or import a definitions file the Fractal editor already wrote:</p>
+              {#each deviceDefs.sources.candidates as c (c.path)}
+                <p class="statline"><button class="signout" onclick={() => deviceDefs.importCandidate(c.path)} title={c.path}>{c.file} · fw {c.fwMajor}.{c.fwMinor}</button></p>
+              {/each}
+            {:else}
+              <p class="legal"><button class="link" onclick={() => deviceDefs.locateFolder()}>Locate the editor folder</button> to import its definitions file instead of scanning.</p>
+            {/if}
           {/if}
+          {#if deviceDefs.error}<p class="slownote">{deviceDefs.error}</p>{/if}
 
           <div class="sec mt">CONNECTION</div>
           <div class="modes">

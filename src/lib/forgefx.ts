@@ -443,10 +443,12 @@ export const forgefx = {
    *  501 (no capability) — the caller decides how to surface those. `mode` defaults server-side to
    *  'read-only'; passing 'full' requests the taper/curve sweep (501 {capability:'fullCapture'} when
    *  the device can't). Omitting `mode` sends NO body — identical to the original read-only one-click. */
-  buildDeviceCache: (opts: { mode?: 'read-only' | 'full' } = {}) =>
+  /** `force` re-runs the walk even when a profile already exists (the endpoint otherwise answers
+   *  {already:true} and starts nothing) — that is how a re-capture is requested from the Device tab. */
+  buildDeviceCache: (opts: { mode?: 'read-only' | 'full'; force?: boolean } = {}) =>
     req<{ key: string }>('/device/cache/build', {
       method: 'POST',
-      ...(opts.mode ? { body: JSON.stringify({ mode: opts.mode }) } : {})
+      ...(opts.mode || opts.force ? { body: JSON.stringify({ ...(opts.mode ? { mode: opts.mode } : {}), ...(opts.force ? { force: true } : {}) }) } : {})
     }),
   /** Cancel an in-flight build (no-op / null when absent). */
   cancelDeviceCache: () => capOptional(req<{ ok: boolean }>('/device/cache/cancel', { method: 'POST' })),

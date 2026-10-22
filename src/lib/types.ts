@@ -835,7 +835,7 @@ export type DeviceEvent =
   // per-firmware definition profile. `building` flips false on completion/cancel/error. Full-mode
   // (taper) builds add a `param-sweep` sub-phase inside the walking stage; `(string & {})` keeps the
   // union open so any future additive sub-phase parses and is treated as in-progress (see deviceDefs.ts).
-  | { type: 'cacheBuild'; phase: 'walking' | 'building' | 'param-sweep' | 'done' | 'error' | 'cancelled' | 'already-built' | (string & {}); done: number; total: number; key?: string; model?: number; firmware?: string; error?: string };
+  | { type: 'cacheBuild'; phase: 'walking' | 'building' | 'param-sweep' | 'done' | 'error' | 'cancelled' | 'already-built' | (string & {}); done: number; total: number; key?: string; model?: number; firmware?: string; error?: string; queries?: number; noReply?: number; avgReplyMs?: number };
 
 /** A user-defined parameter tab within a block family (persisted client-side). */
 export interface TabDef {

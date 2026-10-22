@@ -51,6 +51,7 @@
           Reading definitions from device…
           {#if building.total}<b>{building.done}/{building.total}</b>{/if}
           {#if building.phase}<span class="phase">{building.phase}</span>{/if}
+          {#if building.queries}<span class="phase">{building.queries.toLocaleString()} queries · {building.avgReplyMs ?? 0} ms avg</span>{/if}
         </span>
         {#if building.total}<div class="bar"><div class="fill" style="width:{pct}%"></div></div>{/if}
         <button class="later" onclick={() => deviceDefs.cancel()}>Cancel</button>

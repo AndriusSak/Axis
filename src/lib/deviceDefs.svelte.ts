@@ -50,7 +50,7 @@ class DeviceDefsStore {
   sources = $state<DeviceCacheSources | null>(null);
   cloud = $state<CloudCacheStatus | null>(null);
   /** Live build progress (from the `cacheBuild` SSE / the POST /build response), or null when idle. */
-  building = $state<{ done: number; total: number; phase: string } | null>(null);
+  building = $state<{ done: number; total: number; phase: string; queries?: number; noReply?: number; avgReplyMs?: number } | null>(null);
   importing = $state(false);
   publishing = $state(false);
   /** Set after any successful acquisition (build/import/pull) so the prompt shows its success state. */
@@ -105,6 +105,16 @@ class DeviceDefsStore {
       && !isRemote()
       && (!!this.#ctx?.caps?.selfDescribe || !!this.#ctx?.caps?.cacheImport);
   }
+  /** Whether the unit can be scanned at all. Deliberately NOT gated on a stored profile existing — with
+   *  only bundled definitions the old UI hid every button, so there was no way to start the first scan
+   *  from the settings panel (only the connect-time prompt, once, which is easy to dismiss). */
+  get canScan(): boolean {
+    // Caps unknown counts as "offer it": the server's refusal is now shown verbatim in the panel, which
+    // beats a hidden button the user can't even try.
+    if (isRemote()) return false;
+    const caps = this.#ctx?.caps;
+    return !caps || !!caps.selfDescribe || !!caps.cacheImport;
+  }
   /** Human-facing readout of where the ACTIVE definitions come from (bundled/device/editor/cloud). */
   get activeSource(): ActiveDefsSource {
     return activeDefsSource(this.status, this.sources);
@@ -143,14 +153,19 @@ class DeviceDefsStore {
   /** Start a self-describe build. Progress then streams over `onBuildEvent`. `mode` defaults to the
    *  read-only walk (the unchanged one-click "read from device"); 'full' requests the taper/curve sweep
    *  and MUST only be called after the user's explicit consent (see DeviceDefsPrompt). */
-  build = async (mode?: 'read-only' | 'full') => {
+  build = async (mode?: 'read-only' | 'full', force = false) => {
     this.error = null;
     try {
-      await forgefx.buildDeviceCache(mode ? { mode } : {});
+      await forgefx.buildDeviceCache({ ...(mode ? { mode } : {}), ...(force ? { force } : {}) });
       this.building = { done: 0, total: 0, phase: 'starting' };
     } catch (e) {
       if (e instanceof ForgeError && e.status === 409) { this.building = { done: 0, total: 0, phase: 'building' }; return; } // already building
-      this.error = e instanceof ForgeError && e.status === 501 ? 'Reading from device isn’t supported here.' : 'Could not start the build.';
+      // Show the server's own words — a bare "Could not start the build." hid 404/501/500 differences
+      // that decide whether this is a version mismatch, a missing capability or a dead link.
+      const detail = e instanceof Error ? e.message.slice(0, 160) : String(e);
+      this.error = e instanceof ForgeError && e.status === 501
+        ? 'Reading from device isn’t supported here.'
+        : `Could not start the build${e instanceof ForgeError ? ` (HTTP ${e.status})` : ''}: ${detail}`;
     }
   };
 
@@ -173,6 +188,14 @@ class DeviceDefsStore {
     // Re-read the authoritative status + sources so the prompt (and the source readout) reflect the drop.
     this.status = await forgefx.deviceCache().catch(() => this.status);
     void forgefx.cacheSources().then((s) => { if (s) this.sources = s; }).catch(() => {});
+  };
+
+  /** Refresh the "definitions files found on this computer" list (GET /device/cache/sources). Cheap and
+   *  read-only; the settings panel calls it so the import affordance is not hostage to a connect-time
+   *  refresh that may have run before the engine was up. */
+  loadSources = async () => {
+    const s = await forgefx.cacheSources().catch(() => null);
+    if (s) this.sources = s;
   };
 
   /** Import raw cache bytes (browser drag-drop / folder pick). `force` overrides a firmware mismatch. */
@@ -258,11 +281,14 @@ class DeviceDefsStore {
     // Any non-terminal phase (walking / building / full-mode 'param-sweep' / any future additive
     // sub-phase) is progress — keep the bar alive and never mistake it for completion.
     if (isBuildProgressPhase(e.phase)) {
-      this.building = { done: e.done, total: e.total, phase: e.phase };
+      // The server's liveness counters ride along on every progress event — keep them so the prompt
+      // can show query rate instead of an opaque frozen counter.
+      this.building = { done: e.done, total: e.total, phase: e.phase, queries: e.queries, noReply: e.noReply, avgReplyMs: e.avgReplyMs };
       return;
     }
     this.building = null;
-    if (e.phase === 'error') { this.error = 'The build stopped before finishing.'; return; }
+    // Prefer the server's own explanation (it names the actual fault) over a generic sentence.
+    if (e.phase === 'error') { this.error = e.error ?? 'The build stopped before finishing.'; return; }
     if (e.phase === 'cancelled') return;
     // done / already-built — re-read the fresh status + mark success.
     void forgefx.deviceCache().then((st) => { if (st) { this.status = st; this.#onAcquired(); } });
