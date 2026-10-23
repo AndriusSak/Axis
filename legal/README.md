@@ -1,44 +1,34 @@
-# Axis — legal documents
+# Axis — legal documents (this fork)
 
-**These four files are inherited from upstream (`sKuhLight/Axis`, merged at 0.8.2-beta) and describe
-upstream's hosted service at `axisapp.live`. They are not the legal basis of this fork, and nothing in
-this build reads them** — `src/lib/legal.ts` opens the published pages at `axisapp.live`, which are
-upstream's, not these drafts.
+Two documents, both true for **this fork's builds** (`AndriusSak/Axis`: desktop releases + the local
+browser build). They are short on purpose — this fork runs no service, takes no accounts, sells
+nothing and collects nothing, so there is very little to document.
 
-They are kept here for lineage and for the checklist below. Treat every statement in them as
-"upstream's service", not "this build".
-
-| File | What | Status |
-|---|---|---|
-| `privacy-policy.md` | Datenschutzerklärung (GDPR Art. 13) for upstream's cloud + diagnostics | upstream draft, placeholders unfilled |
-| `imprint.md` | Impressum (§5 DDG) for upstream's operator | upstream draft; the published version at `axisapp.live/imprint` carries the real address |
-| `terms.md` | Terms of Service for upstream's app + Axis Cloud | upstream draft; license line corrected to MIT |
-
-## What these documents claim vs what this fork ships
-
-| Document claims | This build (AndriusSak/Axis) |
+| File | What it covers |
 |---|---|
-| **Axis Cloud** accounts and preset sync through Supabase | Not available. No Supabase credentials are shipped, so the web build lands in Direct mode and presets stay in IndexedDB; desktop presets stay local. The account/sync path is inoperable here. |
-| **Opt-in telemetry** to Grafana Cloud and **debug-report uploads** to Supabase Storage | Dark. Both need `AXIS_TELEMETRY` / `AXIS_FARO_URL` / `SUPABASE_*` in the bundled ForgeFX `.env`; no such `.env` ships in the releases. Nothing leaves the machine. |
-| **Paid supporter tier** and payment processors | Not offered. The README's support link is a Ko-fi donation, not a service tier. |
-| Operator **Pascal Peinelt**, `contact@axisapp.live`, German law, §5 DDG Impressum | Correct for upstream's deployment only. This fork is not a commercial service and names no operator. |
-| Licensed **"PolyForm Noncommercial"** (terms §2) | Wrong — `LICENSE` and the README are **MIT**, in this repo and upstream. Corrected in `terms.md`. |
+| [`terms.md`](terms.md) | Terms of use for the builds published on Releases: licence, device-write risk, unsigned builds, donations, warranty, third-party marks, governing law. |
+| [`privacy.md`](privacy.md) | What happens to your data: nothing leaves your machine. No account, no analytics, no configured telemetry. |
 
-## Fill-in checklist (upstream's, all still open)
-- [ ] Operator **real name** (or entity + managing director) and a **reachable postal address** (use a c/o address service to avoid publishing a home address — the name still must be real).
-- [ ] Contact **email**.
-- [ ] **Confirm the Supabase project region** (privacy policy §3) — state EU explicitly if it is; otherwise adjust the transfer wording.
-- [ ] The competent **Landesdatenschutzbehörde** (supervisory authority) in privacy policy §8.
-- [ ] The **account/data deletion path** (privacy policy §8) — how a user deletes their account and data.
-- [ ] Retention numbers for debug reports (§7, currently `[e.g. 90 days]`).
-- [ ] Sign/accept the **DPAs (AVV)** with Supabase and Grafana Labs.
-- [ ] Before any paid tier: rewrite the payment/withdrawal (Widerruf) sections + full lawyer review of `terms.md`.
+Also relevant, at the repo root: [`LICENSE`](../LICENSE) (MIT — the actual licence),
+[`DISCLAIMER.md`](../DISCLAIMER.md) (trademarks, no warranty, use at your own risk) and
+[`README.md`](../README.md) (install, platform support, known limitations).
 
-## Publishing
-Upstream publishes these at **https://axisapp.live/{privacy,imprint,terms}** (GitHub Pages / static
-host). The Imprint has to be permanently, publicly available if that service takes registrations or
-sends telemetry — an in-app copy alone is not enough. A static page per document is fine.
+## What was removed and why
 
-This fork publishes no such pages and takes no registrations, so it links to upstream's. If this fork
-ever becomes a public service, these drafts are not sufficient — they would need rewriting for this
-operator first.
+Inherited from upstream (`sKuhLight/Axis`) and rewritten here for the fork:
+
+- **`imprint.md` → deleted.** A German Impressum (§5 DDG) is required of whoever *operates* a
+  commercial digital service. This fork operates no service, takes no registrations, sends no
+  telemetry and takes no payments, and its maintainer is not the German operator named in the old
+  draft. Upstream's own Imprint stays live at https://axisapp.live/imprint for their deployment.
+- **`privacy-policy.md` → `privacy.md`.** The old text described Axis Cloud accounts (Supabase),
+  opt-in diagnostics (Grafana Faro) and debug-report uploads. Those paths exist in the code but carry
+  no credentials in these builds, so they cannot transmit; the policy now says exactly that instead
+  of describing a service this fork doesn't run.
+- **`terms.md`.** The old licence line said "PolyForm Noncommercial" while `LICENSE` is MIT — in this
+  repo and upstream. Rewritten; account, cloud-sync, payment and German-consumer clauses dropped
+  because none of them apply.
+
+If this fork ever becomes a public service (accounts, telemetry, payments), these documents are not
+enough — the upstream drafts in git history (`git show 5cb6328:legal/`) are the better starting point,
+and a lawyer should see them before anything goes live.

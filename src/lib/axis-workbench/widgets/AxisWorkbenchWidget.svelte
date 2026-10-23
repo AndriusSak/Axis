@@ -705,7 +705,7 @@
       <span class="cr">{COPYRIGHT}</span>
     {/if}
     <span class="sep" aria-hidden="true"></span>
-    <button class="lnk" type="button" onclick={() => openExternal(LEGAL.imprint)}>Imprint</button>
+    <button class="lnk" type="button" onclick={() => openExternal(LEGAL.index)}>Legal</button>
   </div>
 {:else}
   <button class="axis-widget" data-size={size} type="button" onclick={openWidget} title={kind}>

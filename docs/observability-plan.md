@@ -89,7 +89,7 @@ Confirmed free-tier limits (2026): **10k active metric series, 50 GB logs, 50 GB
 | Cost | $0 at this scale (a handful of testers, opt-in, will never approach 50 GB) | ~$5-12/mo VPS (2 vCPU / 4 GB, e.g. Hetzner CX22) + your time |
 | Setup effort | Low — managed Faro receiver + OTLP endpoints, hosted Grafana, no ops | Medium-high — docker-compose for Alloy+Loki+Tempo+Grafana, TLS (Caddy), backups, upgrades, disk monitoring |
 | Maintenance | None | You own uptime, disk pressure, retention pruning, CVE patching |
-| Privacy / data residency | Data sits on Grafana's infra (US/EU region selectable). For a privacy-sensitive PolyForm-NC beta this is the one real wrinkle — but **opt-in + aggressive client scrubbing makes the payload non-personal anyway**. | Full control; data on a box you choose (e.g. EU). Strongest residency story. |
+| Privacy / data residency | Data sits on Grafana's infra (US/EU region selectable). For a privacy-sensitive MIT-licensed beta this is the one real wrinkle — but **opt-in + aggressive client scrubbing makes the payload non-personal anyway**. | Full control; data on a box you choose (e.g. EU). Strongest residency story. |
 | Retention | 14 days (free) — fine for active bug-hunting | Whatever disk allows |
 | Scale headroom | Generous for beta; predictable paid path if it grows | Vertical scaling = your problem |
 

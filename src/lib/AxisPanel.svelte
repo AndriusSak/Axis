@@ -548,8 +548,6 @@
             <button class="link" onclick={() => openExternal(LEGAL.privacy)}>Privacy Policy</button>
             <span class="dotsep"></span>
             <button class="link" onclick={() => openExternal(LEGAL.terms)}>Terms</button>
-            <span class="dotsep"></span>
-            <button class="link" onclick={() => openExternal(LEGAL.imprint)}>Imprint</button>
           </div>
           <p class="legal">{COPYRIGHT} · Open-source · Not affiliated with Fractal Audio Systems</p>
         </div>

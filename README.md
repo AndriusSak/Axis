@@ -242,5 +242,9 @@ MIT — see [`LICENSE`](./LICENSE). Axis is an independent project and is **not 
 endorsed by Fractal Audio Systems**. "Axe-Fx", "FM3", and "FM9" are trademarks of Fractal Audio
 Systems, used for identification only. See [DISCLAIMER.md](./DISCLAIMER.md).
 
+Terms of use and privacy for these builds: [`legal/`](./legal/) — short versions: the code is MIT,
+and these builds send nothing anywhere (no account, no telemetry). Upstream's hosted deployment at
+axisapp.live is a separate service with its own documents.
+
 This repository is a fork of [sKuhLight/Axis](https://github.com/sKuhLight/Axis); upstream remains
 the origin of the project.

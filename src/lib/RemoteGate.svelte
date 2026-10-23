@@ -56,8 +56,6 @@
     <a href={LEGAL.privacy} target="_blank" rel="noreferrer">Privacy</a>
     <span class="dot"></span>
     <a href={LEGAL.terms} target="_blank" rel="noreferrer">Terms</a>
-    <span class="dot"></span>
-    <a href={LEGAL.imprint} target="_blank" rel="noreferrer">Imprint</a>
     <span class="cr">{COPYRIGHT} · Not affiliated with Fractal Audio Systems</span>
   </footer>
 </div>

@@ -1,7 +1,7 @@
 <script lang="ts">
   // Persistent bottom bar. Left: the hover-hint for the block/parameter under the cursor (falls back to
   // the current selection / connection state) — scrolls like a news ticker when it overflows. Right:
-  // Ko-fi support link · copyright · imprint.
+  // Ko-fi support link · copyright · legal.
   import { editor } from './editor.svelte';
   import { LEGAL, openExternal } from './legal';
   import { KOFI_URL, COPYRIGHT } from './support';
@@ -42,7 +42,7 @@
     <span class="sep"></span>
     <span class="cr">{COPYRIGHT}</span>
     <span class="sep"></span>
-    <button class="lnk" onclick={() => openExternal(LEGAL.imprint)}>Imprint</button>
+    <button class="lnk" onclick={() => openExternal(LEGAL.index)}>Legal</button>
   </div>
 </footer>
 

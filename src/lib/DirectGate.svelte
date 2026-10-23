@@ -60,7 +60,7 @@
           <div class="miss">FM3 over USB needs Chrome/Edge on desktop (Web Serial). An FM3 on a MIDI interface works here too.</div>
         {/if}
         {#if b.note}<p class="note">{b.note}</p>{/if}
-        <p class="legal">Your presets stay in this browser — nothing is uploaded unless you sign in and turn on cloud sync.</p>
+        <p class="legal">Your presets stay in this browser — nothing is uploaded. There is no account and no cloud sync in this build.</p>
       </div>
     {/if}
   </div>
@@ -69,8 +69,6 @@
     <a href={LEGAL.privacy} target="_blank" rel="noreferrer">Privacy</a>
     <span class="dot"></span>
     <a href={LEGAL.terms} target="_blank" rel="noreferrer">Terms</a>
-    <span class="dot"></span>
-    <a href={LEGAL.imprint} target="_blank" rel="noreferrer">Imprint</a>
     <span class="cr">{COPYRIGHT} · Not affiliated with Fractal Audio Systems</span>
   </footer>
 </div>

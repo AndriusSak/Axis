@@ -1,51 +1,98 @@
-# Terms of Service — Axis
+# Terms of use — Axis (this fork)
 
-_Last updated: [DATE]._
+_Last updated: 23 October 2026._
 
-These terms govern your use of the Axis application and the optional Axis Cloud service ("Axis", "the Service"), operated by the party named in the [Imprint](imprint.md) ("we", "us"). By installing or using Axis, you agree to these terms.
+These terms cover the builds published at **https://github.com/AndriusSak/Axis/releases** and the
+browser build served from your own machine or network. They do not cover any other deployment of
+Axis. By installing or using a build, you accept them; if you do not, don't use the build.
 
-> Draft covering the **free** app + cloud beta, written for upstream's hosted service at
-> `axisapp.live`. **This fork offers no Axis Cloud** (no Supabase credentials ship), so its account,
-> sync and payment clauses do not apply to this build. The **paid supporter tier** adds consumer-law
-> obligations (right of withdrawal / Widerrufsrecht, cancellation, refunds, pricing) that are **not**
-> covered here and should be drafted with a lawyer before any launch.
+## 1. What this is
 
-## 1. What Axis is
-Axis is independent, third-party software for editing and backing up presets on Fractal Audio devices. It is **not affiliated with, endorsed by, or sponsored by Fractal Audio Systems**. It is provided to a community of enthusiasts.
+Axis is an independent, third-party editor for Fractal Audio hardware. This repository is a **fork of
+[sKuhLight/Axis](https://github.com/sKuhLight/Axis)** and is **not affiliated with, authorised,
+endorsed or sponsored by Fractal Audio Systems**. Upstream maintains its own project and its own
+hosted service at `axisapp.live`; those are separate from this fork and not covered here.
 
-## 2. License & acceptable use
-- Axis is licensed under the **MIT License** (see [`../LICENSE`](../LICENSE)) — free for any use, including commercial, with the copyright notice retained. Earlier drafts of this file said "PolyForm Noncommercial"; that was wrong and never matched the shipped `LICENSE`.
-- You agree not to misuse the Service: no unlawful use, no attempts to break, overload, or gain unauthorized access to the cloud infrastructure, no uploading of unlawful content, and no reverse-engineering of the hosted services.
+## 2. Licence
 
-## 3. Your device and your data
-- You are responsible for your hardware and your presets. **Always keep your own backups.** Writing to a hardware device carries inherent risk; you use device-write features at your own risk.
-- Preset content you create or upload remains **yours**. By using Axis Cloud you grant us only the limited permission needed to store and sync that content back to you.
+The code is **MIT** — see [`../LICENSE`](../LICENSE). You may use, copy, modify, merge, publish,
+distribute, sublicense and sell it, provided the copyright and permission notice travel with it.
+Nothing in these terms adds restrictions to that licence: where the two disagree about the code, the
+licence wins.
 
-## 4. Accounts (Axis Cloud)
-- You must provide a valid email and keep your credentials secure. You are responsible for activity under your account.
-- You may delete your account at any time (see the [Privacy Policy](privacy-policy.md) §8); we may suspend or terminate accounts that violate these terms.
+## 3. No service, no accounts
 
-## 5. Beta status
-Axis is **beta software**, provided "as is" and "as available". Features may change, break, or be removed, and the cloud service may be unavailable or reset during the beta.
+This fork operates **no server**. There are no accounts, no sign-in, no cloud sync, no preset
+sharing, no payments and no support contract. Nothing you do in a build is sent to this fork's
+maintainer — see [`privacy.md`](privacy.md).
 
-## 6. No warranty
-To the extent permitted by law, the Service is provided **without warranties of any kind**, express or implied, including merchantability, fitness for a particular purpose, and non-infringement. We do not warrant that the Service will be uninterrupted, error-free, or that it will not affect your device or presets.
+## 4. Your device, your presets, your risk
 
-## 7. Limitation of liability
-To the extent permitted by applicable law: we are liable **without limitation** for damages caused intentionally or by gross negligence, and for injury to life, body, or health. For slight negligence, we are liable only for breach of a material contractual obligation (Kardinalpflicht), and such liability is limited to the foreseeable, typical damage. Any further liability is excluded. In particular, we are **not liable for data loss or damage to your device**, provided you have kept reasonable backups. _(This clause follows the standard German liability model; have it confirmed.)_
+Axis reads and writes your hardware over USB/MIDI. That is inherently risky:
 
-## 8. Third-party services
-Axis Cloud and diagnostics rely on third-party processors (Supabase, Grafana Labs; a payment provider for the paid tier). Their terms and availability also apply; we are not responsible for their outages.
+- **Back up your presets before using write features.** Keep your own copies; this fork cannot
+  recover anything for you.
+- The **FM3** is the proven path (development unit, firmware 13.0 tables). FM9 / Axe-Fx III support
+  is partial, and per-block preset-body decode is FM3-only.
+- **Export is FM3-proven.** FM9 / III export files decode but have never been loaded onto a unit;
+  AM4, VP4, Axe-Fx II and gen-1 targets are not exportable.
+- The protocol understanding is unofficial and reverse-engineered. A firmware update can break
+  behaviour at any time, including in ways not yet documented.
+- Keep one editor connected at a time: the serial port is exclusive.
 
-## 9. Changes
-We may update these terms; the current version lives at **https://axisapp.live/terms**. Continued use after a material change constitutes acceptance. If you do not agree, stop using the Service and/or delete your account.
+The known-limitations list in [`../README.md`](../README.md) is part of these terms.
 
-## 10. Governing law
-These terms are governed by the law of the **Federal Republic of Germany**, excluding the UN Convention on Contracts for the International Sale of Goods. Mandatory consumer-protection provisions of your country of residence remain unaffected.
+## 5. Builds
 
-## 11. Contact
-[contact email] — see the [Imprint](imprint.md).
+Releases are attached to GitHub with a matching `.sha256` per artifact — verify before installing.
+Builds are **unsigned and not notarised**: macOS needs `xattr`/`codesign` after each fresh copy, the
+Linux AppImage installs nothing, and there is **no updater** (updates mean downloading a new release).
+Builds are provided "as is", without any support commitment.
+
+## 6. Donations
+
+The Ko-fi link in [`../README.md`](../README.md) is a **voluntary donation**. It buys no goods, no
+service, no priority and no feature; nothing is owed in return, and it does not change these terms.
+
+## 7. No warranty
+
+The builds are provided **"as is", without warranty of any kind**, express or implied, including
+merchantability, fitness for a particular purpose and non-infringement. No warranty is given that a
+build will work with your firmware, will not corrupt a preset, or will be uninterrupted.
+
+## 8. Liability
+
+To the extent permitted by law, the maintainer and contributors are **not liable** for any damage,
+data loss, corrupted presets, lost gigs or other harm arising from the use of or inability to use a
+build. Nothing here excludes or limits liability that cannot lawfully be excluded — in particular for
+intent, gross negligence, or injury to life, body or health — and nothing here affects mandatory
+consumer-protection rights you have where you live. The licence's own disclaimer (§2) applies as
+well.
+
+## 9. Third-party marks
+
+"Fractal Audio Systems", "Axe-Fx", "FM3", "FM9", "AX8" and "FX8" are trademarks of Fractal Audio
+Systems. They are used here only to identify the hardware this software interoperates with. No
+ownership is claimed and no endorsement is implied. Presets, firmware and factory content remain the
+property of their respective owners. See [`../DISCLAIMER.md`](../DISCLAIMER.md).
+
+## 10. Changes
+
+The current version of these terms is the file in this repository on the `main` branch. They may be
+updated as the project changes; the date at the top moves when they do. If you don't accept a
+revision, stop using the build.
+
+## 11. Governing law
+
+This fork is a free, non-commercial distribution, so there is normally no contract to govern. Where a
+governing law has to be named, it is the law of **Sweden**, without prejudice to mandatory
+consumer-protection provisions of your country of residence.
+
+## 12. Contact
+
+Open an issue at **https://github.com/AndriusSak/Axis/issues**.
 
 ---
 
-_Draft — not legal advice. The liability and (future) consumer/payment clauses in particular should be reviewed by a qualified lawyer before you rely on them._
+_Not legal advice. These terms describe how this fork is distributed, not a legal opinion; if you
+need certainty for a commercial use, ask a lawyer._
