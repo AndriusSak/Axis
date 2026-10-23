@@ -2,7 +2,13 @@
 
 _Information pursuant to § 5 DDG (Digitale-Dienste-Gesetz) and § 18 (2) MStV._
 
-> **This page legally requires your real name and a reachable postal address — a pseudonym (e.g. "sKuhLight") is not sufficient.** To keep your home address private, use a *ladungsfähige* c/o business address service, or operate through a legal entity (UG/GmbH), in which case list the entity + managing director. Fill in the fields below before publishing.
+> **Scope: upstream's operator, not this fork.** These are upstream's (`sKuhLight/Axis`) drafts for the
+> hosted service at `axisapp.live`; this fork runs no service, so it names no operator. The published
+> version at https://axisapp.live/imprint already carries the real c/o postal address — that page, not
+> this file, is the authoritative one. A German Imprint legally requires a real name and a reachable
+> postal address (a pseudonym such as "sKuhLight" is not sufficient); to keep a home address private,
+> use a *ladungsfähige* c/o service, or operate through a legal entity (UG/GmbH) and list the entity +
+> managing director.
 
 ## Operator
 

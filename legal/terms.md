@@ -4,13 +4,17 @@ _Last updated: [DATE]._
 
 These terms govern your use of the Axis application and the optional Axis Cloud service ("Axis", "the Service"), operated by the party named in the [Imprint](imprint.md) ("we", "us"). By installing or using Axis, you agree to these terms.
 
-> Draft covering the **free** app + cloud beta. The **paid supporter tier** adds consumer-law obligations (right of withdrawal / Widerrufsrecht, cancellation, refunds, pricing) that are **not** yet covered here and should be drafted with a lawyer before launch.
+> Draft covering the **free** app + cloud beta, written for upstream's hosted service at
+> `axisapp.live`. **This fork offers no Axis Cloud** (no Supabase credentials ship), so its account,
+> sync and payment clauses do not apply to this build. The **paid supporter tier** adds consumer-law
+> obligations (right of withdrawal / Widerrufsrecht, cancellation, refunds, pricing) that are **not**
+> covered here and should be drafted with a lawyer before any launch.
 
 ## 1. What Axis is
 Axis is independent, third-party software for editing and backing up presets on Fractal Audio devices. It is **not affiliated with, endorsed by, or sponsored by Fractal Audio Systems**. It is provided to a community of enthusiasts.
 
 ## 2. License & acceptable use
-- Axis is licensed under the terms shipped with it (PolyForm Noncommercial) — **noncommercial use only**.
+- Axis is licensed under the **MIT License** (see [`../LICENSE`](../LICENSE)) — free for any use, including commercial, with the copyright notice retained. Earlier drafts of this file said "PolyForm Noncommercial"; that was wrong and never matched the shipped `LICENSE`.
 - You agree not to misuse the Service: no unlawful use, no attempts to break, overload, or gain unauthorized access to the cloud infrastructure, no uploading of unlawful content, and no reverse-engineering of the hosted services.
 
 ## 3. Your device and your data

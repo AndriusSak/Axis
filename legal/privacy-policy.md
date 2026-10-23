@@ -2,6 +2,12 @@
 
 _Last updated: [DATE]._
 
+> **Scope: upstream's service, not this fork.** This policy describes the hosted service at
+> `axisapp.live` operated by upstream (`sKuhLight/Axis`): optional Axis Cloud accounts, opt-in
+> diagnostics, debug-report uploads. **This fork's builds carry no Supabase or Grafana credentials, so
+> none of that is active** — no account can be created, and nothing is uploaded. Placeholders below are
+> upstream's to fill; the published version is https://axisapp.live/privacy.
+
 This policy explains what personal data Axis processes, why, and your rights under the EU General Data Protection Regulation (GDPR / DSGVO). Axis is an independent, third-party editor for Fractal Audio devices and is **not affiliated with Fractal Audio Systems**.
 
 > **Short version:** The Axis app and its local engine run on **your** computer and talk to **your** device — that needs no account and sends us nothing. Personal data reaches us only if you (a) create an **Axis Cloud** account to back up/sync your presets, or (b) opt in to **anonymous diagnostics** / send a debug report. Both are optional and off by default. We never sell your data, show ads, or send your presets or preset names to our diagnostics.
