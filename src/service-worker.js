@@ -3,10 +3,14 @@
 // installability + a fast/offline app shell — NOT caching live data. Content-hashed build assets are
 // cache-first; navigations are network-first (so the shell is never stale) with an offline fallback;
 // cross-origin requests (Supabase relay, ForgeFX API, fonts) are never intercepted.
-import { build, files, version } from '$service-worker';
+//
+// Kit 3 removed `$service-worker`: the manifest pieces now come from `$app/manifest` and the
+// build version from `$app/env`.
+import { immutable, assets } from '$app/manifest';
+import { version } from '$app/env';
 
 const CACHE = `axis-${version}`;
-const PRECACHE = [...build, ...files];
+const PRECACHE = [...immutable, ...assets];
 
 self.addEventListener('install', (event) => {
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(PRECACHE)).then(() => self.skipWaiting()));
