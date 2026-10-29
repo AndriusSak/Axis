@@ -303,6 +303,10 @@
   // yielding, never by a smaller tile. Measured: 6-row board @1280×800 went 48px cell / 30px dials /
   // 440px board in a 672px pane → back to the width split (77px cell, 39px dials, 672px board).
   const cell = $derived(widthCell);
+  // One knob scale for everything inside a tile (dial, label, value, switch, stepper, select field).
+  // Text and chrome are fixed px today, so a 343 px tile showed 12 px labels — the "buttons don't
+  // scale" report. Applied ONLY under `.flow`, so the classic board is pixel-identical.
+  const flowScale = $derived(clamp(Math.round((cell / 170) * 100) / 100, 1, 2));
 
   // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
   // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
@@ -754,7 +758,11 @@
   const pxOf = (n: number) => n * cell + (n - 1) * GAP;
   // the value lives in the hover/tap bubble now, so the dial fills the tile — but leave room for the
   // card padding (16) + gap (5) + the label (~16) so the label never clips.
-  const dialFor = (w: Widget) => clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 38), 30, 260);
+  // The dial fills its tile, but a tile is not the control: in ALIGNED mode a cell is ~340 px on a
+  // desktop, and a hard 260 px cap left the knob floating in a mostly empty square. Flow mode therefore
+  // allows the dial up to 78% of the cell; the free board keeps its old cap so nothing moves there.
+  const dialFor = (w: Widget) =>
+    clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 38), 30, flowMode ? Math.round(cell * 0.78) : 260);
   // anchor the value bubble above an element (knob/card), in screen coords (fixed-position)
   function showTip(el: HTMLElement, id: number, edit: boolean) {
     const r = el.getBoundingClientRect();
@@ -1576,7 +1584,7 @@
 <!-- board -->
 <div class="content scroll" bind:this={containerEl}>
   <!-- svelte-ignore a11y_no_static_element_interactions, a11y_click_events_have_key_events -->
-  <div class="boardwrap" bind:this={boardEl} onpointerdown={onBoardDown} style:width="{displayCols * cell + (displayCols - 1) * GAP}px" style:height="{boardH}px">
+  <div class="boardwrap" class:flow={flowMode} style:--cs-scale={flowScale} bind:this={boardEl} onpointerdown={onBoardDown} style:width="{displayCols * cell + (displayCols - 1) * GAP}px" style:height="{boardH}px">
     {#if editMode}
       <div class="gridlayer" style:grid-template-columns="repeat({cols}, {cell}px)" style:grid-template-rows="repeat({rows}, {cell}px)" style:gap="{GAP}px">
         {#each Array(cols * rows) as _, i (i)}<div class="gcell"></div>{/each}
@@ -3347,4 +3355,38 @@
     color: var(--textmuted);
     text-transform: none;
   }
+/* ── ALIGNED layout: one scale for the whole tile ────────────────────────────────────────────────
+     Text and chrome are fixed px in the classic board, where a tile is ~148 px. An aligned cell is
+     ~340 px on a desktop, so the same 12 px label read as "the buttons don't scale". Everything inside
+     a tile is now driven by --cs-scale, which the board sets from the cell width. Scoped to `.flow`
+     so the default board keeps its exact old metrics. */
+  .boardwrap.flow .lbl { font-size: calc(12px * var(--cs-scale, 1)); }
+  .boardwrap.flow .kval { font-size: calc(15px * var(--cs-scale, 1)); }
+  .boardwrap.flow .seltop { font-size: calc(11px * var(--cs-scale, 1)); }
+  .boardwrap.flow .selfield {
+    height: calc(36px * var(--cs-scale, 1));
+    padding: 0 calc(11px * var(--cs-scale, 1));
+    border-radius: calc(9px * var(--cs-scale, 1));
+    font-size: calc(13px * var(--cs-scale, 1));
+  }
+  .boardwrap.flow .caret { font-size: calc(10px * var(--cs-scale, 1)); }
+  .boardwrap.flow .switch {
+    width: calc(54px * var(--cs-scale, 1));
+    height: calc(30px * var(--cs-scale, 1));
+    border-radius: calc(15px * var(--cs-scale, 1));
+  }
+  .boardwrap.flow .snob {
+    width: calc(22px * var(--cs-scale, 1));
+    height: calc(22px * var(--cs-scale, 1));
+    top: calc(3px * var(--cs-scale, 1));
+    left: calc(3px * var(--cs-scale, 1));
+  }
+  .boardwrap.flow .switch.on .snob { left: calc(27px * var(--cs-scale, 1)); }
+  .boardwrap.flow .step {
+    width: calc(30px * var(--cs-scale, 1));
+    height: calc(30px * var(--cs-scale, 1));
+    font-size: calc(14px * var(--cs-scale, 1));
+  }
+  .boardwrap.flow .action { font-size: calc(14px * var(--cs-scale, 1)); }
 </style>
+
