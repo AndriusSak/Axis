@@ -881,7 +881,10 @@
                 onmouseenter={() => showBlockHelp(cell)}
                 onmouseleave={clearBlockHelp}
               >
-                {#if meter && !mapMode}<span class="lvlfill" style="height:{Math.round(meter.norm * 100)}%; background:linear-gradient(180deg,{shade(cat.accent, 0.35)},{cat.accent});"></span>{/if}
+                <!-- The level fill is a BACKGROUND element: Map mode hides labels and HUDs, but a meter is
+                     not chrome — hiding it there meant switching METER on and seeing nothing at all in
+                     the mode most people leave the grid in. -->
+                {#if meter}<span class="lvlfill" style="height:{Math.round(meter.norm * 100)}%; background:linear-gradient(180deg,{shade(cat.accent, 0.35)},{cat.accent});"></span>{/if}
                 {#if cell.bypassed}<span class="hatch"></span>{/if}
                 {#if swipeHud && swipeHud.key === `${r},${c}` && !mapMode}
                   <div class="swhud">

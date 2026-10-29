@@ -3038,7 +3038,9 @@ class EditorStore {
       const r = await forgefx.store(n);
       this.saveOpen = false;
       if (!r.ok) {
-        this.showToast('Save rejected by device', '#d6543f');
+        // Carry the device's refusal code — "rejected" alone gives the user (and the next probe) nothing
+        // to act on, and the FM3 answers a 0x64 with a code that says WHY.
+        this.showToast(r.code ? `Save rejected by device (${r.code})` : 'Save rejected by device', '#d6543f');
         return;
       }
       history.checkpoint(`Saved to preset ${'code' in r && r.code ? r.code : n}`, false); // marker — undo continues past it
