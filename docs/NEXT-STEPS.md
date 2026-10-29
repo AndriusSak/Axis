@@ -81,15 +81,14 @@ Each item names its blocker and what closing it would require.
   (`ControlSurface.svelte` `c.id` / `w.key2`); on the unit (Cab 1, DYNA-CAB, 2 slots) those are params **93/97**
   for slot 1 and **94/98** for slot 2, and a two-param write was captured on the wire
   (`ForgeFX/server/test/fixtures/query-subs-decode/dynacab-pad-2026-10-29.tap`, 2026-10-29). **The gesture is
-  now captured (same day), and it found a defect: a real drag in the real app emits exactly two writes on
-  release — `PUT …/params/93` (Position) and `PUT …/params/97` (Distance), both 200 — the server caches the
-  new values and the UI redraws, and NOT ONE FRAME reaches the unit** (no set-parameter frame for eid 62 in
-  the whole session; edit-buffer body sha identical). So the pad currently does nothing to the hardware and
-  the cache then disagrees with it — the sharpest instance yet of "an ack is not confirmation". Full capture:
-  `review-2026-10-29/FINDINGS-DYNACAB-DRAG.md`.
-  **Next, cheap:** repeat the same PUT by curl with the app open and watch the tap — earlier, with the app
-  closed, the identical PUT did reach the unit, so the app's ~25 Hz poll loop is the prime suspect
-  (starvation) rather than the pad's own code path.
+  captured and it works: one drag = one write per axis, sent once on release** — two `PUT`s (93 Position,
+  97 Distance, both 200) and, **19 ms apart, exactly two continuous-SET frames on the wire**, eid `0x3e`
+  pid `0x5d` value `0.978261` and pid `0x61` value `0.5`. Nothing else is written; slot 2 is untouched.
+  Capture + the value encoding (5-septet float32, **LSB-first**) in `review-2026-10-29/FINDINGS-DYNACAB-DRAG.md`.
+  *A first write-up of the same capture claimed the writes never left the server. That was a search artefact —
+  the frame shape looked for was the one our own probe invents (`sub 0x4e`) rather than the one a client sends
+  (`sub 52 00`, two bytes, address at 8-11). Lesson recorded in the findings: an absent match in a tap is not
+  absent traffic.*
 
 **Blocked on a capture / an owner-authorised device edit (offline-reproducible once provided)**
 
