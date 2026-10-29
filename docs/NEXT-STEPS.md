@@ -65,10 +65,17 @@ Each item names its blocker and what closing it would require.
   So the FM3's answer to a bad write is **SUBSTITUTION, not rejection**, and the 250 ms write-confirm window is
   **not marginal** (every reply arrived 1–14 ms; a `request()` reports 250–266 ms only because the transport
   resolves on a **quiet gap** and does not timestamp frames — the probe times arrivals itself, via `onFrame`).
-  **What closing the refusal path itself would still require:** a write the device genuinely rejects (probably
-  not reachable from the param-write opcode), or the editor's own refusal handling captured. The item's own
-  lesson stands and is sharper: **absence of a refusal is not acceptance** — and a non-refusal reply is not
-  evidence the value you sent is the value in force.
+  **CLOSED 2026-10-29 — `probe-write-refusal.ts`, five set-parameter frames, body sha identical before and
+  after.** A write the unit genuinely rejects IS reachable from the param-write opcode: an **unknown parameter
+  id** on a real block draws **two `0x64` frames** (`01 01` then `01 00`) in **~1 ms**, the same shape a
+  deliberately bad checksum draws. A third outcome exists: an **unknown function byte** (`0x6f`) is dropped in
+  **silence**, exactly like an unknown eid, so silence must be read as *unknown*, never as success. And an ack
+  is not confirmation — a write to **eid `0x7f`** (not a block) is acknowledged with the full echo and a state
+  token and changes nothing. Full table: `review-2026-10-29/FINDINGS-Q5-WRITE-REFUSAL.md`.
+  The item's own lesson stands and is sharper: **absence of a refusal is not acceptance** — and a non-refusal
+  reply is not evidence the value you sent is the value in force. Only a read-back is.
+  *Still open (small): where the unit's function-number range ends — `0x12` is refused with one `0x64`, `0x6f`
+  is dropped silently — and whether a refusal is ever slow enough to matter (nothing above 3 ms seen).*
 - **§3.6 item 6 DynaCab 2-axis pad** — the BINDING is now measured, the gesture capture is not. Source says the
   pad's vertical axis is the Position param and its horizontal standoff the same slot's Distance
   (`ControlSurface.svelte` `c.id` / `w.key2`); on the unit (Cab 1, DYNA-CAB, 2 slots) those are params **93/97**
