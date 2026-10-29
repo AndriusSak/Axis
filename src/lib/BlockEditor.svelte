@@ -38,8 +38,11 @@
   const cabSlotLabel = (s: CabSlot, dyna: boolean) => (dyna ? s.dyna.label : `${s.bank.label} ${s.irName}`);
   const cabSummary = $derived.by(() => {
     const cs = cabState;
-    if (!cs?.slots.length) return null;
-    const dyna = cs.mode.value === 1;
+    // `?.` on `cs` alone is not enough: a 200 with a partial body (older API, an error payload, or the
+    // e2e route table answering `{}` for an unmatched cab path) leaves `slots` undefined and this line
+    // threw during render, turning the whole workbench into SvelteKit's 500 page.
+    if (!cs?.slots?.length) return null;
+    const dyna = cs.mode?.value === 1;
     if (cs.slots.length === 1) return cabSlotLabel(cs.slots[0], dyna);
     return cs.slots.map((s) => `Slot ${s.slot}: ${cabSlotLabel(s, dyna)}`).join('   ');
   });
