@@ -39,7 +39,7 @@ class DirectBoot {
   #sha256: ((b: Uint8Array) => string) | null = null;
   #unsubEvents: (() => void) | null = null;
 
-  /** Connect over Web Serial — the FM3's USB path (Chromium desktop only). */
+  /** Connect over Web Serial — the FM3's USB path (desktop Chromium, or Firefox 151+). */
   connectSerial = async () => {
     this.note = null;
     try {

@@ -10,7 +10,7 @@
   let password = $state('');
   const b = $derived(remoteBoot);
 
-  // This browser can reach a device directly (Web MIDI / Web Serial — Chromium desktop; not Safari/iOS).
+  // This browser can reach a device directly (Web MIDI / Web Serial — desktop Chromium or Firefox 151+; not Safari/iOS).
   // When it can, offer the in-app switch to Browser Direct mode so users aren't stuck on the relay (the
   // only mode where the device-definitions walk works). Reuses directBoot's feature probe (DirectGate is
   // already in the web bundle). Reload into ?mode=direct — the web mode is chosen per page load.

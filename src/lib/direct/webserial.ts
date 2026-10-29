@@ -1,6 +1,6 @@
 // Web Serial transport for Browser Direct mode — the FM3 path. The FM3's USB
 // connection is CDC serial (Fractal interface if03), not USB-MIDI, so the
-// browser needs Web Serial (Chromium desktop only). Mirrors ForgeFX's Node
+// browser needs Web Serial (desktop Chromium, or Firefox 151+). Mirrors ForgeFX's Node
 // serial transport semantics: byte-stream F0…F7 SysEx reassembly, promise-chain
 // request serialization, quiet-window collection, stale-partial-frame drop
 // before each request, and paced chunked writes (~64 B / 3 ms) for large

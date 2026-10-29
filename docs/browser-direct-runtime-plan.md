@@ -65,7 +65,7 @@ Web Serial. FM9 / Axe-Fx III / AM4 are USB-MIDI-class — they need Web MIDI (Sy
 | Capability | Chrome/Edge desktop | Firefox desktop | Chrome Android | Safari / iOS |
 |---|---|---|---|---|
 | Web MIDI + SysEx (FM9, Axe-Fx III, AM4) | ✅ | ✅ (FF 108+) | ✅ | ❌ |
-| Web Serial (FM3 over USB) | ✅ | ❌ | ❌ | ❌ |
+| Web Serial (FM3 over USB) | ✅ | ✅ (FF 151+, capability verified; FM3 round not yet run) | ❌ | ❌ |
 | Local folder — `showDirectoryPicker()` | ✅ | ❌ → fallback | ❌ → fallback | ❌ |
 | OPFS/IndexedDB store (versions, config, history) | ✅ | ✅ | ✅ | — |
 | Cloud sync (supabase-js + brotli-wasm) | ✅ | ✅ | ✅ | — |
@@ -73,9 +73,14 @@ Web Serial. FM9 / Axe-Fx III / AM4 are USB-MIDI-class — they need Web MIDI (Sy
 Consequences, stated plainly in the UI at connect time:
 
 - **Chrome/Edge desktop = full parity** (all devices, real local folder, everything).
-- **Firefox / Android = MIDI devices only** (FM9, Axe-Fx III, AM4; an FM3 is still reachable via
-  a USB-MIDI interface on its 5-pin DIN). Local folder falls back to `.syx` file import/export +
-  OPFS-backed library (no live folder mirror).
+- **Firefox desktop 151+ = every device too** (Web Serial shipped in FF 151 on 2026-05-19, so the
+  FM3's USB-CDC port is reachable; measured capability probe in FF 159 — `navigator.serial`,
+  `getPorts()`, `requestPort()`, and the Direct gate's FM3 option all present). Serial *behaviour*
+  against an FM3 is still unverified in this fork, so treat that path as new. Local folder is the
+  only gap: no `showDirectoryPicker()`, falls back to `.syx` import/export + OPFS library.
+- **Android (Chrome) = MIDI devices only** (FM9, Axe-Fx III, AM4; an FM3 is still reachable via
+  a USB-MIDI interface on its 5-pin DIN). Firefox for Android has neither Web MIDI nor Web Serial.
+  Local folder falls back as on Firefox (no live folder mirror).
 - **iOS/Safari: unsupported** for direct device access (no Web MIDI, no Web Serial). Axis Remote
   remains the iOS answer.
 
@@ -188,6 +193,7 @@ with the **HTTP API byte-compatible** — existing route tests must pass unchang
 ## Assumptions
 
 - ForgeFX Server is not deprecated; Browser Direct is additive.
-- Chrome/Edge desktop is the primary target; Firefox/Android are supported with the documented
-  MIDI-only device set; iOS/Safari is out of scope without a native bridge.
+- Chrome/Edge desktop is the primary target; Firefox desktop (151+) is supported for the full
+  device set but keeps only the `.syx`/OPFS folder fallback; Android is MIDI-only; iOS/Safari is out
+  of scope without a native bridge.
 - Android/iOS store wrappers are out of scope.

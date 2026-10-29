@@ -74,7 +74,7 @@ catalog snapshot holds, or whatever an imported editor cache provides.
 | Windows 10/11 x64 | exe installer — install verified, app untested | Expected (COM port) | Expected |
 | Chrome / Edge, desktop | web build | ✓ Web Serial | ✓ Web MIDI |
 | ChromeOS | web build | ✓ Web Serial | ✓ Web MIDI |
-| Firefox, desktop | web build | ✗ no Web Serial | ✓ Web MIDI |
+| Firefox, desktop | web build | ✓ Web Serial (FF 151+, not yet HIL-tested) | ✓ Web MIDI |
 | Android, Chrome | web build | ✗ | ✓ Web MIDI, if the unit shows up as a MIDI device |
 | iOS / iPadOS | web build | ✗ | ✗ no USB device APIs |
 
@@ -87,8 +87,11 @@ catalog snapshot holds, or whatever an imported editor cache provides.
   are compiled in, so the browser build falls back to Direct. Driving the unit from another machine
   means running the desktop app where the unit is plugged in and reaching it over a VPN or remote
   desktop — not the Remote toggle.
-- **FM3 in a browser needs desktop Chromium.** Web Serial doesn't exist on iOS, Android or Firefox.
-  A MIDI interface into the FM3 works anywhere Web MIDI does.
+- **FM3 in a browser needs desktop Web Serial.** That means desktop Chrome/Edge, or desktop
+  **Firefox 151+** (Mozilla shipped Web Serial on 2026-05-19; the capability and the Direct gate are
+  verified in Firefox 159, but no FM3 session has been run on Firefox yet — treat it as untested).
+  Web Serial does not exist on iOS, Android or Firefox for Android. A MIDI interface into the FM3
+  works anywhere Web MIDI does.
 - **FM9 / Axe-Fx III are second-class citizens.** Per-block preset-body decode and live FC state are
   FM3-only. Anything that reads a block's own body — rather than the catalog — is FM3-shaped today.
 - **One program per port.** Quit FM3-Edit / Axe-Edit before connecting; the serial port is exclusive.
@@ -158,10 +161,11 @@ VITE_AXIS_REMOTE=1 npm run build                        # served from the domain
 AXIS_BASE=/axis/live VITE_AXIS_REMOTE=1 npm run build   # served from a subpath
 ```
 
-Then open it in **Chrome or Edge on a desktop**, plug the unit into *that* computer, and pick the
-connection:
+Then open it in **Chrome, Edge or Firefox (151+) on a desktop**, plug the unit into *that* computer,
+and pick the connection:
 
-- **FM3** — over Web Serial. Desktop Chromium only: iOS, Android and Firefox cannot open the port.
+- **FM3** — over Web Serial: desktop Chrome/Edge, and desktop Firefox 151+. Not on iOS, Android or
+  Firefox for Android (no Web Serial there).
 - **FM9 / Axe-Fx III / AM4** — over Web MIDI, which also works in Firefox and on Android.
 
 There is no server in this mode: the whole ForgeFX runtime runs in the page (`src/lib/direct/`),

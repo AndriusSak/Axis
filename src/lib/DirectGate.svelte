@@ -31,8 +31,8 @@
     {:else if !supported}
       <div class="state">
         <div class="st warn">This browser can't reach devices</div>
-        <div class="ss">Web MIDI / Web Serial aren't available here (iOS and Safari don't support them).</div>
-        <div class="hint">Use <strong>Chrome or Edge on a computer</strong> for the full experience — or <a href="/?mode=remote">Axis Remote</a> to control the Axis desktop app from this browser.</div>
+        <div class="ss">Web MIDI / Web Serial aren't available here — iOS, Safari and Firefox on Android don't expose them.</div>
+        <div class="hint">Use <strong>Chrome, Edge or Firefox (151+) on a computer</strong> for the full experience — or <a href="/?mode=remote">Axis Remote</a> to control the Axis desktop app from this browser.</div>
       </div>
     {:else if b.midiChoices.length > 0}
       <div class="pick">
@@ -57,7 +57,7 @@
             <span class="od">The FM3 connects as a serial device</span>
           </button>
         {:else if b.support.midi}
-          <div class="miss">FM3 over USB needs Chrome/Edge on desktop (Web Serial). An FM3 on a MIDI interface works here too.</div>
+          <div class="miss">FM3 over USB needs a browser with Web Serial — desktop Chrome/Edge or Firefox 151+. An FM3 on a MIDI interface works here too.</div>
         {/if}
         {#if b.note}<p class="note">{b.note}</p>{/if}
         <p class="legal">Your presets stay in this browser — nothing is uploaded. There is no account and no cloud sync in this build.</p>
