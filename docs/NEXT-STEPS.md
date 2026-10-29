@@ -75,7 +75,7 @@ Each item names its blocker and what closing it would require.
 
 **Blocked on a capture / an owner-authorised device edit (offline-reproducible once provided)**
 
-- **The `fn=0x01` sub-action decode (`0x03` / `0x1b` / `0x2e`) — narrowed hard; three things still open.** The
+- **The `fn=0x01` sub-action decode (`0x03` / `0x1b` / `0x2e`) — one sub-item left open.** The
   three sub-actions the editor uses constantly are **ANSWERED BY THE UNIT** (no longer unmapped and no longer
   capture-gated). Evidence: `ForgeFX/server/test/fixtures/query-subs-decode/` (taps + a README that states what
   each row measures, kept per round) and the read-only observers `scripts/probe-1b-*.ts`,
@@ -85,16 +85,32 @@ Each item names its blocker and what closing it would require.
   mod 128**, NOT per-read; `0x1b` is an **addressed table read** (upstream's name "PARAM FLAGS" is unsupported
   by anything measured); the "hole/default" record's first byte **IS the scene index** (8 for 8); the region
   carries **no bypass state** (every head record and tail grid cell unchanged under the bypass toggle) and is
-  **scene-invariant**. Still open:
-  1. **the `H_head` PLACEMENT-change arm** — a structural preset edit (move a block between cells) whose only
-     restore oracle is the same reply being diffed. Proposed, not run; needs the owner's explicit go-ahead
-     (the same class as the bypass toggle that was authorised and run).
-  2. **the hole-record second regime** — the value `1b 14 4c 7a 0a 02` has a first byte that is not a legal
-     scene index, so the field has at least two regimes and the scene-index map holds only in the current one.
-  3. **the standing read to add** — every probe should log (hole record, `fn=0x0d` preset, `fn=0x13` placed set,
-     **scene index**) so the next regime change is dated instead of costing a round.
+  **scene-invariant**. Status of the three former sub-items:
+  1. **`H_head` — ANSWERED 2026-10-29, placement arm run (owner-authorised).** `probe-2e-placement --go`
+     placed an unplaced block (chorus 2, eid `0x4f`) into a verified-empty cell (1,1) and cleared it again:
+     landing proved both ways through the `fn=0x13` status dump, restore proved **byte-identical through the
+     edit-buffer body**, and the offline diff (`diff-2e-head-vs-grid.ts`) reports **1 tail cell moved, 0 of
+     44 head records moved**, `before==after` true. With round 14's nulls for bypass and scene, the HEAD is
+     **preset-static metadata**, not a per-placement state table. Disclosed blind spot: data 22..27 was
+     masked (derived volatile), so a change confined to head records #2/#3 cannot be seen — the verdict holds
+     for the 41 visible records.
+  2. **the hole-record second regime — dated, still unexplained.** 2026-10-29: `00 00 00 00 00 02 00 00 00`
+     at 11:07 CEST (standing read) and `28 00 00 00 00 02 00 00 00` at 11:26 (placement-arm dry run), same
+     preset `USA Mk IV`, scene 0, 13 placed, no write from this stack in between. First byte `0x28` = 40 is
+     not a legal scene index, so the second regime is real, minutes-scale and not triggered by us.
+  3. **the standing read — EXISTS (`scripts/standing-read.ts`, built round 15) and was run.** It appends
+     hole record + `fn=0x0d` preset + `fn=0x13` placed set + scene index to
+     `~/repos/stack/standing-read.jsonl`; the earlier "to add" wording was stale. Run it at the start and end
+     of every hardware round — that is what dates a regime flip.
 
 **Closed this cycle — demoted to one-line pointers (the narrative lives in the commit history)**
+
+- **Tooling major (kit 3 / vite 8 / vitest 5 / electron 45) — MERGED 2026-10-29** (`0f476d3`), after the
+  hardware gate: HIL layer 3 on the branch matched the previous baseline feature-for-feature, read-only
+  proof clean, and a param write (Input impedance `AUTO`→`1M`) restored with a byte-identical body.
+- **`cve/major-tooling-bump`'s browser dependency** — Playwright 1.64.1 needs its own
+  `npx playwright install chromium`; without it five HIL specs fail and the run reports `EMPTY`, which reads
+  like a code failure. Do not skip that step on a fresh checkout.
 
 - **§2.2 per-preset Performance Pages — SOLVED, read AND write, verified on the unit** (`5030535`, `215576c`,
   `1a9328f`); the read-only route and the Device-Tools panel shipped with it.
