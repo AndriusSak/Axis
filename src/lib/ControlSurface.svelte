@@ -267,8 +267,14 @@
   // Column count follows the CELL, not the viewport: the aligned layout aims for a ~200 px cell, so a
   // wide pane gets MORE columns instead of bigger ones. Breakpoints by width (4 columns of 343 px on a
   // laptop) was the "buttons are way too huge" report — a bigger tile must not mean a bigger control.
-  const FLOW_TARGET = 200;
-  const flowCols = $derived(clamp(Math.round((containerW + GAP) / (FLOW_TARGET + GAP)), 1, 8));
+  // A page carrying a 2x2 view (mic pad, EQ graph, looper wave, meter) doubles that cell, so its big
+  // tile is 2*cell + GAP: at the 200 px target that is a 408 px pad, taller than a laptop's editor pane
+  // ("mic position is too large, it doesn't fit the screen"). Pages with a big view target a smaller
+  // cell so the DOUBLED tile still fits; a page of plain knobs keeps the roomier 200 px.
+  const BIG_VIEWS = ['dynacab', 'eq', 'wave', 'meter'];
+  const hasBigView = $derived(widgets.some((w) => BIG_VIEWS.includes(w.view)));
+  const flowTarget = $derived(hasBigView ? 150 : 200);
+  const flowCols = $derived(clamp(Math.round((containerW + GAP) / (flowTarget + GAP)), 1, 8));
 
   const displayCols = $derived(
     editMode ? cols : flowMode ? flowCols : isMobile ? Math.min(cols, Math.max(2, Math.min(6, fitCols))) : Math.min(cols, fitCols)
@@ -285,7 +291,7 @@
   // Steam-Deck report. Re-packing is what makes the template cover every placement.
   const viewWidgets = $derived(
     flowMode && !editMode
-      ? packUniform(widgets, flowCols, ['dynacab', 'eq', 'wave', 'meter'])
+      ? packUniform(widgets, flowCols, BIG_VIEWS)
       : !editMode && (displayCols < cols || overflowsColumns(widgets, displayCols))
         ? rowGrouped
           ? packRows(widgets, displayCols)
