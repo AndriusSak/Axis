@@ -33,7 +33,9 @@ A fresh sibling checkout also needs `npm run setup:stack` (forgefx-midi build �
 build → `svelte-kit sync`): the sibling package `exports` point at gitignored `dist/`, so the
 `file:` links resolve but the artifacts do not exist until each package is built, in order.
 
-The repo has **no git remote** configured — `main` is the local tip; nothing is pushed.
+`origin` is `github.com/AndriusSak/Axis` (the fork); `main` is pushed and is the reference tip.
+Work that is not ready for `main` goes on a topic branch — `cve/major-tooling-bump` is the open one
+(kit 3 / vite 8 / vitest 5, green on tests and build, not merged, not hardware-checked).
 
 `verify-stack.sh` builds `forgefx-midi` **first**, so a codec change merged from `src/` reaches
 ForgeFX's import of the built `dist/` only via that build. Starting the server (or a probe) straight
