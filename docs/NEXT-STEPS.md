@@ -80,9 +80,16 @@ Each item names its blocker and what closing it would require.
   pad's vertical axis is the Position param and its horizontal standoff the same slot's Distance
   (`ControlSurface.svelte` `c.id` / `w.key2`); on the unit (Cab 1, DYNA-CAB, 2 slots) those are params **93/97**
   for slot 1 and **94/98** for slot 2, and a two-param write was captured on the wire
-  (`ForgeFX/server/test/fixtures/query-subs-decode/dynacab-pad-2026-10-29.tap`, 2026-10-29). **Still open:** a
-  capture of the PAD ITSELF being dragged (a browser gesture), which is the only way to see how many frames one
-  drag emits and at what rate. Andy's 2026-10-08 eyewitness stands as the only report of it working on the unit.
+  (`ForgeFX/server/test/fixtures/query-subs-decode/dynacab-pad-2026-10-29.tap`, 2026-10-29). **The gesture is
+  now captured (same day), and it found a defect: a real drag in the real app emits exactly two writes on
+  release — `PUT …/params/93` (Position) and `PUT …/params/97` (Distance), both 200 — the server caches the
+  new values and the UI redraws, and NOT ONE FRAME reaches the unit** (no set-parameter frame for eid 62 in
+  the whole session; edit-buffer body sha identical). So the pad currently does nothing to the hardware and
+  the cache then disagrees with it — the sharpest instance yet of "an ack is not confirmation". Full capture:
+  `review-2026-10-29/FINDINGS-DYNACAB-DRAG.md`.
+  **Next, cheap:** repeat the same PUT by curl with the app open and watch the tap — earlier, with the app
+  closed, the identical PUT did reach the unit, so the app's ~25 Hz poll loop is the prime suspect
+  (starvation) rather than the pad's own code path.
 
 **Blocked on a capture / an owner-authorised device edit (offline-reproducible once provided)**
 
