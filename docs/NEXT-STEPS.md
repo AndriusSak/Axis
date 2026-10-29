@@ -69,9 +69,13 @@ Each item names its blocker and what closing it would require.
   not reachable from the param-write opcode), or the editor's own refusal handling captured. The item's own
   lesson stands and is sharper: **absence of a refusal is not acceptance** — and a non-refusal reply is not
   evidence the value you sent is the value in force.
-- **§3.6 item 6 DynaCab 2-axis pad** — verified in e2e only, never on the Deck. Andy reports it worked the last
-  time he used it on the unit (his observation, 2026-10-08), recorded as his eyewitness rather than re-tested;
-  a wire-level capture has still never been taken for it.
+- **§3.6 item 6 DynaCab 2-axis pad** — the BINDING is now measured, the gesture capture is not. Source says the
+  pad's vertical axis is the Position param and its horizontal standoff the same slot's Distance
+  (`ControlSurface.svelte` `c.id` / `w.key2`); on the unit (Cab 1, DYNA-CAB, 2 slots) those are params **93/97**
+  for slot 1 and **94/98** for slot 2, and a two-param write was captured on the wire
+  (`ForgeFX/server/test/fixtures/query-subs-decode/dynacab-pad-2026-10-29.tap`, 2026-10-29). **Still open:** a
+  capture of the PAD ITSELF being dragged (a browser gesture), which is the only way to see how many frames one
+  drag emits and at what rate. Andy's 2026-10-08 eyewitness stands as the only report of it working on the unit.
 
 **Blocked on a capture / an owner-authorised device edit (offline-reproducible once provided)**
 
