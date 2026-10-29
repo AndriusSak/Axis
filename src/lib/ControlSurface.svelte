@@ -264,7 +264,11 @@
     }
   }
   // one column per ~340 px of pane: 1 on a phone, 2 on a Deck, 3 in the editor pane, 4 on a desktop
-  const flowCols = $derived(containerW < 520 ? 1 : containerW < 820 ? 2 : containerW < 1180 ? 3 : 4);
+  // Column count follows the CELL, not the viewport: the aligned layout aims for a ~200 px cell, so a
+  // wide pane gets MORE columns instead of bigger ones. Breakpoints by width (4 columns of 343 px on a
+  // laptop) was the "buttons are way too huge" report — a bigger tile must not mean a bigger control.
+  const FLOW_TARGET = 200;
+  const flowCols = $derived(clamp(Math.round((containerW + GAP) / (FLOW_TARGET + GAP)), 1, 8));
 
   const displayCols = $derived(
     editMode ? cols : flowMode ? flowCols : isMobile ? Math.min(cols, Math.max(2, Math.min(6, fitCols))) : Math.min(cols, fitCols)
@@ -306,7 +310,7 @@
   // One knob scale for everything inside a tile (dial, label, value, switch, stepper, select field).
   // Text and chrome are fixed px today, so a 343 px tile showed 12 px labels — the "buttons don't
   // scale" report. Applied ONLY under `.flow`, so the classic board is pixel-identical.
-  const flowScale = $derived(clamp(Math.round((cell / 170) * 100) / 100, 1, 2));
+  const flowScale = $derived(clamp(Math.round((cell / 170) * 100) / 100, 1, 1.35));
 
   // Device group headers ("CAB 1" / "CAB 2") bind no parameter, so the widget loop below — which only
   // draws widgets that resolve to a catalog entry — skips them. Draw them on their own pass.
@@ -762,7 +766,7 @@
   // desktop, and a hard 260 px cap left the knob floating in a mostly empty square. Flow mode therefore
   // allows the dial up to 78% of the cell; the free board keeps its old cap so nothing moves there.
   const dialFor = (w: Widget) =>
-    clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 38), 30, flowMode ? Math.round(cell * 0.78) : 260);
+    clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 38), 30, flowMode ? Math.round(Math.min(cell * 0.78, 190)) : 260);
   // anchor the value bubble above an element (knob/card), in screen coords (fixed-position)
   function showTip(el: HTMLElement, id: number, edit: boolean) {
     const r = el.getBoundingClientRect();
