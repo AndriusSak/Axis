@@ -65,7 +65,7 @@ Web Serial. FM9 / Axe-Fx III / AM4 are USB-MIDI-class — they need Web MIDI (Sy
 | Capability | Chrome/Edge desktop | Firefox desktop | Chrome Android | Safari / iOS |
 |---|---|---|---|---|
 | Web MIDI + SysEx (FM9, Axe-Fx III, AM4) | ✅ | ✅ (FF 108+) | ✅ | ❌ |
-| Web Serial (FM3 over USB) | ✅ | ✅ (FF 151+, capability verified; FM3 round not yet run) | ❌ | ❌ |
+| Web Serial (FM3 over USB) | ✅ | ✅ (FF 151+, FM3 verified on macOS) | ❌ | ❌ |
 | Local folder — `showDirectoryPicker()` | ✅ | ❌ → fallback | ❌ → fallback | ❌ |
 | OPFS/IndexedDB store (versions, config, history) | ✅ | ✅ | ✅ | — |
 | Cloud sync (supabase-js + brotli-wasm) | ✅ | ✅ | ✅ | — |
@@ -74,10 +74,9 @@ Consequences, stated plainly in the UI at connect time:
 
 - **Chrome/Edge desktop = full parity** (all devices, real local folder, everything).
 - **Firefox desktop 151+ = every device too** (Web Serial shipped in FF 151 on 2026-05-19, so the
-  FM3's USB-CDC port is reachable; measured capability probe in FF 159 — `navigator.serial`,
-  `getPorts()`, `requestPort()`, and the Direct gate's FM3 option all present). Serial *behaviour*
-  against an FM3 is still unverified in this fork, so treat that path as new. Local folder is the
-  only gap: no `showDirectoryPicker()`, falls back to `.syx` import/export + OPFS library.
+  FM3's USB-CDC port is reachable: capability measured in FF 159 on Linux, and an FM3 session over
+  USB in Firefox on macOS is verified). Local folder is the only gap: no `showDirectoryPicker()`,
+  falls back to `.syx` import/export + OPFS library.
 - **Android (Chrome) = MIDI devices only** (FM9, Axe-Fx III, AM4; an FM3 is still reachable via
   a USB-MIDI interface on its 5-pin DIN). Firefox for Android has neither Web MIDI nor Web Serial.
   Local folder falls back as on Firefox (no live folder mirror).
@@ -188,7 +187,8 @@ with the **HTTP API byte-compatible** — existing route tests must pass unchang
   no Node core imports; `npm run check`.
 - **Hardware acceptance:** FM3 over Web Serial (detect → grid → params → write → undo);
   FM9/Axe-Fx III over Web MIDI where hardware is available; AM4 over Web MIDI; Firefox +
-  Android smoke test with a MIDI-class device; local folder round-trip in Chrome desktop.
+  Android smoke test with a MIDI-class device; FM3 over Web Serial in Firefox on macOS (done
+  2026-10-29); local folder round-trip in Chrome desktop.
 
 ## Assumptions
 

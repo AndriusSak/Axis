@@ -74,7 +74,7 @@ catalog snapshot holds, or whatever an imported editor cache provides.
 | Windows 10/11 x64 | exe installer — install verified, app untested | Expected (COM port) | Expected |
 | Chrome / Edge, desktop | web build | ✓ Web Serial | ✓ Web MIDI |
 | ChromeOS | web build | ✓ Web Serial | ✓ Web MIDI |
-| Firefox, desktop | web build | ✓ Web Serial (FF 151+, not yet HIL-tested) | ✓ Web MIDI |
+| Firefox, desktop | web build | ✓ Web Serial (FF 151+, verified on macOS) | ✓ Web MIDI |
 | Android, Chrome | web build | ✗ | ✓ Web MIDI, if the unit shows up as a MIDI device |
 | iOS / iPadOS | web build | ✗ | ✗ no USB device APIs |
 
@@ -88,10 +88,9 @@ catalog snapshot holds, or whatever an imported editor cache provides.
   means running the desktop app where the unit is plugged in and reaching it over a VPN or remote
   desktop — not the Remote toggle.
 - **FM3 in a browser needs desktop Web Serial.** That means desktop Chrome/Edge, or desktop
-  **Firefox 151+** (Mozilla shipped Web Serial on 2026-05-19; the capability and the Direct gate are
-  verified in Firefox 159, but no FM3 session has been run on Firefox yet — treat it as untested).
-  Web Serial does not exist on iOS, Android or Firefox for Android. A MIDI interface into the FM3
-  works anywhere Web MIDI does.
+  **Firefox 151+** — Mozilla shipped Web Serial on 2026-05-19, and an FM3 session over USB in
+  Firefox on macOS is verified. Web Serial does not exist on iOS, Android or Firefox for Android.
+  A MIDI interface into the FM3 works anywhere Web MIDI does.
 - **FM9 / Axe-Fx III are second-class citizens.** Per-block preset-body decode and live FC state are
   FM3-only. Anything that reads a block's own body — rather than the catalog — is FM3-shaped today.
 - **One program per port.** Quit FM3-Edit / Axe-Edit before connecting; the serial port is exclusive.
