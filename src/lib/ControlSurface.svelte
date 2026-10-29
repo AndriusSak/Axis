@@ -12,6 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
+  import { enumIsOn } from './toggleState';
   import { buildDeviceLayoutBoard, layoutVariantSig, packRows, packUniform, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
@@ -746,9 +747,11 @@
     const p = knob(id);
     if (p) editor.setParam(p, clamp(n, 0, 1));
   }
+  // The pill's state comes from the OPTION's own label, not from the index: FM3 bypass flags
+  // (GLOBAL_PWRAMPBYP "Power Amp Modeling", GLOBAL_CABINETBYP "Cabinet Modeling") list On at value 0,
+  // so an index assumption drew every live amp/cab as greyed out. See $lib/toggleState.
   function togOn(id: number) {
-    const e = enm(id);
-    return e ? e.value === (e.options[1]?.value ?? 1) : false;
+    return enumIsOn(enm(id));
   }
   function togLabel(id: number) {
     const e = enm(id);
@@ -772,7 +775,7 @@
   // desktop, and a hard 260 px cap left the knob floating in a mostly empty square. Flow mode therefore
   // allows the dial up to 78% of the cell; the free board keeps its old cap so nothing moves there.
   const dialFor = (w: Widget) =>
-    clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 38), 30, flowMode ? Math.round(Math.min(cell * 0.78, 190)) : 260);
+    clamp(Math.min(pxOf(w.w) - 14, pxOf(w.h) - 52), 30, flowMode ? Math.round(Math.min(cell * 0.78, 190)) : 260);
   // anchor the value bubble above an element (knob/card), in screen coords (fixed-position)
   function showTip(el: HTMLElement, id: number, edit: boolean) {
     const r = el.getBoundingClientRect();
@@ -1665,6 +1668,7 @@
                   </svg>
                 </div>
                 <div class="lbl">{c.label}</div>
+                <div class="knum mono">{valText(c.id)}</div>
               {:else if c.kind === 'cont' && w.view === 'fader'}
                 {#if editingKey === w.key}
                   <input id="cs-input" class="kinput rel" value={editBuf} oninput={(e) => (editBuf = e.currentTarget.value)} onkeydown={(e) => e.key === 'Enter' ? commitType(c.id) : e.key === 'Escape' ? (editingKey = null) : null} onblur={() => commitType(c.id)} onpointerdown={(e) => e.stopPropagation()} />
@@ -3398,5 +3402,17 @@
     font-size: calc(14px * var(--cs-scale, 1));
   }
   .boardwrap.flow .action { font-size: calc(14px * var(--cs-scale, 1)); }
+  /* Value under a knob's label: the number used to appear only in the hover bubble, so a board read
+     from across the room showed no values at all. Fixed 11px mono, one line, dimmed. */
+  .knum {
+    font: 600 11px/1 var(--font-mono);
+    color: var(--textdim);
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .boardwrap.flow .knum { font-size: calc(11px * var(--cs-scale, 1)); }
 </style>
 
