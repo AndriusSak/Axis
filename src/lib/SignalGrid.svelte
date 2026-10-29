@@ -1194,29 +1194,35 @@
     gap: 6px;
     flex: none;
   }
+  /* The two borders carry the SAME affordance — "move this row/column one step" — so they must LOOK the
+     same. They did not: the side pair stretched to the row height (thin, tall) while the bottom pair
+     stretched to the column width, drawing wide pale bars under each column instead of small caret
+     buttons. Both are now a fixed 16x16 square with the same glyph size; the pair sits centred in its
+     row / column band. */
   .shiftrow {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 3px;
+    align-items: center;
     justify-content: center;
-    width: 20px;
+    width: 18px;
   }
   .shiftcol {
     display: flex;
     flex-direction: row;
-    gap: 2px;
+    gap: 3px;
+    align-items: center;
     justify-content: center;
-    height: 20px;
+    height: 18px;
   }
   .shiftwrap {
     display: flex;
-    flex: 1;
-    min-height: 0;
+    flex: 0 0 auto;
   }
   .shiftbtn {
-    flex: 1;
-    min-width: 0;
-    min-height: 8px;
+    width: 16px;
+    height: 16px;
+    flex: 0 0 auto;
     padding: 0;
     border: 1px solid var(--border2);
     border-radius: 3px;
