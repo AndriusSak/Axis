@@ -497,6 +497,11 @@ class EditorStore {
     return m ? [{ id: m.defaultId, name: m.defaultName }] : [];
   };
   /** Meter readout for a block's currently-active swipe control: fill (norm) + display value/unit. */
+  /** How many monitor rows the OPEN block last reported — shown in the METER chip so "ON but nothing
+   *  drawn" is visible as a number instead of a silent nothing. */
+  liveMeterCount = $derived(
+    this.selected ? (this.liveMeters[this.selected.effectId]?.length ?? 0) : 0
+  );
   meterFor = (cell: Cell): { norm: number; value: number; unit?: string; min?: number; max?: number; log?: boolean; count: number; active: number; name: string } | null => {
     const ctrls = this.controlsFor(cell);
     const active = ctrls.length ? Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1) : 0;
