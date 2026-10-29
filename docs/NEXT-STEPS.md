@@ -94,10 +94,14 @@ Each item names its blocker and what closing it would require.
      **preset-static metadata**, not a per-placement state table. Disclosed blind spot: data 22..27 was
      masked (derived volatile), so a change confined to head records #2/#3 cannot be seen — the verdict holds
      for the 41 visible records.
-  2. **the hole-record second regime — dated, still unexplained.** 2026-10-29: `00 00 00 00 00 02 00 00 00`
-     at 11:07 CEST (standing read) and `28 00 00 00 00 02 00 00 00` at 11:26 (placement-arm dry run), same
-     preset `USA Mk IV`, scene 0, 13 placed, no write from this stack in between. First byte `0x28` = 40 is
-     not a legal scene index, so the second regime is real, minutes-scale and not triggered by us.
+  2. **the hole-record second regime — characterised; trigger NOT found.** It has two modes: an INDEX mode
+     (byte 0 = scene, `00`/`01`, reverting exactly — reproduced 3× on 2026-10-29) and a HANDLE mode (an opaque
+     token such as `28 00 00 00 00`, once `1b 14 4c 7a 0a`, lasting ~26 min today). A scene select returns it
+     to index mode. Refuted: param writes do not cause it (two re-entry attempts failed) and the body content
+     does not drive it (body byte-identical across the change). Rule for readers: `c5` (kind) and the address
+     echo are usable, `c0..c4` is not — never compare it across a write boundary or across days; normalise with
+     one scene select first. Evidence: `review-2026-10-29/FINDINGS-1B-REGIME.md`, instrument
+     `ForgeFX/server/scripts/probe-1b-regime.ts`.
   3. **the standing read — EXISTS (`scripts/standing-read.ts`, built round 15) and was run.** It appends
      hole record + `fn=0x0d` preset + `fn=0x13` placed set + scene index to
      `~/repos/stack/standing-read.jsonl`; the earlier "to add" wording was stale. Run it at the start and end
