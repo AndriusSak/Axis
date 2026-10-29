@@ -443,6 +443,59 @@ export function overflowsColumns(list: readonly { x: number; w: number }[], cols
   return list.some((w) => w.x + w.w > cols);
 }
 
+/**
+ * Uniform structured pack — the opt-in "aligned" layout (`?layout=flow`).
+ *
+ * Unlike `packRows`/gravity packing, this keeps NO spatial memory: every control is placed at the
+ * first free slot in reading order (top→bottom, left→right), so the result is a dense grid with no
+ * holes and no per-widget sizing. That is the point — free-placed tiles read as "scattered on bigger
+ * screens and hard to follow on small ones", which comes from variable widths and gaps rather than
+ * from the control set itself.
+ *
+ * Two deliberate exceptions:
+ *  • `view: 'header'` (device group labels such as "CAB 1") binds no parameter, so it takes a
+ *    full-width row of its own and starts a new control row after it.
+ *  • Views listed in `bigViews` (the DynaCab mic pad, the EQ graph, the looper wave, the meter) are
+ *    unreadable at one cell. They take 2×2, and the small tiles flow around them.
+ */
+export function packUniform(list: SurfaceWidget[], cols: number, bigViews: readonly string[] = []): SurfaceWidget[] {
+  const columns = Math.max(1, cols);
+  const big = new Set(bigViews);
+  const ordered = list.slice().sort((a, b) => (a.y - b.y) || (a.x - b.x));
+  const taken = new Set<string>();
+  const out: SurfaceWidget[] = [];
+  let maxY = 0;
+  // A header is a section break: nothing may be back-filled above it later.
+  let floor = 0;
+  const fits = (x: number, y: number, w: number, h: number): boolean => {
+    if (x + w > columns) return false;
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) if (taken.has(`${x + dx},${y + dy}`)) return false;
+    return true;
+  };
+  const occupy = (x: number, y: number, w: number, h: number): void => {
+    for (let dy = 0; dy < h; dy++) for (let dx = 0; dx < w; dx++) taken.add(`${x + dx},${y + dy}`);
+    maxY = Math.max(maxY, y + h);
+  };
+  const firstFit = (w: number, h: number): { x: number; y: number } => {
+    for (let y = floor; y <= maxY; y++) for (let x = 0; x + w <= columns; x++) if (fits(x, y, w, h)) return { x, y };
+    return { x: 0, y: maxY };
+  };
+  for (const w of ordered) {
+    if (w.view === 'header') {
+      const y = maxY;
+      out.push({ ...w, x: 0, y, w: columns, h: 1 });
+      occupy(0, y, columns, 1);
+      floor = maxY;
+      continue;
+    }
+    const size = big.has(w.view) && columns > 1 ? 2 : 1;
+    const { x, y } = firstFit(size, size);
+    out.push({ ...w, x, y, w: size, h: size });
+    occupy(x, y, size, size);
+  }
+  return out;
+}
+
 /** Row-preserving re-pack for a device-authentic board at a narrower column count: groups widgets by
  *  their source `row`, lays each group left→right (wrapping within the group), and starts every source
  *  row on a fresh grid line so the editor's row structure survives responsive reflow. */

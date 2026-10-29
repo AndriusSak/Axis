@@ -12,7 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
-  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
+  import { buildDeviceLayoutBoard, layoutVariantSig, packRows, packUniform, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
   import {
@@ -231,8 +231,43 @@
   // columns to what fits legibly (fitCols) and re-pack the layout — ultrawide shows the full cols, a
   // narrow window or phone scales down to 3–4. Arrange (editMode) keeps the full `cols` you're editing.
   const fitCols = $derived(Math.max(isMobile ? 2 : 3, Math.floor((containerW + GAP) / ((isMobile ? 84 : 104) + GAP))));
+
+  // ── aligned layout (opt-in, `?layout=flow` or the ▦ button) ──────────────────────────────────
+  // The free-arranged board is a pixel grid: tiles keep the size and place you gave them, which is
+  // exactly right for muscle memory and exactly wrong on a screen you did not design it on — tiles
+  // end up scattered on a wide monitor and hard to follow on a narrow one. Flow mode trades spatial
+  // memory for alignment: every control is one cell, filled left→right, top→bottom, with the device's
+  // group headers kept as full-width section breaks. The classic board is untouched and stays the
+  // default; this is switched per browser and remembered.
+  const FLOW_KEY = 'axis.csLayout';
+  function readFlowPref(): boolean {
+    if (typeof window === 'undefined') return false;
+    try {
+      const q = new URLSearchParams(location.search).get('layout');
+      if (q === 'flow' || q === 'grid') {
+        localStorage.setItem(FLOW_KEY, q);
+        return q === 'flow';
+      }
+      return localStorage.getItem(FLOW_KEY) === 'flow';
+    } catch {
+      return false;
+    }
+  }
+  let flowMode = $state(readFlowPref());
+  function setFlow(on: boolean) {
+    flowMode = on;
+    if (on) editMode = false;
+    try {
+      localStorage.setItem(FLOW_KEY, on ? 'flow' : 'grid');
+    } catch {
+      /* private mode — the mode simply won't persist */
+    }
+  }
+  // one column per ~340 px of pane: 1 on a phone, 2 on a Deck, 3 in the editor pane, 4 on a desktop
+  const flowCols = $derived(containerW < 520 ? 1 : containerW < 820 ? 2 : containerW < 1180 ? 3 : 4);
+
   const displayCols = $derived(
-    editMode ? cols : isMobile ? Math.min(cols, Math.max(2, Math.min(6, fitCols))) : Math.min(cols, fitCols)
+    editMode ? cols : flowMode ? flowCols : isMobile ? Math.min(cols, Math.max(2, Math.min(6, fitCols))) : Math.min(cols, fitCols)
   );
   // cell = exactly the width split across the shown columns, so the board ALWAYS fills the width
   // (fewer cols = bigger tiles). Min keeps tiles legible; the col count drops before tiles get tiny.
@@ -245,11 +280,13 @@
   // column lands in a ZERO-WIDTH implicit grid track and the trailing dials pile up in one spot — the
   // Steam-Deck report. Re-packing is what makes the template cover every placement.
   const viewWidgets = $derived(
-    !editMode && (displayCols < cols || overflowsColumns(widgets, displayCols))
-      ? rowGrouped
-        ? packRows(widgets, displayCols)
-        : packInto(widgets, displayCols, 256)
-      : widgets
+    flowMode && !editMode
+      ? packUniform(widgets, flowCols, ['dynacab', 'eq', 'wave', 'meter'])
+      : !editMode && (displayCols < cols || overflowsColumns(widgets, displayCols))
+        ? rowGrouped
+          ? packRows(widgets, displayCols)
+          : packInto(widgets, displayCols, 256)
+        : widgets
   );
   // board height = content extent, with `rows` as a minimum in arrange — grows downward, never sideways
   const viewRows = $derived(Math.max(editMode ? rows : 1, 1, ...viewWidgets.map((w) => w.y + w.h)));
@@ -608,6 +645,9 @@
 
   // ── arrange-mode actions ──
   const toggleEdit = () => {
+    // Arrange edits FREE positions, so it always leaves the aligned layout first — otherwise the
+    // grid layer would show cells at coordinates no widget is actually at.
+    if (!editMode && flowMode) setFlow(false);
     editMode = !editMode;
     drag = null;
     editingKey = null;
@@ -1349,6 +1389,14 @@
       <button class="tab addp" title="Add page" onclick={addPage}>＋</button>
     {/if}
     <span class="tab-sp"></span>
+    <!-- Aligned layout: uniform one-cell-per-control grid, no free positions. Off = the classic board. -->
+    <button
+      class="arrange flowbtn"
+      class:on={flowMode}
+      onclick={() => setFlow(!flowMode)}
+      title={flowMode ? 'Aligned layout — click for the classic free board' : 'Aligned layout — one cell per control'}
+      aria-pressed={flowMode}
+    >▦ {flowMode ? 'Aligned' : 'Free'}</button>
     <!-- Axis-Layouts: switch between named layout profiles (Default = device-authentic, Blank, custom) -->
     <div class="profwrap">
       <button class="profbtn" class:on={profMenuOpen} onclick={toggleProfMenu} title="Layout profile">

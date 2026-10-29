@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildDeviceLayoutBoard, layoutVariantSig, packRows, overflowsColumns, pageForViewMode, type BoardCtl, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
+import { buildDeviceLayoutBoard, layoutVariantSig, packRows, packUniform, overflowsColumns, pageForViewMode, type BoardCtl, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
 import type { DeviceLayout, LayoutControl, LayoutWidget } from './types';
 
 // ── catalog builders (mirror ControlSurface's live catalog entries) ──
@@ -457,5 +457,58 @@ describe('pageForViewMode — Basic/Advanced open-on choice', () => {
 
   it('an empty page list is safe', () => {
     expect(pageForViewMode([], 'advanced')).toBe('');
+  });
+});
+
+describe('packUniform — the opt-in aligned layout', () => {
+  const w = (key: string, x: number, y: number, extra: Partial<SurfaceWidget> = {}): SurfaceWidget =>
+    ({ id: key, key, x, y, w: 1, h: 1, view: 'knob', ...extra });
+
+  it('gives every control exactly one cell, in reading order', () => {
+    // deliberately out of order and with a wide tile: flow mode keeps neither position nor size
+    const out = packUniform([w('c', 5, 2), w('a', 0, 0), w('b', 3, 0, { w: 2, h: 2 })], 3);
+    expect(out.map((x) => [x.key, x.x, x.y, x.w, x.h])).toEqual([
+      ['a', 0, 0, 1, 1],
+      ['b', 1, 0, 1, 1],
+      ['c', 2, 0, 1, 1]
+    ]);
+  });
+
+  it('wraps to the next row and never leaves a hole', () => {
+    const out = packUniform([w('a', 0, 0), w('b', 0, 0), w('c', 0, 0), w('d', 0, 0), w('e', 0, 0)], 2);
+    expect(out.map((x) => [x.key, x.x, x.y])).toEqual([
+      ['a', 0, 0], ['b', 1, 0], ['c', 0, 1], ['d', 1, 1], ['e', 0, 2]
+    ]);
+  });
+
+  it('a header gets its own full-width row and starts a new control row after it', () => {
+    const out = packUniform([w('a', 0, 0), w('h', 1, 0, { view: 'header', text: 'CAB 1', w: 4 }), w('b', 2, 0)], 2);
+    expect(out.map((x) => [x.key, x.x, x.y, x.w])).toEqual([
+      ['a', 0, 0, 1],
+      ['h', 0, 1, 2],
+      ['b', 0, 2, 1]
+    ]);
+  });
+
+  it('big views take 2x2 and the small tiles flow around them without overlap', () => {
+    const items = [w('a', 0, 0), w('pad', 1, 0, { view: 'dynacab' }), w('b', 2, 0), w('c', 3, 0), w('d', 4, 0)];
+    const out = packUniform(items, 4, ['dynacab']);
+    const seen = new Set<string>();
+    for (const t of out) {
+      for (let y = t.y; y < t.y + t.h; y++) for (let x = t.x; x < t.x + t.w; x++) {
+        const k = `${x},${y}`;
+        expect(seen.has(k), `cell ${k} used twice`).toBe(false);
+        seen.add(k);
+      }
+    }
+    const pad = out.find((t) => t.key === 'pad')!;
+    expect([pad.w, pad.h]).toEqual([2, 2]);
+    expect(out.filter((t) => t.w === 1 && t.h === 1).length).toBe(4);
+  });
+
+  it('one column is a single stack', () => {
+    const out = packUniform([w('a', 2, 0), w('b', 0, 1), w('c', 1, 3)], 1);
+    // reading order is row-major: a row 0 (x=2) sorts before b row 1 and c row 3
+    expect(out.map((x) => [x.key, x.x, x.y])).toEqual([['a', 0, 0], ['b', 0, 1], ['c', 0, 2]]);
   });
 });
