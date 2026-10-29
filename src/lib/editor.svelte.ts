@@ -499,13 +499,29 @@ class EditorStore {
   /** Meter readout for a block's currently-active swipe control: fill (norm) + display value/unit. */
   meterFor = (cell: Cell): { norm: number; value: number; unit?: string; min?: number; max?: number; log?: boolean; count: number; active: number; name: string } | null => {
     const ctrls = this.controlsFor(cell);
-    if (!ctrls.length) return null;
-    const active = Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1);
+    const active = ctrls.length ? Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1) : 0;
     const ctl = ctrls[active];
-    const v = this.meters[cell.effectId]?.vals[ctl.id];
-    // No honest reading for the active control — never polled, or an UNRESOLVED param whose meter value
-    // was deliberately not seeded (a fabricated 0 is indistinguishable from a real zero) → no fill/HUD.
-    if (!v) return null;
+    const v = ctl ? this.meters[cell.effectId]?.vals[ctl.id] : undefined;
+    if (!v) {
+      // The OPEN block's monitor is polled on its own (startLiveMeters, behind the top bar's METER
+      // toggle). It used to be fetched and never drawn — so switching metering on changed nothing
+      // visible in the grid unless a swipe control happened to be mapped. Draw it on the tile.
+      const live = this.liveMeters[cell.effectId];
+      const first = live?.find((m) => Number.isFinite(m.norm));
+      if (first) {
+        return {
+          norm: first.norm,
+          value: first.db ?? first.norm,
+          unit: first.db != null ? 'dB' : undefined,
+          count: live?.length ?? 1,
+          active: 0,
+          name: first.paramName
+        };
+      }
+      // No honest reading either way — never polled, or an UNRESOLVED param whose meter value was
+      // deliberately not seeded (a fabricated 0 is indistinguishable from a real zero) → no fill/HUD.
+      return null;
+    }
     return { norm: v.norm, value: v.value, unit: v.unit, min: v.min, max: v.max, log: v.log, count: ctrls.length, active, name: ctl.name };
   };
   cycleControl = (cell: Cell, dir: number) => {

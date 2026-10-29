@@ -1409,8 +1409,10 @@
     right: 0;
     bottom: 0;
     z-index: 0;
-    opacity: 0.5;
-    border-top: 2px solid rgba(255, 255, 255, 0.55);
+    /* 0.5 over a tile of the SAME hue was invisible in practice ("per-block meters are not visible").
+       0.78 + a brighter leading edge keeps the tile's colour readable while the level clearly moves. */
+    opacity: 0.78;
+    border-top: 2px solid rgba(255, 255, 255, 0.8);
     pointer-events: none;
     transition: height 0.06s linear;
   }
