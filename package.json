@@ -20,14 +20,19 @@
     "preview": "vite preview",
     "check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
     "electron:dev": "ELECTRON_DEV=1 electron .",
-    "desktop:build": "VITE_FORGEFX_BASE= vite build && electron-builder",
-    "desktop:zip:mac": "VITE_FORGEFX_BASE= vite build && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac zip --x64 --arm64 --publish never",
+    "desktop:build": "node scripts/desktop-build.mjs host",
+    "desktop:zip:mac": "node scripts/desktop-build.mjs mac",
     "build:mobile": "VITE_AXIS_MOBILE=1 VITE_OTA_MANIFEST_URL=https://github.com/sKuhLight/Axis/releases/download/ota-ios-latest/latest-ios.json vite build",
     "mobile:sync": "npm run build:mobile && cap sync ios",
     "test": "vitest run",
     "test:workbench-visual": "node scripts/workbench-visual-smoke.mjs",
     "test:e2e": "playwright test",
-    "setup:stack": "( cd ../forgefx-midi && npm ci && npm run build ) && ( cd ../ForgeFX/server && npm ci && npm run build ) && npx svelte-kit sync"
+    "setup:stack": "( cd ../forgefx-midi && npm ci && npm run build ) && ( cd ../ForgeFX/server && npm ci && npm run build ) && npx svelte-kit sync",
+    "pack:prepare": "node scripts/pack-forgefx-midi.mjs prepare",
+    "pack:restore": "node scripts/pack-forgefx-midi.mjs restore",
+    "pack:status": "node scripts/pack-forgefx-midi.mjs status",
+    "desktop:linux": "node scripts/desktop-build.mjs linux",
+    "desktop:win": "node scripts/desktop-build.mjs win"
   },
   "dependencies": {
     "@capacitor/app": "^8.1.2",
