@@ -657,7 +657,7 @@
     title={editor.canMeterBlocks
       ? "Per-block audio meters — polls the open block's level once per ~0.5s"
       : 'Per-block metering needs a ready device with live monitors on a fast link'}
-    onclick={() => (editor.meteringOn = !editor.meteringOn)}
+    onclick={() => editor.setMetering(!editor.meteringOn)}
   >
     <span class="meter-glyph">▊</span>
     {#if expanded}<span class="mono token">METER</span>{/if}

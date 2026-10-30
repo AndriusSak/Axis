@@ -15,6 +15,7 @@ import { baseName, packFor, statusColor } from './blocks';
 import { resolveTabs, loadLayouts, saveLayouts, newTabId, loadSwipe, saveSwipe, type SwipeCtrl } from './layouts';
 import { surfApplyRemote } from './surfaceStore.svelte';
 import { isRemoteBuild } from './cloudBrowser';
+import { liveRowsFor, liveMetersAfterTick, hasStaleLiveMeters } from './liveMeters';
 import { paramValueAtNorm } from './format';
 import { planSwipe } from './swipeWrite';
 import { ParamWriteDebouncer } from './paramWriteDebounce';
@@ -506,7 +507,9 @@ class EditorStore {
     // A LIVE reading wins. The bottom branch reports a control's PARAMETER value (a knob position kept
     // in sync for mapped swipe controls), which is not a level — painting that in the meter slot is why
     // the "meter" looked frozen. Live audio is the only thing that should fill it when metering is on.
-    const live = this.liveMeters[cell.effectId];
+    // A live reading wins — but ONLY while metering is on. Reading the map unconditionally is what left
+    // a switched-off meter frozen at its last level: the poll stops, nothing clears, the tile repaints.
+    const live = liveRowsFor(this.liveMeters, cell.effectId, this.meteringOn);
     const first = live?.find((m) => Number.isFinite(m.norm));
     if (first) {
       return {
@@ -703,6 +706,12 @@ class EditorStore {
   #liveMeterTimer: ReturnType<typeof setTimeout> | null = null;
   /** Round-robin cursor for metering the REST of the grid (one extra block per tick). */
   #meterCursor = 0;
+  /** Turn live metering on/off. Off clears the readings immediately — waiting for the next 2 s idle
+   *  heartbeat left every tile frozen at its last level in the meantime, which read as "stuck meters". */
+  setMetering = (on: boolean) => {
+    this.meteringOn = on;
+    if (hasStaleLiveMeters(this.liveMeters, on)) this.liveMeters = {};
+  };
   startLiveMeters = () => {
     if (this.#liveMeterTimer) return; // already running
     const tick = async () => {
@@ -742,6 +751,9 @@ class EditorStore {
           try { this.looperWave = await forgefx.looper(eid); } catch { /* keep last */ }
         }
       }
+      // A tick that could not read keeps NOTHING: the last levels are stale by definition, and leaving
+      // them in the map is what made a disabled meter sit frozen mid-song.
+      this.liveMeters = liveMetersAfterTick(this.liveMeters, ok);
       // ~250 ms when active (snappier level/VU + playhead), 2 s idle heartbeat when metering is off.
       this.#liveMeterTimer = setTimeout(tick, ok ? 250 : 2000);
     };

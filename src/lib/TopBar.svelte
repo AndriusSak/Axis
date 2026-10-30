@@ -220,7 +220,7 @@
             class="st mtr-tgl mono"
             class:on={editor.meteringOn}
             title="Per-block audio meters — polls the OPEN block's level once per ~0.5s. Off by default; the global output meter above is always live."
-            onclick={() => (editor.meteringOn = !editor.meteringOn)}
+            onclick={() => editor.setMetering(!editor.meteringOn)}
           >▊ METER {editor.meteringOn ? 'ON' : 'OFF'}{#if editor.meteringOn} · {editor.liveMeterCount}{/if}</button>
         {/if}
       </div>
