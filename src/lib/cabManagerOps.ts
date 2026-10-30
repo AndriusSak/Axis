@@ -33,10 +33,13 @@ export const RENAME_NOT_HELD_REASON =
 // 2026-10-13. It used to read "converted IRs have not been tried on a unit yet" — which stopped being true when
 // a converted (impulse) container was uploaded, ACCEPTED by the unit's close check and auditioned: it sounded
 // transparent, i.e. the transport, the name round-trip and end-to-end acceptance are proven. What is NOT proven
-// is the sample encoding itself (the impulse reads the same under IEEE-754 float32 and int32 Q31, so the
-// audition cannot discriminate them) — and the unit's close check rejects a CORRUPT container, never a
-// semantically wrong one. So the honest warning is "constrained", not "never tried".
-export const CAB_CONVERSION_UNVALIDATED_BADGE = 'CONSTRAINED — a converted IR has been auditioned on the unit, but its sample encoding is NOT proven';
+// is the sample encoding itself — and that question is now ANSWERED NEGATIVELY: six converted containers
+// (impulse, decaying burst, comb; float32 and int32 Q31) were uploaded on 2026-10-30, every one accepted by
+// the unit and every one played SILENCE from a cab slot that plays a real user IR normally. A real FM3-Edit
+// export shows why: its payload is compressed (entropy 6.83/7, no silent tail, flat under every candidate
+// decoding), so a container built by converting a .wav is structurally valid but INAUDIBLE. The warning is
+// therefore a plain stop sign, not a hedge.
+export const CAB_CONVERSION_UNVALIDATED_BADGE = 'WILL NOT PLAY — a converted IR uploads and shows POPULATED, but it is silent on the unit';
 
 export interface BankInfo {
   index: number;

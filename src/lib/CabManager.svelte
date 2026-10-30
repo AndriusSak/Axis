@@ -284,7 +284,7 @@
       say(
         up.verdict.ok,
         `Import “${staged.name}” → slot ${user}: ${up.verdict.text}` +
-          (staged.kind === 'wav' ? ' This IR was CONVERTED — its samples are unvalidated on the unit; listen to it before relying on it.' : '')
+          (staged.kind === 'wav' ? ' This IR was CONVERTED — expect silence: the unit accepts the bytes but cannot play this payload.' : '')
       );
       await refreshAfter([user]);
     } finally {
@@ -484,10 +484,11 @@
             <ol class="steps" data-testid="cab-import-steps">{#each staged.report.steps as st (st)}<li>{st}</li>{/each}</ol>
             <svg class="wave" viewBox="0 0 480 60" aria-label="Converted IR waveform preview" role="img"><polyline points={wavePts} fill="none" stroke="currentColor" stroke-width="1" /></svg>
             <p class="note">
-              Sample encoding: <b>{staged.report.encoding.label}</b>. The unit's close check proves the bytes arrive intact — it cannot tell whether the samples are
-              encoded the way the unit reads them. “Populated” afterwards does not mean “converted correctly”; only listening on the unit does.
+              Sample encoding: <b>{staged.report.encoding.label}</b>. Measured on an FM3 (2026-10-30): the unit ACCEPTS these bytes and the slot reads POPULATED,
+              then plays <b>silence</b> — the device's own IR payload is a compressed format Axis does not write, so a converted container cannot be made
+              audible by trying another encoding. Upload only a .syx exported by Fractal's software if you want sound.
             </p>
-            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR's sample encoding is NOT proven on the unit</label>
+            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR will upload but play NO SOUND on the unit</label>
           {/if}
         </div>
       {/if}

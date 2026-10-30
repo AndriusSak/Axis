@@ -6,7 +6,14 @@
 //   .ir   → NO format for it is documented in this stack. A file that carries a RIFF/WAVE header is read as
 //           WAV (a statement about its bytes, shown to the user); anything else is refused with that reason.
 //
-// ⚠ CONVERTED CONTAINERS ARE CONSTRAINED, NOT PROVEN (reworded 2026-10-13 to match what was measured). One
+// ⚠ CONVERTED CONTAINERS DO NOT PLAY (measured 2026-10-30). Six converted containers — impulse, decaying
+// burst and comb, each as float32 AND int32 Q31 — were uploaded to an FM3: every one was accepted
+// (closeCode 0x00, slot POPULATED, name read back) and every one played SILENCE from a cab slot that plays
+// a real user IR normally. A real FM3-Edit export explains it: its 2040-word sample region is COMPRESSED
+// (entropy 6.83/7, no silent tail, flat RMS under float32 / int32 / int16-pair / 7-bit-bitstream decodings).
+// A .syx exported by Fractal's own software is the only thing that plays; converting a .wav here yields a
+// structurally valid, inaudible container, and the UI says exactly that.
+// Historical note (kept because it was the standing wording): One
 // converted container HAS been auditioned on the unit: it was accepted by the unit's close check and sounded
 // transparent, which proves the transport, the name round-trip and end-to-end acceptance. What that does NOT
 // prove is the sample ENCODING: an impulse reads the same whether its words are IEEE-754 float32 or int32 Q31,
