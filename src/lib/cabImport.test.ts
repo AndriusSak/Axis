@@ -28,7 +28,7 @@ describe('detectImportKind', () => {
 });
 
 describe('stageImport', () => {
-  it('.wav → a container the codec parses strictly (2040 slots, the file name as the name), flagged as NOT PROVEN', () => {
+  it('.wav → a container the codec parses strictly (2040 slots, the file name as the name), reported as MEASURED', () => {
     const s = stageImport(impulse(), 'Mesa 4x12.wav', DEFAULT_IMPORT_OPTIONS);
     expect(s.kind).toBe('wav');
     if (s.kind !== 'wav') return;
@@ -37,14 +37,14 @@ describe('stageImport', () => {
     const parsed = parseCabIrSyx(s.container);
     expect(parsed.sampleSlots).toBe(2040);
     expect(parsed.name).toBe('Mesa 4x12');
-    // The codec's claim moved from "UNVALIDATED" to "CONSTRAINED" on 2026-10-13, because one converted
-    // container HAS now been auditioned on the unit (it sounded transparent, so the transport and end-to-end
-    // acceptance are proven) while the sample ENCODING still is not discriminated. This test pins the
-    // SUBSTANCE — a converted container is never presented as proven — instead of a leading keyword that has
-    // now moved once. `unvalidated` (asserted above) is the separate flag the acknowledgement gate reads.
-    expect(s.report.status).toMatch(/^CONSTRAINED/);
-    expect(s.report.status).toMatch(/does NOT discriminate/i);
-    expect(s.report.encoding.assumed).toBe(true);
+    // 2026-10-30: the codec was DECODED against a known input (FM3-Edit Standard export = 2040 little-endian
+    // IEEE-754 float32) and a container built here was auditioned from a cab slot on the unit. The report
+    // therefore says MEASURED, and the encoding is no longer an assumption. `unvalidated` (asserted above)
+    // stays the flag the acknowledgement gate reads: it tracks whether THIS container was auditioned.
+    expect(s.report.status).toMatch(/^MEASURED/);
+    expect(s.report.status).toMatch(/float32/);
+    expect(s.report.status).toMatch(/UltraRes.*not writable|NOT writable/i);
+    expect(s.report.encoding.assumed).toBe(false);
   });
   it('the conversion options reach the pipeline (MPT + auto-trim show in the report steps)', () => {
     const s = stageImport(impulse(), 'x.wav', { ...DEFAULT_IMPORT_OPTIONS, minimumPhase: true, autoTrim: true, name: 'Custom' });

@@ -151,7 +151,7 @@ describe('P11 — a stray device-edit norm cannot upgrade an unresolved param', 
   });
 
   it('meterFor returns null (no fabricated 0 fill/HUD) when the active control has no reading', () => {
-    expect(ed).toMatch(/const v = this\.meters\[cell\.effectId\]\?\.vals\[ctl\.id\];[\s\S]{0,400}?if \(!v\) return null;/);
+    expect(ed).toMatch(/const v = ctl \? this\.meters\[cell\.effectId\]\?\.vals\[ctl\.id\] : undefined;[\s\S]{0,400}?if \(!v\) return null;/);
     expect(ed).not.toMatch(/norm: v\?\.norm \?\? 0/);
     expect(ed).not.toMatch(/value: v\?\.value \?\? 0/);
   });
