@@ -41,6 +41,8 @@ over a relay).
 | 1.0.12 – 1.0.14 | Device detection: the type selector is picked by label count instead of by name, and every editor cache on disk is offered for import. |
 | 1.0.15 – 1.0.18 | **Firmware 13.0** block and sub-type tables: amp 336, drive 87, chorus 27, three reverbs renamed, `DISTORT_TUBETYPE` 26, fuzz diodes 22 — plus the per-parameter enums of blocks that have no type selector (formant, multiplexer, output, feedback return). |
 | 1.0.18 | GitHub auto-updater removed: upstream's feed stopped at 0.9.25-beta, so every launch logged a refused downgrade. |
+| 1.0.19 · 23 Oct | Live meters on the grid: a block's tile shows its own live audio level (the open block is polled, the rest round-robin), the METER chip counts the open block's rows, and an **opt-in aligned layout** sizes tiles by cell instead of viewport — the classic board stays the default. |
+| 1.0.20 · 30 Oct | **Global Performance page** — the ten controls stored in the unit's GLOBAL settings, read and written over the wire with a read-back verdict on every write. **Cab bank files** — export the bank Axis holds, import one with a plan and a per-slot verdict. CPU colour follows the FM3's own 85 % / 100 % rules instead of invented thresholds, and a converted IR is no longer described as unplayable: the Standard codec is decoded and measured. |
 
 Builds here are macOS zips, a Windows x64 installer and a Linux AppImage. No `.dmg` — producing one
 needs macOS tooling, and upstream's CI was the only place that ever made them.
@@ -106,7 +108,7 @@ FM3-Edit is the reference editor; this is not a drop-in replacement for all of i
 | FM3-Edit feature | Here |
 |---|---|
 | **Setlists / Songs** | Not implemented. The hardware feature needs an FC-6 or FC-12, and the nav entry only reaches the Scenes page. |
-| **Preset + cab bundles, `.bnk` bank import** | Not implemented. A bundle needs the user-cab *bytes* off the unit, and no endpoint returns them. |
+| **Preset + cab bundles, FM3-Edit `.bnk` bank import** | Not implemented. A bundle needs the user-cab *bytes* off the unit, and no endpoint returns them. Axis has its **own** bank file (`axis.cabset`, JSON) for the IRs it holds — export and import in Manage Cabs — but it is not FM3-Edit's format and Axis is the only reader. |
 | **Clear Preset** | Not possible on this protocol — the gen-3 write codec has no erase/init op, so the entry is an honest negative rather than a fake. |
 | **Move / delete device slots** | Same cause: no slot-erase primitive on the wire. Duplicate, swap and reorder *are* there; reorder is a checked permutation over copy-by-store. |
 | **FC "Devices" tab / controller mirroring** | Absent — no served parameter exposes it on the FM3. |
