@@ -41,6 +41,15 @@
     type GridSlot
   } from './cabManagerOps';
   import {
+    buildCabBankFile,
+    describeImportPlan,
+    parseCabBankFile,
+    planBankImport,
+    serializeCabBankFile,
+    type CabBankSourceSlot,
+    type ImportPlanRow
+  } from './cabBankFile';
+  import {
     CAB_IR_OUTPUT_FORMATS,
     DEFAULT_IMPORT_OPTIONS,
     IMPORT_OPTION_HELP,
@@ -66,7 +75,7 @@
   let libraryErr = $state('');
   let selection = $state<number[]>([]);
   let lastClicked = $state<number | null>(null);
-  let mode = $state<'clear' | 'move' | 'rename' | 'import' | null>(null);
+  let mode = $state<'clear' | 'move' | 'rename' | 'import' | 'bankfile' | null>(null);
   let confirmed = $state(false);
   let busy = $state(false);
   let log = $state<{ ok: boolean; text: string }[]>([]);
@@ -77,6 +86,15 @@
   let ackUnvalidated = $state(false);
   let stagedName = $state('');
   let renameTo = $state('');
+  // ── bank file (export / import a whole bank) ──
+  let bankBusy = $state(false);
+  let bankMsg = $state('');
+  let bankMsgOk = $state(true);
+  let bankOverwrite = $state(false);
+  let bankKeepSlots = $state(false);
+  let bankPlan = $state<{ fileName: string; rows: ImportPlanRow[]; summary: string } | null>(null);
+  /** The text of the last picked bank file, so a toggle can re-plan without re-picking. */
+  let lastBankText = $state('');
   /** #9: Restore is destructive (it writes to a slot that may already hold an IR) — it needs a per-entry
    *  confirm like every other write path, not just a destination warning. */
   let restoreConfirmed = $state<Record<string, boolean>>({});
@@ -193,6 +211,129 @@
       confirmed = false;
     }
   }
+  // ── bank file: export ───────────────────────────────────────────────────────────────────────────
+  /**
+   * Export the CURRENT bank as an Axis cab-bank file. Only IRs Axis HOLDS bytes for can travel — the unit
+   * serves no slot read — so a slot whose IR came from elsewhere is written with `bytes: null` and its name,
+   * and the panel says how many of those there were. Nothing is invented to fill the gap.
+   */
+  async function exportBank() {
+    if (bankBusy) return;
+    bankBusy = true;
+    bankMsg = '';
+    try {
+      if (!bankRows[bankIdx]) await scan(bankIdx);
+      if (!bankRows[bankIdx]) {
+        bankMsgOk = false;
+        bankMsg = 'Scan the bank first — the export lists what the unit says is occupied.';
+        return;
+      }
+      const sources: CabBankSourceSlot[] = [];
+      for (const slot of grid) {
+        if (slot.status !== 'populated') continue;
+        const held = slot.held;
+        if (!held) {
+          // occupied on the unit but Axis holds no bytes: listed by name-less record, never faked
+          sources.push({ user: slot.user, name: '', bytes: null });
+          continue;
+        }
+        const bytes = await io.libraryBytes(held).catch(() => null);
+        sources.push({ user: slot.user, name: held.name, bytes });
+      }
+      const file = buildCabBankFile({ device: 'FM3', bank: bank.label, slots: sources });
+      const notHeld = file.slots.filter((x) => x.bytes === null).length;
+      const blob = new Blob([serializeCabBankFile(file)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `axis-cabset-bank${bankIdx + 1}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      bankMsgOk = true;
+      bankMsg =
+        `Exported ${file.slots.length - notHeld} IR${file.slots.length - notHeld === 1 ? '' : 's'}` +
+        (notHeld ? ` · ${notHeld} slot(s) listed WITHOUT bytes (Axis does not hold them — the unit cannot be read back)` : '') +
+        '.';
+    } catch (e) {
+      bankMsgOk = false;
+      bankMsg = (e as Error).message;
+    } finally {
+      bankBusy = false;
+    }
+  }
+
+  // ── bank file: import ───────────────────────────────────────────────────────────────────────────
+  /** Occupied slots in the CURRENT bank, straight from the scan — the import plans against THIS. */
+  const occupiedHere = $derived(grid.filter((s) => s.status === 'populated').map((s) => s.user));
+
+  function replan(fileText: string, fileName: string) {
+    const parsed = parseCabBankFile(fileText);
+    if (!parsed.ok) {
+      bankPlan = null;
+      bankMsgOk = false;
+      bankMsg = `Refused: ${parsed.error}`;
+      return;
+    }
+    const rows = planBankImport(parsed.file, {
+      occupied: occupiedHere,
+      keepSlots: bankKeepSlots,
+      overwrite: bankOverwrite,
+      destStart: occupiedHere.length ? Math.max(...occupiedHere) + 1 : bank.first
+    });
+    bankPlan = { fileName, rows, summary: describeImportPlan(rows) };
+    bankMsgOk = true;
+    bankMsg = '';
+  }
+
+  async function onBankFile(ev: Event) {
+    const input = ev.currentTarget as HTMLInputElement;
+    const f = input.files?.[0];
+    input.value = ''; // so re-picking the same file re-plans
+    if (!f) return;
+    if (!bankRows[bankIdx]) {
+      bankMsgOk = false;
+      bankMsg = 'Scan the bank first — the import must know which slots already hold an IR.';
+      return;
+    }
+    lastBankText = await f.text();
+    replan(lastBankText, f.name);
+  }
+
+  /** Re-plan after a toggle, using the file the user already picked. */
+  function replanHint() {
+    if (lastBankText && bankPlan) replan(lastBankText, bankPlan.fileName);
+  }
+
+  async function runBankImport() {
+    if (!bankPlan || bankBusy) return;
+    const runnable = bankPlan.rows.filter((r) => r.action === 'upload' || r.action === 'overwrite');
+    if (!runnable.length) {
+      bankMsgOk = false;
+      bankMsg = 'Nothing to write — every row is skipped.';
+      return;
+    }
+    bankBusy = true;
+    bankMsg = '';
+    try {
+      const touched: number[] = [];
+      for (const job of runnable) {
+        if (!job.bytes) continue;
+        const out = await uploadAndVerify(io, job.bytes, job.dest);
+        say(out.verdict.ok, `slot ${job.dest} ← ${job.name || 'archive'} (${job.action}): ${out.verdict.text}`);
+        touched.push(job.dest);
+      }
+      bankMsgOk = true;
+      bankMsg = `Import finished — ${touched.length} slot(s) written; each verdict above is the unit's own read-back.`;
+      bankPlan = null;
+      await refreshAfter(touched);
+    } catch (e) {
+      bankMsgOk = false;
+      bankMsg = (e as Error).message;
+    } finally {
+      bankBusy = false;
+    }
+  }
+
   function importInstead(to: number) {
     importDest = to;
     mode = 'import';
@@ -374,6 +515,7 @@
     <button class="btn" disabled={!actions.move.enabled} title={actions.move.reason} onclick={() => open('move')}>Move…</button>
     <button class="btn" disabled={!actions.rename.enabled} title={actions.rename.reason} onclick={() => open('rename')} data-testid="cab-rename-btn">Rename…</button>
     <button class="btn" disabled={!actions.import.enabled} title={actions.import.reason} onclick={() => open('import')}>Import…</button>
+    <button class="btn" disabled={!deviceReady} title={deviceReady ? 'Export this bank as a file, or import one' : deviceReason} onclick={() => open('bankfile')} data-testid="cab-bankfile-btn">Bank file…</button>
     {#if selection.length}<button class="link" onclick={() => (selection = [])}>Clear selection</button>{/if}
   </div>
   {#if disabledReasons.length}
@@ -498,6 +640,48 @@
     </div>
   {/if}
 
+  {#if mode === 'bankfile'}
+    <div class="panel" data-testid="cab-panel-bankfile">
+      <h3>Bank file — {bank.label}</h3>
+      <p class="warn">
+        An Axis cab-bank file can only carry IRs <b>Axis holds</b>: the unit serves no slot-data read, so an IR that
+        was uploaded from elsewhere cannot be read back and is listed by name only. FM3-Edit's own bank-file format
+        is not implemented — this is Axis's format, and Axis is the only reader.
+      </p>
+      <div class="row">
+        <button class="btn" disabled={bankBusy || !deviceReady} onclick={exportBank} data-testid="cab-bankfile-export">
+          {bankBusy ? 'Working…' : 'Export bank file'}
+        </button>
+        <label class="filepick">
+          <input type="file" accept=".json,application/json" onchange={onBankFile} disabled={bankBusy} data-testid="cab-bankfile-input" />
+          <span>Choose a bank file…</span>
+        </label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" bind:checked={bankKeepSlots} onchange={() => bankPlan && replanHint()} /> keep the file's own slot numbers</label>
+        <label class="check"><input type="checkbox" bind:checked={bankOverwrite} onchange={() => bankPlan && replanHint()} /> overwrite occupied slots</label>
+      </div>
+      {#if bankMsg}<p class="warn" class:bad={!bankMsgOk} data-testid="cab-bankfile-msg">{bankMsg}</p>{/if}
+      {#if bankPlan}
+        <p class="warn" data-testid="cab-bankfile-plan">
+          <b>{bankPlan.fileName}</b>: {bankPlan.summary}. {#if !bankOverwrite}Occupied destinations are skipped — tick “overwrite” to write them.{/if}
+        </p>
+        <ul class="plan" data-testid="cab-bankfile-rows">
+          {#each bankPlan.rows as planRow (planRow.source)}
+            <li class:bad={planRow.action === 'skip-occupied' || planRow.action === 'skip-not-held'}>
+              <span class="mono">{planRow.source} → {planRow.dest}</span> {planRow.name || '(no name)'}
+              <b>{planRow.action}</b>{#if planRow.reason} — {planRow.reason}{/if}
+            </li>
+          {/each}
+        </ul>
+        <label class="check"><input type="checkbox" bind:checked={confirmed} /> Write these slots now</label>
+        <button class="btn" disabled={!confirmed || bankBusy} onclick={runBankImport} data-testid="cab-bankfile-go">
+          {bankBusy ? 'Writing…' : 'Write to unit'}
+        </button>
+      {/if}
+    </div>
+  {/if}
+
   {#if log.length}
     <ul class="log" role="status" data-testid="cab-log">
       {#each log as l, i (i)}<li class:bad={!l.ok}>{l.text}</li>{/each}
@@ -560,6 +744,13 @@
   p { margin: 0; color: var(--textdim); font-size: 11px; }
   .gate, .disclosure, .coverage, .status, .legend, .warn, .scope { padding: 6px 12px; }
   .gate { color: var(--amber, #d6a43f); border-bottom: 1px solid var(--border); }
+  .row { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin: 6px 0; }
+  .filepick { position: relative; overflow: hidden; display: inline-block; border: 1px solid var(--line, #33343a);
+    background: var(--panel2, #24252b); border-radius: 7px; padding: 6px 10px; font-size: 12px; cursor: pointer; }
+  .filepick input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+  .plan { margin: 6px 0; padding-left: 18px; font-size: 11px; max-height: 220px; overflow: auto; }
+  .plan li { margin: 2px 0; }
+  .plan li.bad { opacity: 0.55; }
   .warn { color: var(--amber, #d6a43f); }
   .coverage { font-family: var(--font-mono); color: var(--text); }
   .banks { display: flex; gap: 6px; padding: 8px 12px 0; flex-wrap: wrap; }

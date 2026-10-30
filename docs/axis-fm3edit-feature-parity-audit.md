@@ -945,3 +945,45 @@ write, so an ignored write cannot be reported as success.
   persists an unsaved global edit across a power cycle was **not tested** here — treat it as live-only.
 * `effectId 0` is unassigned; the panel never renders a dead slot's leftover text as a name.
 * The unit's own Perform screen was not photographed during the round; what is verified is the **body**.
+
+---
+
+## 10. Cab bank files — SHIPPED, with the limit stated in the UI (2026-10-30)
+
+§8.2's item 3 ("Manage Cabs UI + bank files") was half done already: the 512-slot grid, clear, move, rename,
+restore and per-file import all existed. What was missing was the **bank-level file** — FM3-Edit's *Cab-Bank
+File* / *Transmit All Cab Banks File* / *Backup* path.
+
+### 10.1 What ships
+
+`src/lib/cabBankFile.ts` (pure, 17 tests) + a **Bank file…** mode in Manage Cabs:
+
+* **Export** — the current bank as `axis-cabset-bankN.json`: one record per occupied slot with its name and
+  the `.syx` bytes Axis holds, base64. Slots Axis does NOT hold are written with `bytes: null` **and the
+  export says how many**, because the unit serves no slot-data read (the IR download family stays under the
+  destructive-verb guard).
+* **Import** — pick a file, get a **plan** (slot → destination, action, reason), tick, write. Each write goes
+  through the existing `uploadAndVerify` (before-read → upload → after-read → verdict), so every row is
+  judged by the unit, not by the acks.
+* **Overwrite is opt-in.** Without it, a destination that already holds an IR is skipped and the row says
+  `slot N already holds an IR`. Destinations default to the first free slots after the bank's highest
+  occupied one; "keep the file's own slot numbers" uses the archive's numbering instead.
+
+### 10.2 Two bugs the round found in its own code
+
+1. **Duplicate slots.** The server's cab library keeps *every* upload of a slot, so the list can carry the
+   same user number twice. The first real export refused its own output (`slot 17 appears twice`) — the
+   builder now keeps **one copy per slot**, newest `savedAt` wins, and an entry *with* bytes beats one
+   without. Pinned by a test.
+2. **A source guard caught a non-bug.** Rendering the plan's name tripped the "no names off the unit" guard
+   because the loop variable (`r.name` inside `pr.name`) matched its regex. The guard was right to be
+   narrow; the fix was a clearer variable name, not a looser guard.
+
+### 10.3 Limits, stated plainly
+
+* The format is **Axis's own** (`kind: "axis.cabset"`, version 1). FM3-Edit's bank-file format is NOT
+  implemented, and Axis is the only reader; the UI says so.
+* A bank exported from a unit whose IRs came from outside Axis will be **incomplete by construction** — those
+  slots carry a name and no bytes, and import always skips them.
+* The importer is strict: a foreign JSON, another version, a duplicate slot, an out-of-range slot number or
+  corrupt base64 is refused as a whole. A half-parsed archive never imports.
