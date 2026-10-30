@@ -863,6 +863,11 @@ non-block surfaces: BROWSER (librarian), SYSEX (file/bank I/O), FC, GLOBAL and t
    compensates for latency up to approximately 20 ms"*, saving "directly to any internal User Cab memory"
    **or** to `.syx`/`.ir` on disk. This is the `fn 0x40` family we have deliberately never sent; the payoff
    (capturing a real mic'd cab into a user slot) is real but it is the highest-risk opcode group on the unit.
+   **PARKED (owner decision, 2026-10-30).** Beyond the opcode risk, the feature's shape is against this
+   client: the sweep is played out of the FM3 and recorded by the editor over USB audio, so capture needs a
+   local audio path (a helper process), not a browser page — and whether the unit deconvolves internally is
+   still unknown. Not re-proposed; the route back in is the Phase-1 Ghidra read of the `fn 0x40` builder,
+   which touches no hardware.
 3. **Manage Cabs UI + import options.** §2.5 already tracks this; the binary confirms the option set the
    audit listed: `AUTO_ALIGN`, `Min Phase` (`Left Only`/`Right Only`/`Min Phase`/`Normal`), `Auto Trim`,
    `Speaker Count`, `Speaker Manufacturer`, `Mic Space`, plus `BROWSER_CHECK_BANK_FILES` /
