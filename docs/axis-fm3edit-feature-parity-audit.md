@@ -886,3 +886,62 @@ consequence instead of the number alone. 6 unit tests pin the thresholds so they
 Unchanged from the ForgeFX doc (§1f/§1g/§1h there): Standard writing is measured and works; UltraRes writing
 is **not** supported. The binary gives the payload a 4-word header (words 2–3 constant for editor-made IRs)
 and nothing else usable yet. No Axis copy claims UltraRes writing.
+
+---
+
+## 9. Global Performance Controls — SHIPPED (measured on hardware, 2026-10-30)
+
+§8 ranked this first among the gaps the RE pass found. It is now implemented end to end, and the page was
+read, written and read back on the unit.
+
+### 9.1 Where the page lives
+
+The ten Global Performance controls are stored in the **GLOBAL settings**, not in a preset — that is what
+makes them follow the player from preset to preset, and it is why they were missing from a parity audit
+that only ever looked at preset bodies. On an FM3 they live inside the **eid-1 GLOBAL body**, the
+14 880-record block that `GET /preset/monitors/live`'s sibling bulk poll (fn `0x1F`) returns. On this unit:
+
+* id tables start at body offset **8305**: ten `uint16` effect ids, then ten `uint16` param ids;
+* effect labels at **8325**, param labels at **8485** — ten records of **16 16-bit characters** each;
+* the whole page is **680 records** (20 ids + 320 label characters).
+
+The decode is not a guess fitted to the numbers. The five consecutive `58`s in the id table sit exactly on
+the five `"AMP"` labels, and the param ids `8/9/10/22/26` land exactly on `Bass/Mid/Treble/Depth/Presence`,
+with `7/11/1` on `Input Drive/Master Vol/Level`. **Ids and names are separate regions that agree** — that
+agreement is the evidence. The page is located by an anchor on the label text (a run of ≥4 records of
+16-bit characters at a 16-record stride), never by a hardcoded offset, and a candidate is rejected unless
+every assigned slot has a label and every unassigned slot has none.
+
+### 9.2 The write path (measured, not assumed)
+
+The id and label records are **ordinary pid-addressed writes on eid 1, with pid = body index** — the same
+path that carries brightness (pid 7115). Verified sequence on the FM3:
+
+1. read the body, decode the page, take the one **unassigned** slot (5, 0-based);
+2. write `effectId 58`, `paramId 11` (Amp / Master Vol) with the discrete opcode → body records 8310 = 58
+   and 8320 = 11;
+3. write the label characters `"AMP"` and `"Master Vol"` the same way → the page decodes as
+   `58/11 "AMP" "Master Vol"`;
+4. clear the slot → **read back** `0/0`, page identical to the pre-test state `[58×5, 0, 58,58,58, 0]`.
+
+Point 4 is the important one: the verdict comes from re-reading the body, an independent path from the
+write, so an ignored write cannot be reported as success.
+
+### 9.3 What ships
+
+* **forgefx-midi** — `src/devices/gen3/globalPerform.ts`: anchor search, decode, slot addressing,
+  `encodeLabel16`, plus `test/gen3/fm3/global-perform.test.ts` whose fixture is a **verbatim slice of the
+  unit's body** (offset 8285–8984), so the decoder is tested against what the device actually sends.
+* **ForgeFX** — `GET /global/perform` (one eid-1 bulk poll, no writes) and
+  `PUT /global/perform/:slot` (read-modify-read, `{ok, slot, reason, readback}`). The PUT is registered as a
+  device write in `writeGate.ts`, so it is gated exactly like the preset Perform write.
+* **Axis** — `globalPerformView.ts` (pure, 7 tests) + `GlobalPerformPanel.svelte`, shown under the
+  per-preset Perform page in Device Tools with Read / Edit / Write / Clear.
+
+### 9.4 Limits, stated plainly
+
+* Labels are **16 characters**; longer names are truncated by the device's record width.
+* The write changes the **live global state**; this call does **not** store to flash. Whether the unit
+  persists an unsaved global edit across a power cycle was **not tested** here — treat it as live-only.
+* `effectId 0` is unassigned; the panel never renders a dead slot's leftover text as a name.
+* The unit's own Perform screen was not photographed during the round; what is verified is the **body**.

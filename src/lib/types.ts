@@ -498,6 +498,39 @@ export interface PerformPage {
   assigned: number;
 }
 
+/**
+ * One slot of the GLOBAL PERFORMANCE PAGE — the ten controls stored in the GLOBAL settings, not in a
+ * preset (FM3-Edit: "The Global Performance Controls are stored in the Global Settings"). Served by
+ * ForgeFX `GET /global/perform`; the WRITE side is `PUT /global/perform/:slot`.
+ *
+ * MEASURED 2026-10-30: the page lives inside the eid-1 GLOBAL body and was read, written and read back
+ * on the unit. `effectId === 0` is UNASSIGNED — the labels are then empty because they are part of the
+ * same record set, and the UI must not present a dead name as a live control.
+ */
+export interface GlobalPerformSlot {
+  /** 0-based, as the body stores the ten records. */
+  effectId: number;
+  paramId: number;
+  effectLabel: string;
+  paramLabel: string;
+}
+
+/** The Global Performance Page (ForgeFX `GET /global/perform`). `null` when the body has no page. */
+export interface GlobalPerformPage {
+  /** Offset of the id table in the eid-1 body (diagnostic). */
+  at: number;
+  slots: GlobalPerformSlot[];
+}
+
+/** The server's answer to a Global Perform-Page slot write. `ok` is a READ-BACK of the eid-1 body —
+ *  never the absence of a refusal. Nothing is stored to flash; a power cycle or a global reload resets it. */
+export interface GlobalPerformSlotWriteResult {
+  ok: boolean;
+  slot: number;
+  reason?: string;
+  readback?: GlobalPerformSlot;
+}
+
 /** The fields a Perform-Page slot write may set (ForgeFX `PUT /preset/perform/:slot`). Any subset —
  *  an omitted field keeps the slot's current value. Labels are written into a fixed 32-byte window, so
  *  a longer string is TRUNCATED. */

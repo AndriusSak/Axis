@@ -28,6 +28,8 @@ import type {
   PerformPage,
   PerformSlotPatch,
   PerformSlotWriteResult,
+  GlobalPerformPage,
+  GlobalPerformSlotWriteResult,
   PerPresetSwitchPatch,
   PerPresetSwitchWriteResult,
   PerPresetSwitches,
@@ -397,6 +399,18 @@ export const forgefx = {
    */
   setPerformSlot: (slot: number, patch: PerformSlotPatch) =>
     req<PerformSlotWriteResult>(`/preset/perform/${slot}`, { method: 'PUT', body: JSON.stringify(patch) }),
+  /** GLOBAL Performance Page (stored in the GLOBAL settings, not the preset) — ten controls with their
+   *  effect/param ids and labels. `null` when the body has no page; 501→null on a device that can't read
+   *  it. A slot with effectId 0 is UNASSIGNED. One eid-1 bulk poll, no writes. */
+  globalPerform: () => capOptional(req<GlobalPerformPage | null>(`/global/perform`)),
+  /**
+   * Write ONE slot of the GLOBAL Performance Page. The device takes the id and label records as ordinary
+   * pid-addressed writes, so the answer carries a READ-BACK verdict: `ok:false` is a normal outcome and
+   * must be shown with its `reason`, never as success. Stored in the GLOBAL settings, so it survives a
+   * preset change — but it is NOT saved to flash by this call.
+   */
+  setGlobalPerformSlot: (slot: number, patch: PerformSlotPatch) =>
+    req<GlobalPerformSlotWriteResult>(`/global/perform/${slot}`, { method: 'PUT', body: JSON.stringify(patch) }),
   /** Per-preset SWITCH definitions of the CURRENT preset (§3.8) — `null` when the body has no block.
    *  501→null on a device that can't read it. Each row carries its own `confidence` (`measured` when every
    *  field's offset was OBSERVED on the wire, `partial` when only some were, `unknown` when none) and each

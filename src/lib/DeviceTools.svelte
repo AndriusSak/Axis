@@ -7,6 +7,7 @@
   import { describeSpan, classifyRow, isMismatch, summarize, type RangeTrace } from './rangeTrace';
   import type { SyxDecodeResult } from './types';
   import PerformPagePanel from './PerformPagePanel.svelte';
+  import GlobalPerformPanel from './GlobalPerformPanel.svelte';
   import PerPresetSwitchesPanel from './PerPresetSwitchesPanel.svelte';
 
   // Loose display view over the gen-3 modifier-model DTO.
@@ -279,6 +280,7 @@
       {/if}
 
       <PerformPagePanel />
+      <GlobalPerformPanel />
 
       <PerPresetSwitchesPanel />
 
