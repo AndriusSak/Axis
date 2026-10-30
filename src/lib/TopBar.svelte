@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { cpuColor as cpuColorOf, cpuTitle } from './cpuGauge';
   import { editor } from './editor.svelte';
 
   // ── inline scene rename (active scene) ──
@@ -48,7 +49,9 @@
 
   // live CPU% (decoded from the device meters frame) + audio level meters
   const cpu = $derived(editor.cpu);
-  const cpuColor = $derived(cpu == null ? '#56565e' : cpu >= 80 ? '#d6543f' : cpu >= 62 ? '#f5a623' : '#33c46b');
+  // thresholds are the FM3's own (85 % warn / 100 % audio muted) — see cpuGauge.ts
+  const cpuColor = $derived(cpuColorOf(cpu));
+  const cpuHint = $derived(cpuTitle(cpu));
   const pk = (x: number) => Math.max(0, Math.min(100, Math.round(x * 100)));
   // global output level: the FM3's Preset Leveling meters (fn 0x19, Output 1 & 2 × L/R), pushed over SSE
   // in real dB (−40…0), server-smoothed. Shows the main output (Output 1 L/R); Output 2 appears only when
@@ -192,7 +195,7 @@
           <span class="mono cpu-t" style="color:{linkColor}">{editor.linkMs != null ? editor.linkMs + 'ms' : '—'}</span>
         </div>
         {#if cpu != null}
-          <div class="st cpu load" title="Live CPU load (decoded from the device meters frame)">
+          <div class="st cpu load" title={cpuHint}>
             <span class="mono st-lbl">CPU</span>
             <div class="bar"><div class="fill" style="width:{pk(cpu / 100)}%; background:{cpuColor}"></div></div>
             <span class="mono cpu-t" style="color:{cpuColor}">{cpu.toFixed(1)}%</span>

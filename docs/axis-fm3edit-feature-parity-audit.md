@@ -826,3 +826,63 @@ conflicts**. Verification on the merged tree: Axis **1720 unit tests / 164 files
 | Existing open handoff work | `docs/handoff-cab-mute-and-dynacab.md` |
 | Prior gap analysis (partly stale) | `docs/ROADMAP.md` (kept); the workbench layout-rework plan/status/verification docs were shipped-work history and were removed 2026-10-07 — recover any with `git show <sha>:docs/<file>` (see `docs/NEXT-STEPS.md`) |
 | Defect backlog (all merged) | `~/repos/stack/BACKLOG.md` |
+
+---
+
+## 8. RE pass against the FM3-Edit 1.07.17 binary — 2026-10-30
+
+**Method.** FM3-Edit's installer was extracted (`~/re/fm3-edit/`, Inno Setup 6.1 → `app/FM3-Edit.exe`,
+19.3 MB native x64 Qt build, no PDB), imported into Ghidra 12.2 and auto-analysed; the string table was
+dumped (`strings` + UTF-16) and read alongside the bundled `FM3-Edit-Release-Notes.txt` (1.07.17,
+2026-08-24, current FM3 firmware 13.00). Everything below is quoted from the binary or those notes; no
+behaviour is inferred from a name alone unless it says so.
+
+### 8.1 What the editor's own key families show about its surface
+
+Key-count by module prefix in the string table (resource keys, not all user-visible): `SYSEX` 2254,
+`PREFS` 2522, `BROWSER` 1176, `MIDI` 815, `GLOBAL` 524, `DISTORT` 429, `CONTROLLERS` 423, `MULTITAP` 363,
+`PITCH` 342, `CABINET` 315, `DELAY` 267, `REVERB` 213, `VOCODER` 201, `PRESET` 157, `SAMPLES` 151,
+`TENTAP` 147, `QUADCHO` 138, `SYNTH` 126, `RESONATOR` 120, `COMP` 111, `FILTER` 111, `MULTICOMP` 111,
+`PHASER` 105, `MEGATAP` 105, `PEQ` 99, `FLANGER` 99, `CHORUS` 96, `FC` 89, `OUTPUT` 78, `MOD` 75.
+
+Axis covers the block editors through the generic Control Surface, so the interesting gaps are the
+non-block surfaces: BROWSER (librarian), SYSEX (file/bank I/O), FC, GLOBAL and the performance views.
+
+### 8.2 Absent, confirmed against the binary (ranked by value on this rig)
+
+1. **Global Performance Controls.** Release notes: *"The 'Global Performance Controls' are stored in the
+   Global Settings. Adding or removing a control from this area automatically saves the control to the
+   Global Settings."* Axis's Live/Perform page (§2.2) is per-preset and local-only — the **global** page is
+   a system-region object, not a preset one. Feasible: the GLOBAL body is readable (14 880 records,
+   pid-indexed, `scripts/dump-global.ts`) and a global write is already proven (brightness pid 7115,
+   `scripts/verify-global-write.ts`). What is missing is a **pid → name/range map for GLOBAL**; the editor
+   does not carry one in `english.laxml`, and its `/fm3-edit.xml` is a device-served descriptor — so the map
+   has to come from the unit's descriptor or from a capture.
+2. **IR Capture.** Distinct from IR upload: `EFFECT_IRCAPTURE`, `ID_IRCAPTURE`, `IRCAPTURE_BANK`,
+   `btnCapture`, `.?AVIrCaptureDialog@@`, plus help text: the sweep is measured over USB and *"automatically
+   compensates for latency up to approximately 20 ms"*, saving "directly to any internal User Cab memory"
+   **or** to `.syx`/`.ir` on disk. This is the `fn 0x40` family we have deliberately never sent; the payoff
+   (capturing a real mic'd cab into a user slot) is real but it is the highest-risk opcode group on the unit.
+3. **Manage Cabs UI + import options.** §2.5 already tracks this; the binary confirms the option set the
+   audit listed: `AUTO_ALIGN`, `Min Phase` (`Left Only`/`Right Only`/`Min Phase`/`Normal`), `Auto Trim`,
+   `Speaker Count`, `Speaker Manufacturer`, `Mic Space`, plus `BROWSER_CHECK_BANK_FILES` /
+   `BROWSER_CHECK_RECURSIVE` for bank-file imports.
+4. **Sets & Songs** — unchanged: present in the editor (`SetListTable`, `SongSetListDlg`, "all-songs",
+   "Add Performance Controls"), **still parked** because it requires an FC-6/FC-12 (§2.3).
+5. **Banks as files** — `BROWSER_WARN_BANK_SIZE`, "Cab Bank file", "Cab-Bank File", `BackupAllToggle`,
+   "Backup complete." — the editor's librarian writes/reads whole `.bnk`/cab-bank files. Axis has
+   per-preset `.syx` export and per-slot cab upload, but no bank-level file I/O.
+
+### 8.3 Shipped from this pass
+
+**CPU meter thresholds now match the hardware.** The editor's own warning text states the two real
+thresholds: 85 % ("approaching the limit") and 100 % ("The audio will remain muted until blocks are removed
+or reconfigured"). Axis used invented thresholds (amber at 62 %, red at 80 %). `src/lib/cpuGauge.ts` now
+classifies `ok / warn ≥ 85 / muted ≥ 100`, the bar is coloured from that, and the tooltip states the
+consequence instead of the number alone. 6 unit tests pin the thresholds so they cannot drift.
+
+### 8.4 UltraRes (context)
+
+Unchanged from the ForgeFX doc (§1f/§1g/§1h there): Standard writing is measured and works; UltraRes writing
+is **not** supported. The binary gives the payload a 4-word header (words 2–3 constant for editor-made IRs)
+and nothing else usable yet. No Axis copy claims UltraRes writing.
