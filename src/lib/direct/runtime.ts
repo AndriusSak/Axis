@@ -168,10 +168,29 @@ export async function assembleRuntime(opts: AssembleOpts): Promise<AssembledRunt
   };
 
   // 6. Probe the device before declaring ready — a wrong port fails here, not in the editor.
-  const detect = await router.handle('GET', '/device/detect');
-  if (detect.status >= 500) {
+  //    A 200 that says `connected:false` is NOT a pass: the port opened but the fn 0x00 handshake went
+  //    unanswered, so the registry has no driver. Letting that through drops the user into an editor
+  //    with no device, where every later action fails with a message about capabilities. Retry a few
+  //    times first: a just-granted port sometimes needs a beat before the unit answers.
+  let connected = false;
+  let lastStatus = 0;
+  for (let attempt = 0; attempt < 3 && !connected; attempt++) {
+    if (attempt) await new Promise((r) => setTimeout(r, 300));
+    const detect = await router.handle('GET', '/device/detect');
+    lastStatus = detect.status;
+    if (detect.status >= 500) break;
+    try {
+      const parsed = typeof detect.body === 'string' ? JSON.parse(detect.body) : JSON.parse(new TextDecoder().decode(detect.body as Uint8Array));
+      connected = parsed?.connected === true;
+    } catch { connected = false; }
+  }
+  if (!connected) {
     unsub();
-    throw new Error('The device did not answer. Check the connection and try again.');
+    throw new Error(
+      lastStatus >= 500
+        ? 'The device did not answer. Check the connection and try again.'
+        : 'The port opened, but the unit did not answer the handshake. Unplug the USB cable, plug it back in, and try again.'
+    );
   }
 
   return { store, sha256Hex: codec.sha256Hex, unsub };

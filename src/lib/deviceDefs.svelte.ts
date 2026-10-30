@@ -163,9 +163,14 @@ class DeviceDefsStore {
       // Show the server's own words — a bare "Could not start the build." hid 404/501/500 differences
       // that decide whether this is a version mismatch, a missing capability or a dead link.
       const detail = e instanceof Error ? e.message.slice(0, 160) : String(e);
-      this.error = e instanceof ForgeError && e.status === 501
-        ? 'Reading from device isn’t supported here.'
-        : `Could not start the build${e instanceof ForgeError ? ` (HTTP ${e.status})` : ''}: ${detail}`;
+      // 503 = nothing answered on the link (no driver materialised, or detection found no model) — that
+      // is a cable/port problem, not a missing capability, and telling the user "not supported here"
+      // sends them looking for the wrong thing. 501 = the unit answered and genuinely cannot self-describe.
+      this.error = e instanceof ForgeError && e.status === 503
+        ? 'No device answered — the port is open but the unit isn’t replying. Unplug the USB cable, plug it back in, then reconnect.'
+        : e instanceof ForgeError && e.status === 501
+          ? 'This device doesn’t support reading its definitions — use a definitions file or the editor’s cache instead.'
+          : `Could not start the build${e instanceof ForgeError ? ` (HTTP ${e.status})` : ''}: ${detail}`;
     }
   };
 
