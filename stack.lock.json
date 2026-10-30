@@ -2,10 +2,10 @@
   "_doc": "Pinned sibling refs used by tag-triggered release builds (see docs/RELEASING.md). CI still tracks default-branch HEAD. Bump these as part of the release checklist. In this fork the desktop artifacts are built from the working tree, so these refs record which sibling commits the published build was made from.",
   "forgefx-midi": {
     "repo": "AndriusSak/forgefx-midi",
-    "ref": "11a9ca5"
+    "ref": "17c156c"
   },
   "ForgeFX": {
     "repo": "AndriusSak/ForgeFX",
-    "ref": "1a043ea"
+    "ref": "babceca"
   }
 }
