@@ -884,7 +884,7 @@
                 <!-- The level fill is a BACKGROUND element: Map mode hides labels and HUDs, but a meter is
                      not chrome — hiding it there meant switching METER on and seeing nothing at all in
                      the mode most people leave the grid in. -->
-                {#if meter}<span class="lvlfill" style="height:{Math.round(meter.norm * 100)}%; background:linear-gradient(180deg,{shade(cat.accent, 0.35)},{cat.accent});"></span>{/if}
+                {#if meter}<span class="lvlfill" class:live={meter.live} style="height:{Math.round(meter.norm * 100)}%; background:{meter.live ? 'linear-gradient(180deg,#8ef5b0,#22c55e)' : `linear-gradient(180deg,${shade(cat.accent, 0.35)},${cat.accent})`};"></span>{/if}
                 {#if cell.bypassed}<span class="hatch"></span>{/if}
                 {#if swipeHud && swipeHud.key === `${r},${c}` && !mapMode}
                   <div class="swhud">
@@ -1007,6 +1007,18 @@
     <span class="gndot" aria-hidden="true"></span>
     <span class="gn-label">Grid Nav</span>
   </button>
+
+  <!-- Meter state, spelled out in the grid itself: "ON but nothing drawn" is otherwise
+       indistinguishable from a dead poll, and a 10 px chip in the top bar is too small to read. -->
+  {#if editor.meteringOn && editor.status === 'ready'}
+    <div class="meter-state" class:zero={(editor.liveMeterCount ?? 0) === 0}
+      title={(editor.liveMeterCount ?? 0) === 0
+        ? 'METER is ON but the open block reported no monitor rows — select a block with a meter (Amp, Cab, Comp, Gate, Input, Output) and play.'
+        : 'Live monitor rows the open block is reporting.'}>
+      <span class="ms-dot" aria-hidden="true"></span>
+      <span class="ms-label mono">meters {editor.liveMeterCount ?? 0}{editor.selected ? ` · eid ${editor.selected.effectId}` : ' · open a block'}</span>
+    </div>
+  {/if}
 
   {#if fixedTile && editor.status !== 'loading' && editor.status !== 'offline'}
     <!-- outside the scrolling viewport so it stays pinned while the fixed-size grid pans -->
@@ -1718,6 +1730,30 @@
     border-color: var(--amber-border);
     color: var(--amber);
   }
+
+  /* A live audio level is drawn in green so it reads as a meter; the muted tile-hue fill is the
+     parameter value of a mapped swipe control and must not be mistaken for one. */
+  .lvlfill.live { opacity: 0.9; border-top-color: rgba(255, 255, 255, 0.95); }
+
+  .meter-state {
+    position: absolute;
+    right: 8px;
+    bottom: 6px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px;
+    border-radius: 3px;
+    background: color-mix(in srgb, var(--surface2) 85%, transparent);
+    color: var(--ok, #4ade80);
+    font-size: 10px;
+    letter-spacing: 0.02em;
+    pointer-events: none;
+    z-index: 4;
+  }
+  .meter-state.zero { color: #f5a623; }
+  .ms-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+  .ms-label { white-space: nowrap; }
 
   /* Grid Navigation Mode (audit §2.9) — floating grid-header toggle + on-state indicator.
      Mirrors .regrid's corner-pinned pattern; when ON the dot lights up and the pill gets the accent

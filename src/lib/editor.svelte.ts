@@ -502,31 +502,32 @@ class EditorStore {
   liveMeterCount = $derived(
     this.selected ? (this.liveMeters[this.selected.effectId]?.length ?? 0) : 0
   );
-  meterFor = (cell: Cell): { norm: number; value: number; unit?: string; min?: number; max?: number; log?: boolean; count: number; active: number; name: string } | null => {
+  meterFor = (cell: Cell): { norm: number; value: number; unit?: string; min?: number; max?: number; log?: boolean; count: number; active: number; name: string; live?: boolean } | null => {
+    // A LIVE reading wins. The bottom branch reports a control's PARAMETER value (a knob position kept
+    // in sync for mapped swipe controls), which is not a level — painting that in the meter slot is why
+    // the "meter" looked frozen. Live audio is the only thing that should fill it when metering is on.
+    const live = this.liveMeters[cell.effectId];
+    const first = live?.find((m) => Number.isFinite(m.norm));
+    if (first) {
+      return {
+        norm: first.norm,
+        value: first.db ?? first.norm,
+        unit: first.db != null ? 'dB' : undefined,
+        min: first.minDb,
+        max: first.maxDb,
+        count: live?.length ?? 1,
+        active: 0,
+        name: first.paramName,
+        live: true
+      };
+    }
     const ctrls = this.controlsFor(cell);
     const active = ctrls.length ? Math.min(this.activeCtl[cell.effectId] ?? 0, ctrls.length - 1) : 0;
     const ctl = ctrls[active];
     const v = ctl ? this.meters[cell.effectId]?.vals[ctl.id] : undefined;
-    if (!v) {
-      // The OPEN block's monitor is polled on its own (startLiveMeters, behind the top bar's METER
-      // toggle). It used to be fetched and never drawn — so switching metering on changed nothing
-      // visible in the grid unless a swipe control happened to be mapped. Draw it on the tile.
-      const live = this.liveMeters[cell.effectId];
-      const first = live?.find((m) => Number.isFinite(m.norm));
-      if (first) {
-        return {
-          norm: first.norm,
-          value: first.db ?? first.norm,
-          unit: first.db != null ? 'dB' : undefined,
-          count: live?.length ?? 1,
-          active: 0,
-          name: first.paramName
-        };
-      }
-      // No honest reading either way — never polled, or an UNRESOLVED param whose meter value was
-      // deliberately not seeded (a fabricated 0 is indistinguishable from a real zero) → no fill/HUD.
-      return null;
-    }
+    // No honest reading either way — never polled, or an UNRESOLVED param whose meter value was
+    // deliberately not seeded (a fabricated 0 is indistinguishable from a real zero) → no fill/HUD.
+    if (!v) return null;
     return { norm: v.norm, value: v.value, unit: v.unit, min: v.min, max: v.max, log: v.log, count: ctrls.length, active, name: ctl.name };
   };
   cycleControl = (cell: Cell, dir: number) => {
@@ -700,6 +701,8 @@ class EditorStore {
     return this.status === 'ready' && this.hasLiveMonitors && !this.slowLink && !isRemote();
   }
   #liveMeterTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Round-robin cursor for metering the REST of the grid (one extra block per tick). */
+  #meterCursor = 0;
   startLiveMeters = () => {
     if (this.#liveMeterTimer) return; // already running
     const tick = async () => {
@@ -714,6 +717,25 @@ class EditorStore {
           this.liveMeters = next;
         } catch {
           /* best-effort */
+        }
+        // The rest of the grid, one block per tick: every placed block that reports a monitor gets a
+        // live level within a few seconds, without a full-preset sweep (that flooded the link and
+        // dropped audio). The open block keeps its 250 ms cadence; these ride along at one per tick.
+        const placed = [...this.layout.cells, ...this.layout.shunts].map((c) => c.effectId);
+        const others = placed.filter((id) => id !== eid);
+        if (others.length) {
+          const other = others[this.#meterCursor % others.length];
+          this.#meterCursor = (this.#meterCursor + 1) % others.length;
+          try {
+            const rows2 = await forgefx.monitorsLive(other);
+            if (rows2.length || !this.liveMeters[other]) {
+              const next2 = { ...this.liveMeters };
+              next2[other] = rows2.filter((r) => r.effectId === other);
+              this.liveMeters = next2;
+            }
+          } catch {
+            /* best-effort */
+          }
         }
         // Looper: also fetch the live waveform + playhead + level for the open Looper block.
         if (this.blockSlug === 'looper') {

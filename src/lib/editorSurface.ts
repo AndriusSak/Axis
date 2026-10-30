@@ -133,10 +133,16 @@ export interface EditorSurface {
   looperWave: { wave: number[]; position: number | null; level: number | null } | null;
   looperControl: (action: string, on: boolean) => Promise<void>;
   typeNameFor: (effectId: number) => string;
+  /** Per-block metering state, surfaced in the grid header so "on but silent" is legible.
+   *  Optional: alternate surfaces (convert/compare) carry no device link. */
+  meteringOn?: boolean;
+  liveMeterCount?: number;
   monitorFor: (effectId: number) => LiveMonitor | null;
   monitorsFor: (effectId: number) => LiveMonitor[];
   controlsFor: (cell: Cell) => SwipeCtrl[];
   meterFor: (cell: Cell) => {
+    /** True when the reading is live audio (liveMonitors), false when it is a mapped control's value. */
+    live?: boolean;
     norm: number;
     value: number;
     unit?: string;
