@@ -284,7 +284,7 @@
       say(
         up.verdict.ok,
         `Import “${staged.name}” → slot ${user}: ${up.verdict.text}` +
-          (staged.kind === 'wav' ? ' This IR was CONVERTED — expect silence: the unit accepts the bytes but cannot play this payload.' : '')
+          (staged.kind === 'wav' ? ' This IR was CONVERTED — Standard format, measured to play on the unit.' : '')
       );
       await refreshAfter([user]);
     } finally {
@@ -484,11 +484,11 @@
             <ol class="steps" data-testid="cab-import-steps">{#each staged.report.steps as st (st)}<li>{st}</li>{/each}</ol>
             <svg class="wave" viewBox="0 0 480 60" aria-label="Converted IR waveform preview" role="img"><polyline points={wavePts} fill="none" stroke="currentColor" stroke-width="1" /></svg>
             <p class="note">
-              Sample encoding: <b>{staged.report.encoding.label}</b>. Measured on an FM3 (2026-10-30): the unit ACCEPTS these bytes and the slot reads POPULATED,
-              then plays <b>silence</b> — the device's own IR payload is a compressed format Axis does not write, so a converted container cannot be made
-              audible by trying another encoding. Upload only a .syx exported by Fractal's software if you want sound.
+              Sample encoding: <b>{staged.report.encoding.label}</b>. Measured on an FM3 (2026-10-30): a converted container built this way is accepted
+              (close <b>0x00</b>) and <b>plays</b> — the encoding was decoded from a known input and reproduces an FM3-Edit Standard export byte for byte.
+              UltraRes payloads are opaque and are not written by Axis.
             </p>
-            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR will upload but play NO SOUND on the unit</label>
+            <label class="check"><input type="checkbox" bind:checked={ackUnvalidated} data-testid="cab-ack-unvalidated" /> I understand this converted IR is written as a Standard IR (32-bit float, 2040 taps)</label>
           {/if}
         </div>
       {/if}

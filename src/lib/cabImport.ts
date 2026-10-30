@@ -6,13 +6,13 @@
 //   .ir   → NO format for it is documented in this stack. A file that carries a RIFF/WAVE header is read as
 //           WAV (a statement about its bytes, shown to the user); anything else is refused with that reason.
 //
-// ⚠ CONVERTED CONTAINERS DO NOT PLAY (measured 2026-10-30). Six converted containers — impulse, decaying
-// burst and comb, each as float32 AND int32 Q31 — were uploaded to an FM3: every one was accepted
-// (closeCode 0x00, slot POPULATED, name read back) and every one played SILENCE from a cab slot that plays
-// a real user IR normally. A real FM3-Edit export explains it: its 2040-word sample region is COMPRESSED
-// (entropy 6.83/7, no silent tail, flat RMS under float32 / int32 / int16-pair / 7-bit-bitstream decodings).
-// A .syx exported by Fractal's own software is the only thing that plays; converting a .wav here yields a
-// structurally valid, inaudible container, and the UI says exactly that.
+// ✅ CONVERTED CONTAINERS PLAY — measured 2026-10-30. The codec was decoded from a known input: a ruler WAV
+// imported by FM3-Edit with IR Output Format = **Standard** exports 2040 little-endian IEEE-754 float32
+// samples, which reproduce bit-for-bit what this converter writes. A container built here was uploaded to an
+// empty FM3 user slot and auditioned — it plays, louder only because the editor normalises on import.
+// Two rules the first attempts broke: the 32nd name slot is a NUL terminator (0x80 with its flag — 0xA0
+// marks UltraRes), and the payload must be the Standard form. UltraRes payloads are opaque (7.98 bits/byte,
+// no standard codec decodes them) and are NOT written here.
 // Historical note (kept because it was the standing wording): One
 // converted container HAS been auditioned on the unit: it was accepted by the unit's close check and sounded
 // transparent, which proves the transport, the name round-trip and end-to-end acceptance. What that does NOT

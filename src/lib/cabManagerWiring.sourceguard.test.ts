@@ -46,7 +46,7 @@ describe('Manage Cabs wiring', () => {
   it('a converted import needs an explicit unvalidated acknowledgement before Upload is enabled', () => {
     expect(ui).toMatch(/staged\.kind !== 'wav' \|\| ackUnvalidated/);
     expect(ui).toContain('CAB_CONVERSION_UNVALIDATED_BADGE');
-    expect(ui).toMatch(/the unit ACCEPTS these bytes and the slot reads POPULATED/);
+    expect(ui).toMatch(/is accepted\s*\(close/);
   });
 
   it('every write goes through uploadAndVerify / runMove / runClear / runRename (the unit-verdict path)', () => {
