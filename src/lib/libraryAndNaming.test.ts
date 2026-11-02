@@ -46,4 +46,19 @@ describe('a preset can be named while saving', () => {
     expect(dlg).toMatch(/const renameCapable = \$derived\(editor\.canRenamePresets/);
     expect(dlg).toMatch(/\{#if renameCapable\}/);
   });
+
+  it('never guesses slot 0 when the loaded preset is unknown', () => {
+    // A save dialog opened before the first preset poll used to default the target to slot 0 and
+    // storing overwrites it (measured: factory preset 0 was overwritten on 2026-11-02).
+    const ed = read('./editor.svelte.ts');
+    const openSave = ed.slice(ed.indexOf('openSave = () =>'), ed.indexOf('save = async (n: number)'));
+    expect(openSave).toContain('?? -1');
+    expect(openSave).not.toMatch(/\?\?\s*0;/);
+
+    expect(dlg).toMatch(/const targetValid = \$derived\(Number\.isInteger\(target\) && target >= 0/);
+    expect(dlg).toMatch(/disabled=\{busy \|\| !targetValid\}/);
+    expect(dlg).toMatch(/if \(busy \|\| !targetValid\) return;/);
+    // and the state write itself refuses a negative slot
+    expect(ed).toMatch(/if \(!Number\.isInteger\(n\) \|\| n < 0\) return;/);
+  });
 });

@@ -3078,10 +3078,17 @@ class EditorStore {
   saveOpen = $state(false);
   saveTarget = $state<number>(0);
   openSave = () => {
-    this.saveTarget = this.preset?.number ?? this.lastPreset ?? 0;
+    // -1 = "no target yet", never 0. `?? 0` meant a click on Save with no preset ref yet (the poll has
+    // not landed, or the device is offline) defaulted to SLOT 0 — and storing overwrites it. Measured
+    // 2026-11-02: a save dialog opened before the first preset poll wrote the edit buffer over factory
+    // preset 0. The dialog refuses to write until a slot is picked.
+    this.saveTarget = this.preset?.number ?? this.lastPreset ?? -1;
     this.saveOpen = true;
   };
   save = async (n: number) => {
+    // Belt and braces for the dialog gate: a negative/NaN target means "no slot was chosen", and the
+    // only slot a guess could hit is one the user never asked to overwrite.
+    if (!Number.isInteger(n) || n < 0) return;
     try {
       // The unified /preset/store saves every device (AM4 number = stored location; the response
       // additionally carries its bank-letter code).

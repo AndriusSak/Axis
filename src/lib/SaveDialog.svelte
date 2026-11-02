@@ -20,7 +20,7 @@
 
   /** Rename the edit buffer first (so the store writes the new name), then store to the slot. */
   async function commit() {
-    if (busy) return;
+    if (busy || !targetValid) return;
     busy = true;
     try {
       const clean = name.replace(/[^\x20-\x7e]/g, '').slice(0, 32).trimEnd();
@@ -40,6 +40,9 @@
   const bankCode = (n: number) => `${String.fromCharCode(65 + Math.floor(n / 4))}${String((n % 4) + 1).padStart(2, '0')}`;
   const pad = $derived((n: number) => (editor.bankLetterAddressing ? bankCode(n) : String(n).padStart(3, '0')));
   const overwritingCurrent = $derived(editor.preset?.number === target);
+  // A slot must be chosen: with no target (-1) the dialog must not guess, because the only guess it can
+  // make is slot 0 and storing there destroys whatever is stored in it.
+  const targetValid = $derived(Number.isInteger(target) && target >= 0 && target <= maxSlot);
   const mob = $derived(editor.isMobile);
   // Buffer loaded from a local Presets/ file → offer writing the edits back to that file too.
   const src = $derived(editor.bufferSource);
@@ -74,11 +77,13 @@
       {/if}
       <label class="field">
         <span class="lbl mono">SAVE TO</span>
-        <input class="num mono" type="number" min="0" max={maxSlot} bind:value={target} />
+        <input class="num mono" type="number" min="0" max={maxSlot} placeholder="slot" bind:value={target} />
         {#if editor.bankLetterAddressing}<span class="code mono">{bankCode(target)}</span>{/if}
       </label>
       <p class="hint">
-        {#if overwritingCurrent}
+        {#if !targetValid}
+          Pick the slot to write — nothing is written until you do.
+        {:else if overwritingCurrent}
           Overwrites the current preset <b>{pad(target)}</b>{editor.preset?.name ? ` · ${editor.preset.name}` : ''}.
         {:else}
           Writes to preset <b>{pad(target)}</b> (not the one loaded — verify it's a slot you can overwrite).
@@ -89,7 +94,7 @@
         title="Discard all unsaved edits and reload the stored preset from the device">↺ Revert to stored preset — discard edits</button>
       <div class="actions">
         <button class="btn cancel" onclick={() => (editor.saveOpen = false)}>Cancel</button>
-        <button class="btn save" disabled={busy} onclick={() => void commit()}>{src ? `Save to device ${pad(target)}` : `Save to ${pad(target)}`}</button>
+        <button class="btn save" disabled={busy || !targetValid} onclick={() => void commit()}>{src ? `Save to device ${pad(target)}` : `Save to ${pad(target)}`}</button>
       </div>
     </div>
   </div>
