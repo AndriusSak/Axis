@@ -1,9 +1,14 @@
 // CPU-frame tap: keeps the last few fn 0x01 / sub 0x2E system-status replies so a CPU reading that
 // disagrees with the unit's own panel can be diagnosed from the shipped app — no dev build, no capture
-// rig. The CPU percentage is ONE byte (offset 37) of that frame, so the frame itself is the evidence.
+// rig. The CPU percentage is meant to be ONE byte (offset 37) of that frame, so the frame itself is the
+// evidence: change the preset (i.e. the CPU load) and see which offsets move.
 //
-// Cost: one predicate per inbound frame, and only matching frames are copied (at most SAMPLE_CAP).
-// Access: `window.__axisCpuFrames` in the browser console of a Direct-mode session.
+// Cost: one predicate per inbound frame; only matching frames are kept (at most CPU_FRAME_CAP).
+// Access in a Direct-mode session's console:
+//   __axisCpuFrames              → the raw samples (head/byte37/hex)
+//   __axisCpuReport()            → "these offsets differ between the stored samples", with values
+//
+// Note on `data`: forgefx-midi slices `data = frame[12:-2]`, so data byte N is frame byte N + 12.
 
 const FN_PARAMETER = 0x01;
 const SUB_SYSTEM_STATUS = 0x2e;
@@ -20,6 +25,8 @@ export interface CpuFrameSample {
   head: string;
   /** Last 8 bytes — checksum + F7. */
   tail: string;
+  /** The whole frame, so the CPU field can be located by diffing several samples. */
+  hex: string;
 }
 
 const hex = (bytes: ArrayLike<number>): string =>
@@ -38,17 +45,42 @@ export function recordCpuFrame(frames: CpuFrameSample[], frame: readonly number[
     len: frame.length,
     byte37: frame[37] ?? -1,
     head: hex(frame.slice(0, 48)),
-    tail: hex(frame.slice(-8))
+    tail: hex(frame.slice(-8)),
+    hex: hex(frame)
   });
   if (frames.length > CPU_FRAME_CAP) frames.splice(0, frames.length - CPU_FRAME_CAP);
 }
 
-/** Install the tap on a transport; returns the unsubscribe fn. Exposes `target.__axisCpuFrames`. */
+/**
+ * Offsets whose value is not identical in every stored frame. A field that carries the CPU load shows
+ * up here as soon as a preset change moves it; a constant part of the frame does not.
+ */
+export function frameDiff(raws: readonly (readonly number[])[]): string {
+  if (raws.length < 2) return `need at least 2 frames, have ${raws.length}`;
+  const len = Math.min(...raws.map((r) => r.length));
+  const lines: string[] = [];
+  for (let i = 0; i < len; i++) {
+    const first = raws[0][i];
+    if (raws.every((r) => r[i] === first)) continue;
+    // frame[i] with the data-byte index forgefx-midi would call it
+    lines.push(`frame ${i} (data ${i - 12}): ${raws.map((r) => r[i]).join(' ')}`);
+  }
+  return lines.length ? lines.join('\n') : 'no offset differs — all stored frames are identical';
+}
+
+/** Install the tap on a transport; returns the unsubscribe fn. Exposes `__axisCpuFrames`/`__axisCpuReport`. */
 export function installCpuFrameTap(
   transport: { onFrame(handler: (frame: number[]) => void): () => void },
   target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>
 ): () => void {
   const frames: CpuFrameSample[] = [];
+  const raws: number[][] = [];
   target.__axisCpuFrames = frames;
-  return transport.onFrame((frame) => recordCpuFrame(frames, frame));
+  target.__axisCpuReport = () => frameDiff(raws);
+  return transport.onFrame((frame) => {
+    if (!isCpuFrame(frame)) return;
+    recordCpuFrame(frames, frame);
+    raws.push([...frame]);
+    if (raws.length > CPU_FRAME_CAP) raws.splice(0, raws.length - CPU_FRAME_CAP);
+  });
 }

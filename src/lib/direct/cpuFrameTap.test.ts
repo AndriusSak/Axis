@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CPU_FRAME_CAP, installCpuFrameTap, isCpuFrame, recordCpuFrame, type CpuFrameSample } from './cpuFrameTap';
+import { CPU_FRAME_CAP, frameDiff, installCpuFrameTap, isCpuFrame, recordCpuFrame, type CpuFrameSample } from './cpuFrameTap';
 
 /** A synthetic status reply: F0 00 01 74 11 01 2E … F7, long enough to look real. */
 function statusFrame(len = 592, cpuByte = 22): number[] {
@@ -43,6 +43,16 @@ describe('CPU frame tap', () => {
     other[6] = 0x19;
     recordCpuFrame(frames, other);
     expect(frames).toHaveLength(before);
+  });
+
+  it('reports only the offsets that differ, labelled with their data index', () => {
+    const a = statusFrame(592, 22);
+    const b = statusFrame(592, 71);
+    const report = frameDiff([a, b]);
+    expect(report).toContain('frame 37 (data 25): 22 71');
+    expect(report).not.toContain('frame 12 ');
+    expect(frameDiff([a])).toContain('need at least 2 frames');
+    expect(frameDiff([a, a])).toContain('no offset differs');
   });
 
   it('installs on a transport and exposes the samples', () => {
