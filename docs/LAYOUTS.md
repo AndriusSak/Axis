@@ -98,6 +98,19 @@ the served layout, just like an audio block.
 > `perform`/`sets`/`scenes` have no host in the legacy shell and are gated disabled. The live backlog
 > is `docs/axis-fm3edit-feature-parity-audit.md` — the [ROADMAP](ROADMAP.md) is banner-stale.
 
+### The one deliberate exception: cross-block controls
+
+A virtual-effect screen renders the params served for **its own** eid. Some editor controls break that
+rule: FM3-Edit's Controllers → Tempo/Pitch page draws the **metronome** as `crossBlock` refs into family
+GLOBAL, so the values live in eid 1 while the screen has eid 2 open. Those refs resolve to nothing in the
+served set and are dropped as gaps, which is why the metronome had no home in Axis.
+
+`MetronomeSection.svelte` handles it explicitly: it fetches `GET /global/params` itself and writes
+pid-addressed SETs on eid 1. The read passes `watch: false` so it does **not** move the device-edit poll
+off the block the user has open. This is a hand-built section, not a layout page — do not expect it to
+appear in the served layout, and do not "fix" it by pointing the Control Surface at eid 1 (that would
+replace the Controllers screen). Details and per-device pids: audit §11.
+
 ## Multi-device
 
 **Implemented (device selection).** Axis auto-detects the attached unit; ForgeFX selects the matching

@@ -20,7 +20,8 @@
 //                   levels 119/120/121, CC 14656.
 //     The AM4 is deliberately absent: it is not a gen-3 unit and GET /global/params (eid 1) is a gen-3
 //     read, so there is no honest pid table to offer it here.
-//   • VALUES from a real captured FM3 eid-1 body (2026-10-30, /tmp/global-body.json, 14 880 records):
+//   • VALUES from a real captured FM3 eid-1 body (2026-10-30, 14 880 records; committed as
+//     ForgeFX/server/test/fixtures/global-body/fm3-eid1-2026-10-30.json):
 //     body[119] = 38228 (-5.0 dB), body[120] = 43689 (0.0), body[121] = 43689 (0.0),
 //     body[14878] = 0 (OFF), body[14879] = 128 (NONE).
 //

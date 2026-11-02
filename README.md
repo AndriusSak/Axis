@@ -6,7 +6,7 @@
 A fast, touch-friendly editor for **Fractal Audio** devices (FM3 first) — the visual front end for
 **[ForgeFX](https://github.com/AndriusSak/ForgeFX)**. Axis is a SvelteKit app that decodes and edits
 the **live preset off the device**: the real routing grid, every block, a widget-grid control
-surface you can rearrange, real EQ editors, a cab IR / DynaCab picker, tuner, tempo, and scenes.
+surface you can rearrange, real EQ editors, a cab IR / DynaCab picker, tuner, tempo, metronome, and scenes.
 
 It runs three ways from the same code: as a **desktop app** (bundles ForgeFX, one install), as a
 **web page** that talks to the device straight from the browser (no install at all), or as a
@@ -116,7 +116,9 @@ FM3-Edit is the reference editor; this is not a drop-in replacement for all of i
 | **Firmware updates** | Out of scope: Axis never writes firmware. That stays with Fractal's tooling. |
 | **Cloud library / preset sharing** | No. Presets live in the local library (IndexedDB in the browser build); the account sync path needs credentials this build doesn't carry. |
 
-Everything else audited against FM3-Edit — grid and block operations, channel operations, scenes, modifier read-back, FC layouts, colour tags, keyboard shortcuts — is implemented. The full working list, with evidence per row, is `docs/axis-fm3edit-feature-parity-audit.md`.
+Everything else audited against FM3-Edit — grid and block operations, channel operations, scenes, modifier read-back, FC layouts, colour tags, keyboard shortcuts, the metronome section on Controllers — is implemented. The full working list, with evidence per row, is `docs/axis-fm3edit-feature-parity-audit.md`.
+
+The metronome is worth one note because it does not follow the usual rule: FM3-Edit draws it on the Controllers screen, but the values live in the GLOBAL block, so Axis reads them through `GET /global/params` (a read that deliberately does not move the device-edit poll) and writes them as ordinary parameter writes on the GLOBAL block. Pids differ per unit — FM3, FM9 and Axe-Fx III each get their own table; the AM4 gets none rather than borrowing another unit's numbers.
 
 ## Install (desktop app)
 

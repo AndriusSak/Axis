@@ -19,6 +19,11 @@ preset), §2.10 (honest cross-preset block paste), §2.11 (param-value clipboard
 reserved chords) and §3.5 (Setup/Controllers gated honestly) **shipped**; §3.8's Master-Layout-Menu
 warning item is **STOPPED as unverifiable**. Round table + verification in §7.
 
+**Re-verified against HEAD `6116594` (2026-11-02):** **§11 added** — the metronome controls, the last
+control group on FM3-Edit's Controllers screen with no Axis equivalent, now ship on the Controllers screen.
+They were never absent from the *device*: they are `crossBlock` refs into GLOBAL (eid 1) and were reachable
+only as unplaced controls on Setup → More. Not hardware-verified — see §11.5.
+
 **How to read the status tags**
 
 | Tag | Meaning |
@@ -825,6 +830,9 @@ conflicts**. Verification on the merged tree: Axis **1720 unit tests / 164 files
 | Server route table | `ForgeFX/server/src/runtime/router.ts` |
 | KNOB_UNITS / range serving | `ForgeFX/server/src/drivers/gen3.ts:141-143, 557-578` |
 | Virtual effects | `ForgeFX/server/src/drivers/registryCore.ts` (`GEN3_VIRTUAL_EFFECTS`) |
+| Metronome section (§11) | `src/lib/metronome.ts` (per-model pid tables) + `src/lib/MetronomeSection.svelte`; server `GET /global/params` |
+| Metronome pids, per unit | `forgefx-midi/src/gen3/{fm3,fm9,axe-fx-iii}/layouts.generated.ts` + `ranges.generated.ts` |
+| Device-edit watch (`watch: false`) | `ForgeFX/server/src/drivers/gen3.ts` (`blockParams`), `runtime/handlers.ts`, `app.ts` |
 | FM3 parameter catalog (2021 rows) | `forgefx-midi/catalog/fm3.json` |
 | Existing open handoff work | `docs/handoff-cab-mute-and-dynacab.md` |
 | Prior gap analysis (partly stale) | `docs/ROADMAP.md` (kept); the workbench layout-rework plan/status/verification docs were shipped-work history and were removed 2026-10-07 — recover any with `git show <sha>:docs/<file>` (see `docs/NEXT-STEPS.md`) |
@@ -1045,3 +1053,86 @@ File* / *Transmit All Cab Banks File* / *Backup* path.
   slots carry a name and no bytes, and import always skips them.
 * The importer is strict: a foreign JSON, another version, a duplicate slot, an out-of-range slot number or
   corrupt base64 is refused as a whole. A half-parsed archive never imports.
+
+---
+
+## 11. Metronome controls — SHIPPED (2026-11-02)
+
+The metronome was the last control group on FM3-Edit's Controllers screen with no Axis equivalent. Axis had
+**tempo only** — the BPM field and TAP in `TopBar.svelte` (`CONTROLLERS_TEMPO`, pid 32) — and the literal
+string "metronome" did not occur anywhere in `Axis/src`.
+
+### 11.1 Why they were missing
+
+FM3-Edit draws the metronome on the CONTROLLERS block's **Tempo/Pitch** page (`pageNum 0`) as `crossBlock`
+refs into family **GLOBAL** (`forgefx-midi/src/gen3/fm3/layouts.generated.ts:1880-1888`). The values
+therefore live in the **GLOBAL settings block (eid 1)**, while the Controllers screen has **eid 2** open.
+
+Axis builds its control catalog only from the params served for the *current* eid
+(`ControlSurface.svelte:107-129`), and layout controls that do not resolve to a served param are dropped as
+gaps (`deviceLayoutBoard.ts:271+`). `crossBlock` was handled in exactly one place — the FC default-layout
+dropdowns (`fcConfig.ts:12`). So the section resolved to nothing and never rendered.
+
+They were not *unreachable*: the GLOBAL layout does not reference them either (verified — the served GLOBAL
+pages are `Config | Audio/USB | Audio | Scales | Out 1 EQ | Out 2 EQ | MIDI/Remote`, and none of the five
+pids appears on any of them), so they fell through to Axis's unplaced-controls sweep and appeared on
+**Setup → More**, buried among ~80 other unplaced GLOBAL params (confirmed in the running app, 2026-11-02).
+"More" is Axis's own bucket for controls no page claims — not a device page. That is a dump, not a
+metronome section.
+
+### 11.2 Where the values live, per device
+
+The pids are **not** the same across units. Each row below comes from that device's own generated tables,
+not from one unit's numbers copied across:
+
+| Unit | Toggle | Levels | CC selector | Source |
+|---|---|---|---|---|
+| FM3 (0x11) | 14878 | 119 / 120 / 121 | 14879 | `fm3/layouts.generated.ts:1880-1888`, `fm3/ranges.generated.ts` |
+| FM9 (0x12) | 14907 | 133 / 134 / 135 | 14908 | `fm9/layouts.generated.ts`, `fm9/ranges.generated.ts:1094-1095` |
+| III (0x10) | 14655 | 119 / 120 / 121 | 14656 | `axe-fx-iii/layouts.generated.ts`, `axe-fx-iii/ranges.generated.ts:1193-1194` |
+
+The **AM4 has no table on purpose.** It is not a gen-3 unit and `GET /global/params` is a gen-3 read, so
+there is no honest pid set to offer it; the section renders no rows rather than borrowing the FM3's pids.
+A write to a wrong pid is a real edit to the user's unit.
+
+### 11.3 The read path, and the watch it must not steal
+
+`blockParams(eid)` historically did `this.#watchedEid = eid` — "this is the block the user has open, so it
+is the target the FM3 device-edit poll re-reads". A metronome section reading eid 1 while Controllers has
+eid 2 open would therefore have moved the front-panel poll off the block the user is editing.
+
+`blockParams(eid, { watch: false })` was added for read-only consumers. The default is unchanged
+(`undefined`/`true` still sets the watch), so no existing caller shifts. `GET /global/params` passes it, and
+the route is registered on **both** surfaces (`app.ts` + `runtime/router.ts`) for route parity.
+
+### 11.4 What ships
+
+* **ForgeFX** — `GET /global/params`: one eid-1 bulk poll, no writes, `watch: false`.
+* **Axis** — `metronome.ts` (pure, 10 tests) + `MetronomeSection.svelte`, rendered at the top of the
+  Controllers screen. Toggle, three output levels, CC selector, in the editor's own order. Writes are
+  pid-addressed SETs on eid 1 (the path measured 2026-10-30 for the Global Performance page, §9.2).
+* **Tests** — `global-bulk-read.test.ts` case 8 (the five pids served from a captured eid-1 body: OFF,
+  −5.0 dB, 0.0, 0.0, CC 128 = NONE) and case 9 (a `watch:false` GLOBAL read leaves the front-panel poll on
+  the block opened last). `metronome.test.ts` covers the per-model pid tables and the gating rules.
+* **The capture is committed** — `ForgeFX/server/test/fixtures/global-body/fm3-eid1-2026-10-30.json`
+  (14 880 records off the unit). `scripts/probe-global-metronome.ts` replays it through the real driver
+  with no device and no arguments, so the served values can be re-derived at any time instead of trusted.
+
+Honesty rules, the same ones `MidiRemoteSection` follows: a spec the unit did not serve is a **gated row
+naming the pid** (never a control on an invented id); a served param the unit could not resolve renders
+**inert** (never a knob parked at 0); a refused write **reverts the control and says so**.
+
+### 11.5 Limits, stated plainly
+
+* **Not hardware-verified.** No unit was attached during this round. The read path and the write shape are
+  both measured from earlier captures, and the UI was exercised end to end against a replayed captured body
+  — but the first real toggle on the FM3 is still the real test.
+* The **CC selector is not referenced by any editor layout page** — FM3-Edit draws it in code. It is
+  included because the unit serves it and Axis otherwise cannot reach it; its position in the section is
+  Axis's choice, not FM3-Edit's.
+* On the FM3 the toggle is **firmware-gated** (`gtet 12,00`). Below that the unit does not serve pid 14878
+  and the section says so instead of showing a dead switch.
+* The section reads the **live global state**; it does not store to flash. Whether an unsaved metronome
+  change survives a power cycle was not tested — treat it as live-only, same as §9.4.
+* Labels come from the **served param's own name** where present, so the section shows the unit's wording
+  rather than a label Axis invented.
