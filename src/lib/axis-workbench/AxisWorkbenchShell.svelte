@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import WorkbenchHost from '../workbench/svelte/WorkbenchHost.svelte';
+  import PresetBrowser from '../PresetBrowser.svelte';
   import { registerWorkbenchBackupProvider } from '../workbench/svelte/WorkbenchLayoutDrawer.svelte';
   import AxisLayoutPresetPicker from './AxisLayoutPresetPicker.svelte';
   import AxisProfileSwitcher from './AxisProfileSwitcher.svelte';
@@ -86,9 +87,29 @@
   <AxisLayoutPresetPicker />
 {/snippet}
 
-<WorkbenchHost
-  controller={axisWorkbenchController}
-  registry={axisWorkbenchRegistry}
-  theme={axisWorkbenchTheme}
-  {ribbonExtras}
-/>
+{#if editor.inLibrary}
+  <!-- The library surfaces (Search widget, tool rail, ⌘K) set `editor.inLibrary`; the classic shell
+       renders PresetBrowser for it, but this shell used to drop the flag on the floor — a Search
+       widget click changed state and nothing appeared. Same swap here, so the browser is reachable
+       from both shells; PresetBrowser's own back action calls editor.openBuild() and returns. -->
+  <div class="axis-library-screen">
+    <PresetBrowser />
+  </div>
+{:else}
+  <WorkbenchHost
+    controller={axisWorkbenchController}
+    registry={axisWorkbenchRegistry}
+    theme={axisWorkbenchTheme}
+    {ribbonExtras}
+  />
+{/if}
+
+<style>
+  .axis-library-screen {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+  }
+</style>

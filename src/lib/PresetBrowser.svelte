@@ -18,6 +18,7 @@
   import MiniGrid from './MiniGrid.svelte';
   import type { LibEntry } from './library.svelte';
   import { AXIS_PRESET_COLORS, presetColorHex } from './presetColors';
+  import { estimatePresetCpu, estCpuColor } from './presetCpuEstimate';
   import type { DecodedBlock, GridCell, PresetGrid, VersionInfo, SyncState } from './types';
 
   const ACCENT = '#35c9d6';
@@ -1032,22 +1033,12 @@
   const opGlyph = (op: string): string => ({ '>=': '≥', '<=': '≤', '!=': '≠' })[op] ?? op;
 
   // ── estimated CPU load ──────────────────────────────────────────────────────────────────────
-  // The device reports real CPU at runtime (an undocumented SysEx) — it is NOT stored in a preset,
-  // so we can't read it offline. This is a per-block HEURISTIC: relative DSP weight per family
-  // (amp/cab/reverb/pitch dominate; EQ/drive/utility are cheap), summed over placed blocks + a fixed
-  // overhead, capped. It's a complexity indicator, not the device's meter — always shown with a ~.
-  const CPU_WEIGHT: Record<string, number> = {
-    amp: 28, cab: 12, reverb: 12, pitch: 14, multitap: 10, megatap: 10, synth: 9, delay: 8,
-    flanger: 5, phaser: 5, chorus: 5, rotary: 5, formant: 5, tremolo: 4, filter: 4, drive: 4,
-    enhancer: 3, comp: 3, wah: 3, ringmod: 3, geq: 2, peq: 2, gate: 2, volume: 1, input: 0, output: 0
-  };
-  const CPU_BASE = 8;
+  // Shared with the docked workbench list (presetCpuEstimate.ts) so the same preset cannot read two
+  // different numbers in two browsers, and coloured with the hardware's own 85/100 thresholds.
   function estCpu(e: LibEntry): number {
-    let sum = CPU_BASE;
-    for (const b of e.summary.blocks) sum += CPU_WEIGHT[b.slug ?? ''] ?? 4;
-    return Math.max(20, Math.min(99, Math.round(sum)));
+    return estimatePresetCpu(e.summary.blocks.map((b) => b.slug));
   }
-  const cpuColor = (c: number) => (c >= 80 ? '#e87b6a' : c >= 62 ? '#f5a623' : '#33c46b');
+  const cpuColor = estCpuColor;
 </script>
 
 <svelte:window onclick={() => { if (picker) picker = null; if (ctx) ctx = null; }} ondragend={() => (dragOver = false)} />
@@ -1055,6 +1046,9 @@
 <div class="pb" class:mob={editor.isMobile} class:sideopen={sideOpen}>
   <!-- HEADER -->
   <div class="hdr">
+    <!-- Back to the editor. The classic shell also has the tool rail, but the workbench shell has no
+         rail — without this the browser opened from the Search widget was a one-way trip. -->
+    <button class="ghost ic-btn" onclick={() => editor.openBuild()} title="Back to the editor">← Back</button>
     <div class="title">
       <span class="t1">Preset Browser</span>
       <span class="t2">{activeConds.length || simpleText ? `${results.length} of ${library.entries.length}` : `${library.entries.length} presets`}{library.paramsReady ? '' : ' · params not fully loaded'}</span>

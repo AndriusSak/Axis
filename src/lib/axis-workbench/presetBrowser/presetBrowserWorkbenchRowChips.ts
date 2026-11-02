@@ -4,11 +4,12 @@
 // "Cat · TYPE"), a CPU meter (estimate + colour thresholds), and the cloud/device presence chip.
 //
 // The block family → [label, colour] map mirrors src/lib/PresetBrowser.svelte's CAT table verbatim so
-// docked rows read identically to the monolith surface. The CPU estimate reuses the query module's
-// estimateCpu (blockCount-derived) — it is a complexity indicator, NOT the device's live meter (which
+// docked rows read identically to the monolith surface. The CPU estimate comes from the SHARED
+// presetCpuEstimate module — a per-family weight sum, identical in both browsers, coloured with the
+// hardware's own 85/100 thresholds. It is a complexity indicator, NOT the device's live meter (which
 // isn't stored in a preset), hence the "~" prefix everywhere it renders.
 import type { AxisPresetBrowserEntrySummary } from './presetBrowserWorkbenchData';
-import { estimateCpu } from './presetBrowserWorkbenchQuery';
+import { estimatePresetCpu, estCpuColor } from '../../presetCpuEstimate';
 import type { SyncState } from '../../types';
 
 // block family slug → [label, colour]. Verbatim from PresetBrowser.svelte CAT; unknown slugs fall back.
@@ -91,17 +92,19 @@ export function axisPbRowBlockChips(entry: AxisPresetBrowserEntrySummary): AxisP
 export interface AxisPbCpuMeter {
   /** Estimated DSP load percentage (0–99). */
   pct: number;
-  /** Threshold colour: >=80 red, >=62 amber, else green (§4.3 / visual table). */
+  /** Colour from the HARDWARE's thresholds (cpuGauge: >=100 muted, >=85 warn, else ok). */
   color: string;
 }
 
+/** Colour for an estimated load — the same 85/100 thresholds as the live CPU meter. */
 export function axisPbCpuColor(pct: number): string {
-  return pct >= 80 ? '#e87b6a' : pct >= 62 ? '#f5a623' : '#33c46b';
+  return estCpuColor(pct);
 }
 
-// CPU meter derivation for a row (§4.3). Uses the summary-level estimate (blockCount-derived).
+// CPU meter derivation for a row (§4.3) — same estimator as the monolith browser, so the two surfaces
+// cannot disagree about the same preset.
 export function axisPbRowCpuMeter(entry: AxisPresetBrowserEntrySummary): AxisPbCpuMeter {
-  const pct = estimateCpu(entry);
+  const pct = estimatePresetCpu(entry.blocks.map((b) => b.slug));
   return { pct, color: axisPbCpuColor(pct) };
 }
 

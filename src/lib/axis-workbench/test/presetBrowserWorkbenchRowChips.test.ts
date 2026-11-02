@@ -67,15 +67,28 @@ describe('row block chips (§4.3)', () => {
 });
 
 describe('CPU meter (§4.3)', () => {
-  it('estimates from block count and colours by threshold', () => {
+  it('colours with the HARDWARE thresholds (85 warn / 100 mute), not an invented 62/80', () => {
+    // 70 % is a perfectly healthy preset on the unit — it must not be amber.
     expect(axisPbCpuColor(50)).toBe('#33c46b');
-    expect(axisPbCpuColor(70)).toBe('#f5a623');
-    expect(axisPbCpuColor(85)).toBe('#e87b6a');
+    expect(axisPbCpuColor(70)).toBe('#33c46b');
+    expect(axisPbCpuColor(85)).toBe('#f5a623');
+    expect(axisPbCpuColor(100)).toBe('#d6543f');
   });
 
-  it('derives a meter from an entry', () => {
-    const meter = axisPbRowCpuMeter(entry({ blockCount: 10 }));
-    expect(meter.pct).toBe(35);
+  it('derives a meter from the placed blocks, not the block count', () => {
+    // Input + Amp + Cab + Output: the shape of a minimal preset. The old blockCount*3.5 read 14 %.
+    const meter = axisPbRowCpuMeter(
+      entry({
+        blockCount: 4,
+        blocks: [
+          { effectId: 1, slug: 'input', name: 'Input', instance: 1 },
+          { effectId: 2, slug: 'amp', name: 'USA Mk IV', instance: 1 },
+          { effectId: 3, slug: 'cab', name: '4x12', instance: 1 },
+          { effectId: 4, slug: 'output', name: 'Output', instance: 1 }
+        ]
+      })
+    );
+    expect(meter.pct).toBe(48);
     expect(meter.color).toBe('#33c46b');
   });
 });

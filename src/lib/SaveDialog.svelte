@@ -2,9 +2,39 @@
   import { editor } from './editor.svelte';
 
   let target = $state(0);
+  // Preset NAME — editable here because the unit's own save flow takes the name from the edit buffer,
+  // and the pencil in the top bar was the only way to set it. Prefilled from the loaded preset (the
+  // device's placeholder for an unnamed preset is '<EMPTY>', which shows as an empty field).
+  let name = $state('');
   $effect(() => {
-    if (editor.saveOpen) target = editor.saveTarget;
+    if (!editor.saveOpen) return;
+    target = editor.saveTarget;
+    const cur = editor.preset?.name ?? '';
+    name = cur === '<EMPTY>' ? '' : cur;
   });
+  const renameCapable = $derived(editor.canRenamePresets && !!editor.preset);
+
+  // A save is two round-trips (rename, then store); without this a double-click fires both twice and
+  // the second store lands after the dialog has already closed.
+  let busy = $state(false);
+
+  /** Rename the edit buffer first (so the store writes the new name), then store to the slot. */
+  async function commit() {
+    if (busy) return;
+    busy = true;
+    try {
+      const clean = name.replace(/[^\x20-\x7e]/g, '').slice(0, 32).trimEnd();
+      const cur = (editor.preset?.name ?? '').trim();
+      if (renameCapable && clean && clean !== cur) {
+        await editor.renamePreset(clean);
+        // renamePreset reverts on failure and already toasted — do NOT store a half-applied save.
+        if ((editor.preset?.name ?? '') !== clean) return;
+      }
+      await editor.save(target);
+    } finally {
+      busy = false;
+    }
+  }
   const maxSlot = $derived(Math.max(0, editor.presetCount - 1));
   // Bank-letter devices (caps presets.addressing === 'bankLetter') address locations as A01..Z04.
   const bankCode = (n: number) => `${String.fromCharCode(65 + Math.floor(n / 4))}${String((n % 4) + 1).padStart(2, '0')}`;
@@ -35,6 +65,13 @@
           <strong>This overwrites whatever is in that location.</strong>
         </p>
       {/if}
+      {#if renameCapable}
+        <label class="field">
+          <span class="lbl mono">NAME</span>
+          <input class="num txt" type="text" maxlength="32" bind:value={name} placeholder="Preset name"
+            onkeydown={(e) => { if (e.key === 'Enter') void commit(); }} />
+        </label>
+      {/if}
       <label class="field">
         <span class="lbl mono">SAVE TO</span>
         <input class="num mono" type="number" min="0" max={maxSlot} bind:value={target} />
@@ -52,7 +89,7 @@
         title="Discard all unsaved edits and reload the stored preset from the device">↺ Revert to stored preset — discard edits</button>
       <div class="actions">
         <button class="btn cancel" onclick={() => (editor.saveOpen = false)}>Cancel</button>
-        <button class="btn save" onclick={() => editor.save(target)}>{src ? `Save to device ${pad(target)}` : `Save to ${pad(target)}`}</button>
+        <button class="btn save" disabled={busy} onclick={() => void commit()}>{src ? `Save to device ${pad(target)}` : `Save to ${pad(target)}`}</button>
       </div>
     </div>
   </div>
@@ -144,6 +181,12 @@
   }
   .num:focus {
     border-color: var(--accent);
+  }
+  /* name field: same box as the slot number, but text + normal weight */
+  .num.txt {
+    font: 600 14px/1 var(--font, system-ui, sans-serif);
+    color: var(--text);
+    letter-spacing: 0.01em;
   }
   .code {
     flex: none;

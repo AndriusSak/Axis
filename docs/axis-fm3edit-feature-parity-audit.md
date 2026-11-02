@@ -898,7 +898,38 @@ echoes the loaded preset at `frame[21] = preset >> 1`, which is how a frame is p
 preset on the panel. The stale-reading failure mode is closed client-side: `cpu`/`cpuAt` are cleared on
 any structural change, so a preset switch shows `--` rather than the previous preset's load.
 
-### 8.4 UltraRes (context)
+### 8.4 Workbench parity gaps closed (2026-11-02)
+
+Three defects reported from the workbench shell, all of the same family — a control that looked present
+but had nothing behind it:
+
+1. **The Search widget did nothing.** `editor.openLibrary()` sets `inLibrary`, and only the CLASSIC shell
+   rendered `PresetBrowser` for it (`+page.svelte`). The workbench shell rendered `WorkbenchHost` and
+   nothing else, so the widget (and the ⌘K path that shares the action) changed state with no visible
+   effect. The shell now swaps to the browser for `inLibrary` and keeps the host mounted in the `else`
+   branch. The browser also gained a **← Back** control: the classic shell has the tool rail to leave it,
+   the workbench shell has no rail, so without one the browser was a one-way trip.
+2. **No way to name a preset while saving.** The device takes the name from the EDIT BUFFER and
+   `/preset/store` writes the buffer as-is, so a name typed at save time must be pushed to the buffer
+   first (`/preset/name`) and then stored. The dialog had a slot picker only; the sole naming control was
+   the ✎ in the top bar. The Save dialog now carries a NAME field (prefilled from the loaded preset,
+   `<EMPTY>` shown as blank), renames first, and **aborts the store if the rename did not stick** —
+   storing anyway would write the old name to the slot.
+
+   ⚠️ **The write itself is NOT yet proven on hardware.** `buildRenamePreset` is `fn 0x01 sub 0x28`,
+   decoded from the Axe-Edit III binary with a convention-based pad byte and marked *hardware-unverified*
+   in `forgefx-midi`. Reported 2026-11-02: the unit accepts the frame without a rejection reply and does
+   **not** rename. The UI is honest (it re-reads the name and refuses to store a half-applied rename), but
+   the field must not be described as working until a before/after on the unit
+   (`~/.hermes/scripts/fm3_name_probe.py`: name query → send → name query) shows `CHANGED`.
+3. **A 4-block preset showed a yellow CPU.** Two separate lies in the *estimated* load (the live meter was
+   never involved): the monolith browser summed per-family weights while the docked list used
+   `blockCount * 3.5`, so the same preset read ~48 % in one and ~14 % in the other; and both coloured with
+   an invented 62/80 break instead of the hardware's own 85/100 (`cpuGauge.ts`). One shared estimator
+   (`presetCpuEstimate.ts`) now feeds both surfaces and the `cpu` sort, coloured with the device's
+   thresholds. Input/Amp/Cab/Output reads 48 % — green.
+
+### 8.5 UltraRes (context)
 
 Unchanged from the ForgeFX doc (§1f/§1g/§1h there): Standard writing is measured and works; UltraRes writing
 is **not** supported. The binary gives the payload a 4-word header (words 2–3 constant for editor-made IRs)

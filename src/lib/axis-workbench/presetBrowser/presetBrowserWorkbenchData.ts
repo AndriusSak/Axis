@@ -1,3 +1,5 @@
+import { estimateCpu } from './presetBrowserWorkbenchQuery';
+
 export type AxisPresetBrowserSourceId = 'all' | 'device' | 'local' | 'file' | 'cloud' | 'converted' | string;
 
 export interface AxisPresetBrowserBlockSummary {
@@ -203,8 +205,9 @@ function sortEntries(
   if (sort === 'name') {
     list.sort((a, b) => a.name.localeCompare(b.name));
   } else if (sort === 'cpu') {
-    // higher CPU first — summary-level estimate mirrors query.estimateCpu (blockCount-derived).
-    list.sort((a, b) => b.blockCount - a.blockCount);
+    // higher CPU first — same shared per-family estimate the row meter renders, so the order matches
+    // the numbers on screen (blockCount alone put a 4-block amp+cab preset below a pile of EQs).
+    list.sort((a, b) => estimateCpu(b) - estimateCpu(a));
   } else {
     list.sort((a, b) => (a.number ?? Number.POSITIVE_INFINITY) - (b.number ?? Number.POSITIVE_INFINITY));
   }
