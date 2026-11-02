@@ -21,7 +21,10 @@ export const AXIS_WIDGET_EST_WIDTHS: Record<string, number> = {
   'axis.addBlock': 132,
   'axis.tuner': 78,
   'axis.tempo': 82,
-  'axis.cpu': 124,
+  // CPU gauge: label + a large "65.7 %" readout on one row, full-width bar beneath. Matches the
+  // widget's 152 px tile (plus its 1 px borders and the row gap) so it is not shed into overflow
+  // earlier than it needs to be.
+  'axis.cpu': 160,
   'axis.save': 98,
   'axis.search': 168,
   'axis.history': 44,

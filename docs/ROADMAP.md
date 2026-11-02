@@ -101,7 +101,9 @@ arguably the most-requested "real editor" feature and we have nothing.
 ### 7. Status / health
 - `buildStatusDump` (fn 0x13, per-block bypass+channel snapshot) is **Available** — a cheaper
   whole-preset state read than our per-block polling.
-- **CPU load** — still **Needs RE** (not in public spec; FM3-Edit shows it via undocumented SysEx).
+- **CPU load** — **Available.** `parseCpuPercent` decodes the `fn 0x01 / sub 0x2E` system-status reply:
+  7-bit MSB-first payload, float32 at decoded offset 12 (unscaled). Proven against FM3-Edit's own
+  unpacker and a captured frame (65.74 vs a 65.7 panel).
 - Inbound **checksum validation** — we build checksums but don't validate responses. Hardening.
 
 ### 8. Preset store/save robustness
@@ -158,5 +160,4 @@ The profile system covers the gen-3 grid family. Recognized-but-unwired (data ex
 10. Modifiers/Controllers screen (§5), then
 11. FC Edit (§2) — RE spike, scope after the parser exists.
 
-**Opportunistic:** cross-device translation (§10), extra device codecs (VP4/AM4/II), IR library (§11),
-CPU load (§7, needs capture).
+**Opportunistic:** cross-device translation (§10), extra device codecs (VP4/AM4/II), IR library (§11).

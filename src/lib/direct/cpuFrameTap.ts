@@ -1,14 +1,16 @@
 // CPU-frame tap: keeps the last few fn 0x01 / sub 0x2E system-status replies so a CPU reading that
 // disagrees with the unit's own panel can be diagnosed from the shipped app — no dev build, no capture
-// rig. The CPU percentage is meant to be ONE byte (offset 37) of that frame, so the frame itself is the
-// evidence: change the preset (i.e. the CPU load) and see which offsets move.
+// rig. The CPU percentage is a float32 at decoded payload offset 12 (the payload is 7-bit MSB-first),
+// so each sample carries both the decoded value and the raw frame it came from.
 //
 // Cost: one predicate per inbound frame; only matching frames are kept (at most CPU_FRAME_CAP).
 // Access in a Direct-mode session's console:
-//   __axisCpuFrames              → the raw samples (head/byte37/hex)
+//   __axisCpuFrames              → the raw samples (head/cpuPercent/hex)
 //   __axisCpuReport()            → "these offsets differ between the stored samples", with values
 //
 // Note on `data`: forgefx-midi slices `data = frame[12:-2]`, so data byte N is frame byte N + 12.
+
+import { parseCpuPercent } from 'forgefx-midi/gen3/axe-fx-iii';
 
 const FN_PARAMETER = 0x01;
 const SUB_SYSTEM_STATUS = 0x2e;
@@ -19,8 +21,8 @@ export interface CpuFrameSample {
   at: string;
   /** Whole-frame length (the parser requires >= 590). */
   len: number;
-  /** The byte the app calls CPU%. */
-  byte37: number;
+  /** Decoded CPU percentage (float32 at payload offset 12), or null if the frame did not decode. */
+  cpuPercent: number | null;
   /** First 48 bytes — the header, where a model/function mismatch shows up. */
   head: string;
   /** Last 8 bytes — checksum + F7. */
@@ -43,7 +45,7 @@ export function recordCpuFrame(frames: CpuFrameSample[], frame: readonly number[
   frames.push({
     at: at.toISOString(),
     len: frame.length,
-    byte37: frame[37] ?? -1,
+    cpuPercent: parseCpuPercent(frame),
     head: hex(frame.slice(0, 48)),
     tail: hex(frame.slice(-8)),
     hex: hex(frame)

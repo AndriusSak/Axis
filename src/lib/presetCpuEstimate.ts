@@ -1,8 +1,9 @@
 // Estimated DSP load for presets we can only read OFFLINE.
 //
-// The device's real CPU is a live poll (`editor.cpu`, frame[37] of the `fn 0x01 / sub 0x2E` reply — see
-// cpuGauge.ts). A stored preset does not carry that number, so a browser listing stored presets can only
-// estimate from block makeup. Every surface must therefore keep the "~" it renders with.
+// The device's real CPU is a live poll (`editor.cpu`, float32 at decoded payload offset 12 of the
+// `fn 0x01 / sub 0x2E` reply — see cpuGauge.ts). A stored preset does not carry that number, so a
+// browser listing stored presets can only estimate from block makeup. Every surface must therefore
+// keep the "~" it renders with.
 //
 // Two rules, both learned from a wrong number on screen:
 //

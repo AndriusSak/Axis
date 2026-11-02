@@ -23,8 +23,10 @@ else" (FM3 Cab block, second cab slot):
 3. **Cab M/S buttons carry pseudo paramIds** (`65286…65289`, `CABINET_BTN_MUTE<n>` / `..._SOLO<n>`)
    that no served param matches, so the board builder drew a gap. Fixed by re-resolving the `_BTN_`
    infix against the served NAME (`deviceLayoutBoard.ts` `btnPseudoParamKey`).
-4. **The CPU byte is the percentage** — the readout was fitted at a single capture point
-   (`32 + raw·0.5`, exact only at raw 64). Now identity (`forgefx-midi 313a69c`).
+4. **CPU readout** — *superseded 2026-11-02.* Every byte-37/identity decode in this doc is wrong: the
+   CPU is a float32 at decoded offset 12 of the `fn 0x01 / sub 0x2E` reply, whose payload is 7-bit
+   MSB-first. The identity fit (`313a69c`) was still a coincidence. Current truth:
+   `forgefx-midi/docs/DEVICE-TELEMETRY.md`.
 5. **THE reported cause: a device-cache range row that could not be served.** The device's
    on-connect self-describe cache described `CABINET/25` as a FLOAT while the catalogue says enum,
    and the def's unit is the marker `unverified`. A float row on a marker-unit def is served by
@@ -105,10 +107,11 @@ else" (FM3 Cab block, second cab slot):
 - The write path for cab 2's mute (item 1) — untested against hardware.
 - ~~The CPU readout is identity-calibrated per Fractal's MIDI reference; a 1-point lag vs the front
   panel was observed once (widget 80 where the panel read 79) and is expected, not re-measured.~~
-  **Re-measured 2026-11-02, twice, against the panel:** preset 012 raw 69 ↔ 69.3-69.5, preset 154
-  raw 72 ↔ 72.4. Identity confirmed; the only difference is that the panel shows one decimal the
-  byte rounds off. The old "80 ↔ 79" pair is not the evidence and the Fractal MIDI reference does
-  not document a CPU message at all (it covers PC/CC + bypass/channel/scene only).
+  **Superseded 2026-11-02 (final):** the raw-byte decode was never right — the panel agreements above
+  were coincidences, and a 4-block preset broke them (wire 88 vs panel 22 %). The payload is 7-bit
+  packed MSB-first; the CPU is a float32 at decoded offset 12. A captured "yeet" frame reads 65.74
+  against a 65.7 panel. The Fractal MIDI reference documents no CPU message at all (PC/CC +
+  bypass/channel/scene only).
   The remaining failure mode is not the decode but STALENESS: a reading held across a preset switch
   describes the preset you left (that is the "widget 75 %, panel 22 %" report). Axis now clears
   `cpu`/`cpuAt` on any structural change and shows `--` until the poll for the new state lands.

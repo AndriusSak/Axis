@@ -59,15 +59,11 @@
   const pnum = $derived(pnumRaw >= 0 ? String(pnumRaw).padStart(3, '0') : '---');
   const pname = $derived(editor.preset?.name || (editor.conn.state === 'online' ? 'DEBUG' : 'offline'));
   const cpu = $derived(editor.cpu == null ? null : Math.max(0, Math.min(100, editor.cpu)));
-  // LIVE CPU IS OFF until it has a real source (measured 2026-11-02 against the panel, firmware 13.0):
-  // the polled byte (frame[37] of the fn 01 / sub 2E status page) is NOT load. A 4-block preset
-  // (Input→Amp USA MK IV Rhythm→Cab→Output) read 88 there while the FM3's own screen said 22 %; a
-  // 12-block factory preset read 61 while the panel said 62.9 % — the byte orders the two backwards.
-  // No byte, u16 or 5-septet float anywhere in the 576-byte page matches both readings, and fields
-  // 1..7 of sub 0x2E come back empty, so the number was never CPU. It read amber and told the user his
-  // light preset was about to choke the unit. Showing nothing is honest; showing a wrong number is not.
-  const CPU_SOURCE_UNAVAILABLE = true;
-  const cpuText = $derived(CPU_SOURCE_UNAVAILABLE ? 'n/a' : cpu == null ? '--' : `${cpu.toFixed(0)}%`);
+  // CPU is a float32 at decoded payload offset 12 of the fn 01 / sub 2E status reply (the payload is
+  // 7-bit MSB-first). The device computes it; the editor only displays it — see
+  // forgefx-midi `parseCpuPercent`. The old frame[37] byte was a bit-packed fragment, not the value.
+  // One decimal like the FM3's own panel (65.7 %), but no trailing ".0" (100 %, not 100.0 %).
+  const cpuText = $derived(cpu == null ? '--' : `${Number.isInteger(cpu) ? cpu.toFixed(0) : cpu.toFixed(1)}%`);
   const cpuColor = $derived(cpuColorOf(editor.cpu));
   // A CPU number is only worth showing while it is still ARRIVING: the poll runs every few meter ticks
   // (~0.5–3 s depending on mode), so a reading that has not been refreshed for 10 s means the stream
@@ -81,11 +77,9 @@
     return () => clearInterval(t);
   });
   const cpuAgeS = $derived(editor.cpuAt == null ? null : Math.max(0, Math.round((nowMs - editor.cpuAt) / 1000)));
-  const cpuLive = $derived(!CPU_SOURCE_UNAVAILABLE && cpu != null && cpuAgeS != null && cpuAgeS * 1000 <= CPU_STALE_MS);
+  const cpuLive = $derived(cpu != null && cpuAgeS != null && cpuAgeS * 1000 <= CPU_STALE_MS);
   const cpuHint = $derived(
-    CPU_SOURCE_UNAVAILABLE
-      ? 'CPU load — not readable yet: the FM3 does not report it in the status frame Axis polls. The meter is disabled rather than showing a value that is not load.'
-      : cpu == null
+    cpu == null
       ? 'CPU load — no reading yet (the FM3 reports it with the meter poll)'
       : cpuLive
         ? `${cpuTitle(editor.cpu)} · updated ${cpuAgeS}s ago`
@@ -535,10 +529,14 @@
     {#if notMini}<span class="mono token">BPM</span>{/if}
   </button>
 {:else if kind === 'cpu'}
-  <div class="axis-widget meter" class:stale={!cpuLive} data-size={size} data-testid="cpu-widget" title={cpuHint}>
-    <span class="mono token">CPU</span>
+  <div class="axis-widget meter cpu-meter" class:stale={!cpuLive} data-size={size} data-testid="cpu-widget" title={cpuHint}>
+    <span class="cpu-head">
+      <span class="mono token">CPU</span>
+      {#if !mini}
+        <span class="mono strong cpu-val" style:color={cpuLive ? cpuColor : undefined}>{cpuLive ? cpuText : '--'}</span>
+      {/if}
+    </span>
     <span class="bar"><span style:width={`${cpuLive ? cpu : 0}%`} style:background={cpuLive ? cpuColor : '#56565e'}></span></span>
-    {#if expanded}<span class="mono strong">{cpuLive ? cpuText : '--'}</span>{/if}
   </div>
 {:else if kind === 'outputMeter'}
   <div class="axis-widget out-meter" data-size={size} title="Output level — FM3 Output 1 (L/R), plus Output 2 when it carries signal">
@@ -928,6 +926,48 @@
     display: block;
     height: 100%;
     border-radius: 3px;
+  }
+  /* CPU gauge: a wider tile with the percentage always on screen and a full-width bar under the
+     label row. Same 38 px slot as every other top-bar widget, so the bar never reflows. */
+  .cpu-meter {
+    flex-direction: column;
+    align-items: stretch;
+    justify-content: center;
+    gap: 4px;
+    padding: 4px 10px;
+    /* The widget is inline-flex (content-sized); the gauge is meant to read from across the room,
+       so give it a real tile width instead of shrinking to "CPU 65.7%". */
+    min-width: 152px;
+  }
+  .cpu-meter .cpu-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 6px;
+    min-width: 0;
+  }
+  .cpu-meter .cpu-val {
+    flex: 0 0 auto;
+    font-size: 19px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.02em;
+  }
+  [data-size='compact'].cpu-meter .cpu-val {
+    font-size: 15px;
+  }
+  .cpu-meter .bar {
+    width: 100%;
+    height: 8px;
+    border-radius: 4px;
+  }
+  [data-size='mini'].cpu-meter {
+    flex-direction: row;
+    align-items: center;
+    padding: 0 8px;
+  }
+  [data-size='mini'].cpu-meter .bar {
+    height: 6px;
   }
   /* Stale reading: the value is not arriving any more, so the widget shows a dimmed "--" rather than
      a number that would read as live. */

@@ -891,13 +891,13 @@ non-block surfaces: BROWSER (librarian), SYSEX (file/bank I/O), FC, GLOBAL and t
 
 ### 8.3 Shipped from this pass
 
-> **Correction (2026-11-02, final): the CPU decode below is retracted, and the request was misnamed.**
-> Byte 37 of the `sub 0x2E` reply is not load — that sub-action is `SUB_ACTION_GRID_LAYOUT`, the 12×4
-> routing grid, so its bytes describe cables and block placement, never a load figure. A USBPcap capture
-> of a *connected* FM3-Edit session (22.1 %, then 70.6 % after a preset change) contains 37 distinct
-> requests and no field in any reply matches either number as a byte, ÷4, ÷10 or 5-septet float. **The
-> CPU is not transmitted at all**; the editor derives it from the preset's blocks. The live CPU widget is
-> disabled (shows `n/a` with a tooltip) rather than publishing a number that cannot be sourced.
+> **Correction (2026-11-02, final): the CPU IS on the wire, at decoded offset 12.** Static RE of
+> FM3-Edit settled it: the `fn 0x01 / sub 0x2E` reply is a system-status page whose payload is **7-bit
+> packed MSB-first**; unpack it and the CPU is a little-endian float32 at decoded offset 12 (preset number
+> at 0, scene at 8, preset name at 16, scene names at 48). The 12×4 routing grid lives further into the
+> same payload, which is why the page looked like "just the grid". The capture that concluded "not
+> transmitted" compared raw bytes; a packed float never appears byte-aligned. `frame[37]` is a bit-packed
+> fragment, not the value. The live CPU widget is **enabled** again.
 
 **CPU meter thresholds now match the hardware.** The editor's own warning text states the two real
 thresholds: 85 % ("approaching the limit") and 100 % ("The audio will remain muted until blocks are removed
@@ -905,16 +905,15 @@ or reconfigured"). Axis used invented thresholds (amber at 62 %, red at 80 %). `
 classifies `ok / warn ≥ 85 / muted ≥ 100`, the bar is coloured from that, and the tooltip states the
 consequence instead of the number alone. 6 unit tests pin the thresholds so they cannot drift.
 
-**Superseded (kept for the record): the "identity" CPU decode.** An earlier revision of this section
-claimed `frame[37]` of the `sub 0x2E` reply was the percentage, identity, from preset 012 raw 69 ↔ 69.3 and
-154 raw 72 ↔ 72.4. Both were coincidences: `sub 0x2E` is the **grid layout**, so every byte in that reply
-describes routing, and a connected-editor capture at 22.1 % / 70.6 % contains no field matching either
-number. Two lessons survive and are pinned in
-`forgefx-midi/docs/DEVICE-TELEMETRY.md`: never fit a line to a single observation (the retired
-`32 + raw·0.5` crossed identity at raw 64, so it looked right only where it was fitted), and the reply
-echoes the loaded preset at `frame[21] = preset >> 1`, which is how a frame is proven to describe the
-preset on the panel. The stale-reading failure mode is closed client-side: `cpu`/`cpuAt` are cleared on
-any structural change, so a preset switch shows `--` rather than the previous preset's load.
+**Superseded decodes, kept for the record.** An earlier revision claimed `frame[37]` was the percentage
+(identity, from preset 012 raw 69 ↔ 69.3 and 154 raw 72 ↔ 72.4); those were coincidences that a 4-block
+preset (wire 88 vs panel 22 %) disproved. A later revision concluded the opposite extreme — "not
+transmitted at all" — because it tested raw bytes instead of unpacking. Both missed the same thing: the
+payload is bit-packed. Rules now pinned in `forgefx-midi/docs/DEVICE-TELEMETRY.md`: unpack the bitstream
+before testing any offset; never fit a line to a single observation (the retired `32 + raw·0.5` crossed
+identity at raw 64); and prove a frame describes the preset on the panel before comparing numbers. The
+stale-reading failure mode stays closed client-side: `cpu`/`cpuAt` are cleared on any structural change,
+so a preset switch shows `--` rather than the previous preset's load.
 
 ### 8.4 Workbench parity gaps closed (2026-11-02)
 

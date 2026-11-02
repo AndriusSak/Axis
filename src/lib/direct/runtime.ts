@@ -84,10 +84,11 @@ export async function assembleRuntime(opts: AssembleOpts): Promise<AssembledRunt
       ...(conn.transport === 'midi' ? { dir: 'input' as const } : {})
     }
   ];
-  // 2b. CPU-frame tap (diagnostic, cheap, permanent): the CPU widget reads ONE byte of the device's
-  //     fn 0x01 / sub 0x2E system-status reply, so when that number disagrees with the unit's own panel
-  //     the fix needs the real frame, not a guess. Keep the last few in `window.__axisCpuFrames`
-  //     ({ len, byte37, head, tail }) and log nothing — no cost unless someone asks for it.
+  // 2b. CPU-frame tap (diagnostic, cheap, permanent): the CPU widget reads a float32 at decoded
+  //     payload offset 12 of the device's fn 0x01 / sub 0x2E system-status reply, so when that number
+  //     disagrees with the unit's own panel the fix needs the real frame, not a guess. Keep the last
+  //     few in `window.__axisCpuFrames` ({ len, cpuPercent, head, tail }) and log nothing — no cost
+  //     unless someone asks for it.
   installCpuFrameTap(transport);
 
   const deps: RegistryDeps = {

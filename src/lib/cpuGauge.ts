@@ -32,7 +32,7 @@ export function cpuColor(pct: number | null | undefined): string {
 
 /** Tooltip text: states what the device does at each threshold, so the colour is never a guess. */
 export function cpuTitle(pct: number | null | undefined): string {
-  const base = 'Live CPU load (decoded from the device meters frame)';
+  const base = 'Live CPU load (decoded from the device status frame)';
   switch (cpuLevel(pct)) {
     case 'muted':
       return `${base} — at or over 100 % the FM3 mutes audio until blocks are removed or reconfigured`;

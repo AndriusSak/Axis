@@ -34,6 +34,7 @@ over a relay).
 
 | Version | What changed |
 |---|---|
+| 1.0.22 · 2 Nov 2026 | **Live CPU is real.** The FM3 does report CPU load: a float32 at decoded offset 12 of the `fn 0x01 / sub 0x2E` status reply, after unpacking its 7-bit MSB-first payload. The workbench gauge shows the device's number again instead of `n/a`; the old byte-37 decode is retired. |
 | 1.0.0 · 13 Oct 2026 | First release of this fork: the **foot-controller editor** (layout, per-switch function, TAP/HOLD, per-preset layout scope), a **Manage Cabs** panel with IR import and conversion, and the local board / DynaCab layout line. |
 | 1.0.1 – 1.0.2 · 13 Oct | The FC panel names the layout its switches belong to. The cab board stops re-converting a WAV on every keystroke, and never overwrites a slot the library copy no longer matches. |
 | 1.0.3 · 14 Oct | Desktop bundle rebuilt on the post-1.0.2 engine. |
