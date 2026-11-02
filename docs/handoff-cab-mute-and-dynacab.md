@@ -103,7 +103,14 @@ else" (FM3 Cab block, second cab slot):
 ## Unverified / honest caveats
 
 - The write path for cab 2's mute (item 1) — untested against hardware.
-- The CPU readout is identity-calibrated per Fractal's MIDI reference; a 1-point lag vs the front
-  panel was observed once (widget 80 where the panel read 79) and is expected, not re-measured.
+- ~~The CPU readout is identity-calibrated per Fractal's MIDI reference; a 1-point lag vs the front
+  panel was observed once (widget 80 where the panel read 79) and is expected, not re-measured.~~
+  **Re-measured 2026-11-02, twice, against the panel:** preset 012 raw 69 ↔ 69.3-69.5, preset 154
+  raw 72 ↔ 72.4. Identity confirmed; the only difference is that the panel shows one decimal the
+  byte rounds off. The old "80 ↔ 79" pair is not the evidence and the Fractal MIDI reference does
+  not document a CPU message at all (it covers PC/CC + bypass/channel/scene only).
+  The remaining failure mode is not the decode but STALENESS: a reading held across a preset switch
+  describes the preset you left (that is the "widget 75 %, panel 22 %" report). Axis now clears
+  `cpu`/`cpuAt` on any structural change and shows `--` until the poll for the new state lands.
 - Which source supplied the device's cached ranges (`live` walk vs an imported FM3-Edit `.cache`
   vs cloud) was never established — `GET /device/cache` reports `meta.source` if it matters.

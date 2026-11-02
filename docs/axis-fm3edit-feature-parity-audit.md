@@ -889,6 +889,15 @@ or reconfigured"). Axis used invented thresholds (amber at 62 %, red at 80 %). `
 classifies `ok / warn ≥ 85 / muted ≥ 100`, the bar is coloured from that, and the tooltip states the
 consequence instead of the number alone. 6 unit tests pin the thresholds so they cannot drift.
 
+**CPU decode verified against the panel (2026-11-02).** `frame[37]` of the `fn 0x01 / sub 0x2E` reply is
+the percentage, identity: preset 012 "USA Mk IV" raw 69 ↔ panel 69.3-69.5, preset 154 "Bl@de Runner FM"
+raw 72 ↔ panel 72.4. The panel just carries a decimal the byte rounds off. Two lessons are now pinned in
+`forgefx-midi/docs/DEVICE-TELEMETRY.md`: never fit a line to a single observation (the retired
+`32 + raw·0.5` crossed identity at raw 64, so it looked right only where it was fitted), and the reply
+echoes the loaded preset at `frame[21] = preset >> 1`, which is how a frame is proven to describe the
+preset on the panel. The stale-reading failure mode is closed client-side: `cpu`/`cpuAt` are cleared on
+any structural change, so a preset switch shows `--` rather than the previous preset's load.
+
 ### 8.4 UltraRes (context)
 
 Unchanged from the ForgeFX doc (§1f/§1g/§1h there): Standard writing is measured and works; UltraRes writing
