@@ -883,6 +883,13 @@ non-block surfaces: BROWSER (librarian), SYSEX (file/bank I/O), FC, GLOBAL and t
 
 ### 8.3 Shipped from this pass
 
+> **Correction (2026-11-02, same day): the CPU decode below is retracted.** Byte 37 of the `sub 0x2E`
+> status page is not load — a 4-block preset read 88 there while the panel read 22 %, and a 12-block
+> preset read 61 against a panel reading of 62.9 %. Ordering is inverted, and no byte / u16 / 5-septet
+> float in the 576-byte page matches both readings. The live CPU widget is disabled (shows `n/a` with a
+> tooltip) instead of publishing a number that is not CPU. A real source has to be found before the
+> widget comes back.
+
 **CPU meter thresholds now match the hardware.** The editor's own warning text states the two real
 thresholds: 85 % ("approaching the limit") and 100 % ("The audio will remain muted until blocks are removed
 or reconfigured"). Axis used invented thresholds (amber at 62 %, red at 80 %). `src/lib/cpuGauge.ts` now

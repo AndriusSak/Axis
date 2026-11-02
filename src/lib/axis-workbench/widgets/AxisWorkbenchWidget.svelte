@@ -59,7 +59,15 @@
   const pnum = $derived(pnumRaw >= 0 ? String(pnumRaw).padStart(3, '0') : '---');
   const pname = $derived(editor.preset?.name || (editor.conn.state === 'online' ? 'DEBUG' : 'offline'));
   const cpu = $derived(editor.cpu == null ? null : Math.max(0, Math.min(100, editor.cpu)));
-  const cpuText = $derived(cpu == null ? '--' : `${cpu.toFixed(0)}%`);
+  // LIVE CPU IS OFF until it has a real source (measured 2026-11-02 against the panel, firmware 13.0):
+  // the polled byte (frame[37] of the fn 01 / sub 2E status page) is NOT load. A 4-block preset
+  // (Input→Amp USA MK IV Rhythm→Cab→Output) read 88 there while the FM3's own screen said 22 %; a
+  // 12-block factory preset read 61 while the panel said 62.9 % — the byte orders the two backwards.
+  // No byte, u16 or 5-septet float anywhere in the 576-byte page matches both readings, and fields
+  // 1..7 of sub 0x2E come back empty, so the number was never CPU. It read amber and told the user his
+  // light preset was about to choke the unit. Showing nothing is honest; showing a wrong number is not.
+  const CPU_SOURCE_UNAVAILABLE = true;
+  const cpuText = $derived(CPU_SOURCE_UNAVAILABLE ? 'n/a' : cpu == null ? '--' : `${cpu.toFixed(0)}%`);
   const cpuColor = $derived(cpuColorOf(editor.cpu));
   // A CPU number is only worth showing while it is still ARRIVING: the poll runs every few meter ticks
   // (~0.5–3 s depending on mode), so a reading that has not been refreshed for 10 s means the stream
@@ -73,9 +81,11 @@
     return () => clearInterval(t);
   });
   const cpuAgeS = $derived(editor.cpuAt == null ? null : Math.max(0, Math.round((nowMs - editor.cpuAt) / 1000)));
-  const cpuLive = $derived(cpu != null && cpuAgeS != null && cpuAgeS * 1000 <= CPU_STALE_MS);
+  const cpuLive = $derived(!CPU_SOURCE_UNAVAILABLE && cpu != null && cpuAgeS != null && cpuAgeS * 1000 <= CPU_STALE_MS);
   const cpuHint = $derived(
-    cpu == null
+    CPU_SOURCE_UNAVAILABLE
+      ? 'CPU load — not readable yet: the FM3 does not report it in the status frame Axis polls. The meter is disabled rather than showing a value that is not load.'
+      : cpu == null
       ? 'CPU load — no reading yet (the FM3 reports it with the meter poll)'
       : cpuLive
         ? `${cpuTitle(editor.cpu)} · updated ${cpuAgeS}s ago`
