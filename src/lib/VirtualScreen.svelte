@@ -5,6 +5,7 @@
   import { editor } from './editor.svelte';
   import ControlSurface from './ControlSurface.svelte';
   import MidiRemoteSection from './MidiRemoteSection.svelte';
+  import MetronomeSection from './MetronomeSection.svelte';
   import ModifierUsagePanel from './ModifierUsagePanel.svelte';
 
   // accent per context (matches the rail's visual language)
@@ -40,6 +41,10 @@
           <MidiRemoteSection />
         {/if}
         {#if editor.virtual.slug === 'controllers'}
+          <!-- Controllers → METRONOME: FM3-Edit's Tempo/Pitch section. Its controls are crossBlock refs
+               into the GLOBAL block (eid 1), so the section reads /global/params itself — the open
+               block here is Controllers (eid 2). See metronome.ts for the measured ground truth. -->
+          <MetronomeSection />
           <!-- Controllers → MODIFIERS IN USE (parity audit §3.2 remainder): which parameters currently
                have a modifier assigned, from the decoded assignments (no new endpoint). -->
           <ModifierUsagePanel />

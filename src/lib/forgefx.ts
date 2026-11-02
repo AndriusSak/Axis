@@ -245,6 +245,9 @@ export const forgefx = {
 
   // ── live block parameters (addressed by the placed instance's effect id) ──
   blockParams: (eid: number) => req<BlockParams>(`/preset/blocks/${eid}/params`),
+  /** The GLOBAL (eid 1) settings block, read WITHOUT taking the device-edit watch — for a section that
+   *  shows GLOBAL controls while a different block is open (Controllers → Metronome). */
+  globalParams: () => req<BlockParams>('/global/params'),
   /** Set a parameter. continuous=true (knob, value 0..1) by default; false sends an enum ordinal. */
   setParam: (eid: number, paramId: number, value: number, continuous = true) =>
     req<{ ok: boolean }>(`/preset/blocks/${eid}/params/${paramId}`, {
