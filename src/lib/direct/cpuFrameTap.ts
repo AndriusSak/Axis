@@ -68,6 +68,18 @@ export function frameDiff(raws: readonly (readonly number[])[]): string {
   return lines.length ? lines.join('\n') : 'no offset differs — all stored frames are identical';
 }
 
+/**
+ * Every distinct (fn, sub, length) seen, with a count. A value the app never asks for — a CPU push, for
+ * instance — shows up here as a frame kind nobody parses.
+ */
+export function frameKinds(kinds: Map<string, number>): string {
+  if (!kinds.size) return 'no frames recorded yet';
+  return [...kinds.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([k, n]) => `${k}  x${n}`)
+    .join('\n');
+}
+
 /** Install the tap on a transport; returns the unsubscribe fn. Exposes `__axisCpuFrames`/`__axisCpuReport`. */
 export function installCpuFrameTap(
   transport: { onFrame(handler: (frame: number[]) => void): () => void },
@@ -75,9 +87,13 @@ export function installCpuFrameTap(
 ): () => void {
   const frames: CpuFrameSample[] = [];
   const raws: number[][] = [];
+  const kinds = new Map<string, number>();
   target.__axisCpuFrames = frames;
   target.__axisCpuReport = () => frameDiff(raws);
+  target.__axisFrameKinds = () => frameKinds(kinds);
   return transport.onFrame((frame) => {
+    const key = `fn ${(frame[5] ?? 0).toString(16)} sub ${(frame[6] ?? 0).toString(16)} len ${frame.length}`;
+    kinds.set(key, (kinds.get(key) ?? 0) + 1);
     if (!isCpuFrame(frame)) return;
     recordCpuFrame(frames, frame);
     raws.push([...frame]);

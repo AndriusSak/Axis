@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CPU_FRAME_CAP, frameDiff, installCpuFrameTap, isCpuFrame, recordCpuFrame, type CpuFrameSample } from './cpuFrameTap';
+import { CPU_FRAME_CAP, frameDiff, frameKinds, installCpuFrameTap, isCpuFrame, recordCpuFrame, type CpuFrameSample } from './cpuFrameTap';
 
 /** A synthetic status reply: F0 00 01 74 11 01 2E … F7, long enough to look real. */
 function statusFrame(len = 592, cpuByte = 22): number[] {
@@ -11,7 +11,7 @@ function statusFrame(len = 592, cpuByte = 22): number[] {
   f[4] = 0x11;
   f[5] = 0x01;
   f[6] = 0x2e;
-  f[37] = cpuByte;
+  if (len > 38) f[37] = cpuByte;
   f[len - 1] = 0xf7;
   return f;
 }
@@ -53,6 +53,20 @@ describe('CPU frame tap', () => {
     expect(report).not.toContain('frame 12 ');
     expect(frameDiff([a])).toContain('need at least 2 frames');
     expect(frameDiff([a, a])).toContain('no offset differs');
+  });
+
+  it('counts every frame kind, parsed or not', () => {
+    let handler: ((f: number[]) => void) | null = null;
+    const target: Record<string, unknown> = {};
+    installCpuFrameTap({ onFrame: (h) => { handler = h; return () => { handler = null; }; } }, target);
+    const meter = statusFrame(23);
+    meter[6] = 0x19;
+    handler!(meter);
+    handler!(statusFrame(592, 22));
+    const kinds = (target.__axisFrameKinds as () => string)();
+    expect(kinds).toContain('fn 1 sub 19 len 23  x1');
+    expect(kinds).toContain('fn 1 sub 2e len 592  x1');
+    expect(frameKinds(new Map())).toContain('no frames recorded');
   });
 
   it('installs on a transport and exposes the samples', () => {
