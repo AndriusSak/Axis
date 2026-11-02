@@ -26,6 +26,7 @@ import { remoteConfigured } from '../cloudBrowser';
 import { FsaFolderAdapter } from './fsaFolder';
 import { createIdbStoreBackend, createBrowserCodec } from './idbStore';
 import { makeDeviceCacheLoader } from './deviceCacheLoader';
+import { installCpuFrameTap } from './cpuFrameTap';
 
 /** Environment probes that shape the runtime. Web computes these from `navigator`; mobile hard-codes
  *  them (midi via the native plugin, no serial/folder in WKWebView). */
@@ -83,6 +84,12 @@ export async function assembleRuntime(opts: AssembleOpts): Promise<AssembledRunt
       ...(conn.transport === 'midi' ? { dir: 'input' as const } : {})
     }
   ];
+  // 2b. CPU-frame tap (diagnostic, cheap, permanent): the CPU widget reads ONE byte of the device's
+  //     fn 0x01 / sub 0x2E system-status reply, so when that number disagrees with the unit's own panel
+  //     the fix needs the real frame, not a guess. Keep the last few in `window.__axisCpuFrames`
+  //     ({ len, byte37, head, tail }) and log nothing — no cost unless someone asks for it.
+  installCpuFrameTap(transport);
+
   const deps: RegistryDeps = {
     resolveConn: async () => connOverride ?? conn,
     openConn: () => transport,
