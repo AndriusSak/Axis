@@ -42,6 +42,18 @@ describe('a preset can be named while saving', () => {
     expect(commit).toMatch(/if \(\(editor\.preset\?\.name \?\? ''\) !== clean\) return;/);
   });
 
+  it('prefills the name once per open, so the poll cannot wipe what is being typed', () => {
+    // The editor's poll replaces `editor.preset` every few seconds, so an effect that reads the preset
+    // name re-ran mid-typing and reset the field to the device's name (reported 2026-11-02: "it reverts
+    // to the old name before I even finish typing"). The prefill must fire on the open transition only,
+    // and the preset read must be untracked so a poll cannot re-trigger it.
+    const eff = dlg.slice(dlg.indexOf('$effect(() => {'), dlg.indexOf('const renameCapable'));
+    expect(eff).toMatch(/if \(open && !wasOpen\)/);
+    expect(eff).toMatch(/untrack\(\(\) => editor\.preset\?\.name/);
+    expect(eff).toMatch(/wasOpen = open;/);
+    expect(dlg).toMatch(/import \{ untrack \} from 'svelte';/);
+  });
+
   it('only shows the field on a device that can rename', () => {
     expect(dlg).toMatch(/const renameCapable = \$derived\(editor\.canRenamePresets/);
     expect(dlg).toMatch(/\{#if renameCapable\}/);

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { editor } from './editor.svelte';
 
   let target = $state(0);
@@ -6,11 +7,20 @@
   // and the pencil in the top bar was the only way to set it. Prefilled from the loaded preset (the
   // device's placeholder for an unnamed preset is '<EMPTY>', which shows as an empty field).
   let name = $state('');
+  // Prefill ONLY on the open transition. The editor's poll replaces `editor.preset` every few seconds
+  // (`poll()` → `this.preset = p`), so an effect that reads the preset name re-runs mid-typing and wipes
+  // the field back to the device's name — measured 2026-11-02: the name reverted before the user finished
+  // typing. `untrack` keeps the preset read out of the dependency set, and `wasOpen` makes the prefill
+  // fire once per open instead of on every poll.
+  let wasOpen = false;
   $effect(() => {
-    if (!editor.saveOpen) return;
-    target = editor.saveTarget;
-    const cur = editor.preset?.name ?? '';
-    name = cur === '<EMPTY>' ? '' : cur;
+    const open = editor.saveOpen;
+    if (open && !wasOpen) {
+      target = editor.saveTarget;
+      const cur = untrack(() => editor.preset?.name ?? '');
+      name = cur === '<EMPTY>' ? '' : cur;
+    }
+    wasOpen = open;
   });
   const renameCapable = $derived(editor.canRenamePresets && !!editor.preset);
 
