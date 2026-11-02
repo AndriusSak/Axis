@@ -120,7 +120,9 @@
     out.push({ key: 'bypass', kind: 'action', label: 'Bypass', id: -2, w: 2, h: 1, view: 'action', views: ['action'] });
     // Live audio meter — offered only when this block actually reports a monitor level (INPUT/OUTPUT/
     // COMP/GATE/CAB/DRIVE/FILTER…). Draggable/scalable like any widget; value from editor.monitorFor.
-    if (mon) out.push({ key: 'meter', kind: 'meter', label: mon.role === 'gainReduction' ? 'Gain Reduction' : mon.role === 'vu' ? 'VU' : 'Meter', id: -3, w: 1, h: 2, view: 'meter', views: ['meter'] });
+    // The OUTPUT family is excluded: its Output-level meter is always on above the board (OutputMeter,
+    // fed by the leveling SSE stream) and would otherwise appear twice with METER on.
+    if (mon && mon.family !== 'OUTPUT') out.push({ key: 'meter', kind: 'meter', label: mon.role === 'gainReduction' ? 'Gain Reduction' : mon.role === 'vu' ? 'VU' : 'Meter', id: -3, w: 1, h: 2, view: 'meter', views: ['meter'] });
     // Looper waveform — offered only for the Looper block (when live waveform data is present).
     if (hasWave) out.push({ key: 'wave', kind: 'wave', label: 'Loop', id: -4, w: 4, h: 2, view: 'wave', views: ['wave'] });
     return out;

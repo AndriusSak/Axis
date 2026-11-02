@@ -1,7 +1,11 @@
 <script lang="ts">
   import { editor } from '../../editor.svelte';
+  import OutputMeter from '../../OutputMeter.svelte';
   import { history } from '../../history.svelte';
   import { withUnit } from '../../format';
+  // The FM3's OWN CPU thresholds (85 % warn / 100 % audio muted) — one source for the top bar and
+  // this widget. The widget used to invent 55/75, so a healthy 78 % preset painted red.
+  import { cpuColor as cpuColorOf, cpuTitle } from '../../cpuGauge';
   import { LEGAL, openExternal } from '../../legal';
   import { KOFI_URL, COPYRIGHT } from '../../support';
   import type { WidgetInstance, WidgetSize, WorkbenchCommand } from '../../workbench';
@@ -54,9 +58,29 @@
   const pnumRaw = $derived(editor.preset && editor.preset.number >= 0 ? editor.preset.number : -1);
   const pnum = $derived(pnumRaw >= 0 ? String(pnumRaw).padStart(3, '0') : '---');
   const pname = $derived(editor.preset?.name || (editor.conn.state === 'online' ? 'DEBUG' : 'offline'));
-  const cpu = $derived(Math.max(0, Math.min(100, editor.cpu ?? 0)));
-  const cpuText = $derived(editor.cpu != null ? `${editor.cpu.toFixed(0)}%` : '--');
-  const cpuColor = $derived(cpu > 75 ? 'var(--danger)' : cpu > 55 ? 'var(--amber)' : 'var(--accent)');
+  const cpu = $derived(editor.cpu == null ? null : Math.max(0, Math.min(100, editor.cpu)));
+  const cpuText = $derived(cpu == null ? '--' : `${cpu.toFixed(0)}%`);
+  const cpuColor = $derived(cpuColorOf(editor.cpu));
+  // A CPU number is only worth showing while it is still ARRIVING: the poll runs every few meter ticks
+  // (~0.5–3 s depending on mode), so a reading that has not been refreshed for 10 s means the stream
+  // died — showing the old number as if it were live is exactly how a frozen 75 % gets mistaken for
+  // real load. Stale → "--" + an explicit age in the tooltip.
+  const CPU_STALE_MS = 10_000;
+  let nowMs = $state(Date.now());
+  $effect(() => {
+    if (kind !== 'cpu') return;
+    const t = setInterval(() => (nowMs = Date.now()), 1000);
+    return () => clearInterval(t);
+  });
+  const cpuAgeS = $derived(editor.cpuAt == null ? null : Math.max(0, Math.round((nowMs - editor.cpuAt) / 1000)));
+  const cpuLive = $derived(cpu != null && cpuAgeS != null && cpuAgeS * 1000 <= CPU_STALE_MS);
+  const cpuHint = $derived(
+    cpu == null
+      ? 'CPU load — no reading yet (the FM3 reports it with the meter poll)'
+      : cpuLive
+        ? `${cpuTitle(editor.cpu)} · updated ${cpuAgeS}s ago`
+        : `No CPU reading for ${cpuAgeS}s — the device stopped reporting. Last value: ${cpuText}`
+  );
   const connDot = $derived(editor.conn.state === 'online' ? 'var(--ok)' : editor.conn.state === 'offline' ? 'var(--danger)' : 'var(--amber)');
   const sceneCount = $derived(Math.max(1, editor.sceneCount || 8));
   const activeScene = $derived(Math.max(1, Math.min(sceneCount, editor.scene || 1)));
@@ -501,10 +525,15 @@
     {#if notMini}<span class="mono token">BPM</span>{/if}
   </button>
 {:else if kind === 'cpu'}
-  <div class="axis-widget meter" data-size={size} title="DSP load">
+  <div class="axis-widget meter" class:stale={!cpuLive} data-size={size} data-testid="cpu-widget" title={cpuHint}>
     <span class="mono token">CPU</span>
-    <span class="bar"><span style:width={`${cpu}%`} style:background={cpuColor}></span></span>
-    {#if expanded}<span class="mono strong">{cpuText}</span>{/if}
+    <span class="bar"><span style:width={`${cpuLive ? cpu : 0}%`} style:background={cpuLive ? cpuColor : '#56565e'}></span></span>
+    {#if expanded}<span class="mono strong">{cpuLive ? cpuText : '--'}</span>{/if}
+  </div>
+{:else if kind === 'outputMeter'}
+  <div class="axis-widget out-meter" data-size={size} title="Output level — FM3 Output 1 (L/R), plus Output 2 when it carries signal">
+    {#if expanded}<span class="mono token">OUT</span>{/if}
+    <OutputMeter variant="widget" />
   </div>
 {:else if kind === 'connection'}
   <button class="axis-widget" data-size={size} type="button" onclick={openWidget} title="Connection">
@@ -889,6 +918,23 @@
     display: block;
     height: 100%;
     border-radius: 3px;
+  }
+  /* Stale reading: the value is not arriving any more, so the widget shows a dimmed "--" rather than
+     a number that would read as live. */
+  .meter.stale .token,
+  .meter.stale .strong {
+    opacity: 0.55;
+  }
+  /* Output-level widget: the OutputMeter component owns the bars; the shell only sizes the slot. */
+  .out-meter {
+    gap: 6px;
+    min-width: 78px;
+  }
+  .out-meter :global(.outmeter) {
+    flex: 1 1 auto;
+  }
+  [data-size='mini'].out-meter {
+    min-width: 56px;
   }
   .led,
   .save-dot {

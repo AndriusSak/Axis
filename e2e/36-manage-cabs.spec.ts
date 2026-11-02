@@ -248,7 +248,9 @@ test.describe('Manage Cabs (V1)', () => {
     await panel.getByLabel('Minimum-phase transform (MPT)').check();
     await panel.getByLabel('Auto-trim (strip leading silence + normalise)').check();
     await page.getByTestId('cab-import-dest').fill('7');
-    await expect(page.getByTestId('cab-unvalidated')).toContainText('CONSTRAINED');
+    // Badge copy = CAB_CONVERSION_UNVALIDATED_BADGE (cabManagerOps.ts). bffc31d replaced the old
+    // "CONSTRAINED" wording with the MEASURED verdict, so assert the verdict, not the retired word.
+    await expect(page.getByTestId('cab-unvalidated')).toContainText('MEASURED');
     await expect(page.getByTestId('cab-import-steps')).toContainText('minimum-phase transform');
     await expect(page.getByTestId('cab-import-steps')).toContainText('auto-trim');
     await expect(page.getByTestId('cab-import-staged')).toContainText('“My Cab 57”');
@@ -261,7 +263,8 @@ test.describe('Manage Cabs (V1)', () => {
     await expect(go).toBeEnabled();
     await go.click();
     await expect(page.getByTestId('cab-log')).toContainText('Stored — close 0x00, and slot 7 reads POPULATED');
-    await expect(page.getByTestId('cab-log')).toContainText('CONVERTED — its samples are unvalidated');
+    // Same bffc31d copy change: the log now names the format it wrote and the measured verdict.
+    await expect(page.getByTestId('cab-log')).toContainText('CONVERTED — Standard format, measured to play on the unit');
     expect(mock.uploads).toHaveLength(1);
     const sent = new Uint8Array(mock.uploads[0]!.bytes);
     const ir = parseCabIrSyx(sent);

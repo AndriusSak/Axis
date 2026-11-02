@@ -44,6 +44,7 @@ export const AXIS_WORKBENCH_WIDGET_TYPES = [
   'axis.tuner',
   'axis.tempo',
   'axis.cpu',
+  'axis.outputMeter',
   'axis.meterToggle',
   'axis.save',
   'axis.search',

@@ -67,7 +67,10 @@ Verified present and wired:
 - **Scenes**: switch (8), rename, per-scene bypass/channel reflection over SSE.
 - **Channels**: select A–D, live reflection.
 - **Tuner** (Hz/note/cents overlay), **Tempo** (get/set/tap + global tap mode), **CPU load**,
-  **preset-leveling output meters**.
+  **preset-leveling output meters** — in the top bar, and on the **Output block page**
+  (`OutputMeter.svelte`: Output 1 L/R always live from the leveling stream, Output 2 when it carries
+  signal, no METER toggle, no extra serial reads). The same meter is available as the
+  `axis.outputMeter` workbench widget (widget library → "Output Level").
 - **Controllers screen** (LFO 1/2, ADSR 1/2, Envelope, Sequencer, Pitch, Manual, Scene controllers)
   and **Setup screen** (the GLOBAL block) rendered through the generic Control Surface via the
   `global` / `controllers` virtual effects (`axisWorkbenchPages.ts`, `AxisVirtualScreenPanel.svelte`,

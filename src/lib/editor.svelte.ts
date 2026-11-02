@@ -252,6 +252,10 @@ class EditorStore {
   presetCount = $state(512); // FM3 preset slots
   /** Live CPU% (decoded from the device meters frame), null until first reading. FM3-family only. */
   cpu = $state<number | null>(null);
+  /** When the CPU reading above arrived (ms epoch). The poll runs every few ticks, so a value that has
+   *  not moved for ~10 s means the stream stopped — the UI must say so instead of showing a stale number
+   *  as if it were live. */
+  cpuAt = $state<number | null>(null);
   /** Live output level meters in dB (−40…0, floor-clamped) — Output 1 & 2, each L/R — from the FM3's
    *  Preset Leveling poll (fn 0x19, 5-septet RMS float → 10·log10 dB). Smoothed server-side. */
   levels = $state<{ out1L: number; out1R: number; out2L: number; out2R: number } | null>(null);
@@ -1333,7 +1337,7 @@ class EditorStore {
         break;
       }
       case 'tuner': this.tuner = { ...this.tuner, freq: e.freq, note: e.note, cents: e.cents, octave: e.octave }; break;
-      case 'cpu': this.cpu = e.percent; break;
+      case 'cpu': this.cpu = e.percent; this.cpuAt = Date.now(); break;
       case 'meters': this.levels = { out1L: e.out1L, out1R: e.out1R, out2L: e.out2L, out2R: e.out2R }; break;
       case 'blockState': {
         this.#scheduleBlockStateReload();

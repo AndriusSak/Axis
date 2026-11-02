@@ -192,7 +192,7 @@ test.describe('device group label — honest truncation, never a silent clip', (
       `in USE mode the label must be hit-testable or its tooltip can never fire (hit=${use.hit}, pointer-events=${use.pointerEvents})`
     ).toBe(true);
 
-    await page.locator('.arrange').click();
+    await page.locator('button.arrange:not(.flowbtn)').click();
     const arrange = await probe();
     // NOT an `if (present)` guard: a conditional assertion that silently skips when the element is absent is
     // how this check dies without ever going red. Both acceptable outcomes are asserted explicitly instead —
@@ -208,6 +208,6 @@ test.describe('device group label — honest truncation, never a silent clip', (
       `arrange mode must be accounted for explicitly, not skipped (present=${arrange.present}, ` +
         `pointer-events=${arrange.pointerEvents})`
     ).toBe(true);
-    await page.locator('.arrange').click(); // back to use mode
+    await page.locator('button.arrange:not(.flowbtn)').click(); // back to use mode
   });
 });

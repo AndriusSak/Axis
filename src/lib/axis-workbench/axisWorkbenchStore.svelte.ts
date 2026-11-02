@@ -14,7 +14,12 @@ import {
   type AxisWorkbenchBackupEntry
 } from './axisWorkbenchBackups';
 import { registerAxisWorkbenchBindings } from './axisWorkbenchBindings';
-import { createAxisWorkbenchDefaultDocument, ensureAxisGridControlWidgets, pruneAxisRetiredRailWidgets } from './axisWorkbenchDefaults';
+import {
+  createAxisWorkbenchDefaultDocument,
+  ensureAxisGridControlWidgets,
+  ensureAxisOutputMeterWidgetTemplate,
+  pruneAxisRetiredRailWidgets
+} from './axisWorkbenchDefaults';
 import { ensureAxisBatchSetNavEntry, ensureAxisCabManagerNavEntry, ensureAxisConvertPage, ensureAxisLivePanel, ensureAxisSceneManagerPanel, ensureAxisSeedPages } from './axisWorkbenchPages';
 import { AXIS_MOBILE_PROFILE_ID } from './axisWorkbenchLayoutActions';
 
@@ -65,11 +70,13 @@ export function normalizeAxisWorkbenchDocument(input: unknown): WorkbenchDocumen
   // runs right after ensureAxisSeedPages and only adds the entry when it is entirely absent, so a
   // persisted doc minted before R22 gains the rail entry without a version bump.
   return ensureAxisMobileBottomNav(
-    pruneAxisRetiredRailWidgets(
-      ensureAxisLivePanel(
-        ensureAxisSceneManagerPanel(
-          ensureAxisGridControlWidgets(
-            ensureAxisConvertPage(ensureAxisCabManagerNavEntry(ensureAxisBatchSetNavEntry(ensureAxisSeedPages(migrateWorkbenchDocument(input)))))
+    ensureAxisOutputMeterWidgetTemplate(
+      pruneAxisRetiredRailWidgets(
+        ensureAxisLivePanel(
+          ensureAxisSceneManagerPanel(
+            ensureAxisGridControlWidgets(
+              ensureAxisConvertPage(ensureAxisCabManagerNavEntry(ensureAxisBatchSetNavEntry(ensureAxisSeedPages(migrateWorkbenchDocument(input)))))
+            )
           )
         )
       )

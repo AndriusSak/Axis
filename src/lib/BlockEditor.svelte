@@ -4,6 +4,7 @@
   import { catFor, shade } from './catalog';
   import ControlSurface from './ControlSurface.svelte';
   import GridMap from './GridMap.svelte';
+  import OutputMeter from './OutputMeter.svelte';
   import { type EQBand } from './EQGraph.svelte';
   import { geqFreqs, shapeFromLabel } from './eq';
   import { sceneIgnoreParam, sceneIgnoreValue } from './blockOps';
@@ -17,6 +18,9 @@
   const cat = $derived(sel ? catFor(sel.pack, baseName(sel.display)) : null);
   const isEQ = $derived(sel?.pack === 'Peq' || sel?.pack === 'Geq');
   const isCab = $derived(sel?.pack === 'Cab');
+  // The Output block carries the device's output-level (VU) meter, as on the FM3 / FM3-Edit. Fed by the
+  // always-on Preset Leveling SSE stream, so it is live without the opt-in per-block METER poll.
+  const isOutput = $derived((sel?.pack ?? '').toLowerCase() === 'output');
 
   // what's actually loaded in each cab slot, shown on the type button so you don't have to
   // open the picker to see it. Re-read on select + whenever the picker closes (a pick may have changed it).
@@ -146,6 +150,11 @@
 
         {#if !embedded}<button class="close" aria-label="Close" onclick={() => editor.closeEditor()}>✕</button>{/if}
       </header>
+
+      <!-- Output block: the device's output-level meter, as on the FM3 front panel / FM3-Edit -->
+      {#if isOutput}
+        <OutputMeter />
+      {/if}
 
       <!-- grid map navigator: hop between blocks / add / route without leaving the editor -->
       <GridMap />

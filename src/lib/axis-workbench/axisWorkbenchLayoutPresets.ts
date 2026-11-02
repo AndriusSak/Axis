@@ -82,6 +82,7 @@ const WIDGET_TYPE: Record<string, string> = {
   tuner: 'axis.tuner',
   tempo: 'axis.tempo',
   cpu: 'axis.cpu',
+  outmeter: 'axis.outputMeter',
   save: 'axis.save',
   search: 'axis.search',
   history: 'axis.history',

@@ -194,6 +194,12 @@ export function createAxisWorkbenchDefaultDocument(): WorkbenchDocument {
       layout.widgets['axis.widget.connection'],
       layout.widgets['axis.widget.cpu']
     ]),
+    // Output-level meter as a widget: the same live Output 1/2 reading the Output block shows, so it can
+    // be parked anywhere in the workbench. Addable from the widget library (not seeded onto the top bar,
+    // which already carries a compact OUT strip).
+    'axis.library.widget.outputMeter': widgetTemplate('axis.library.widget.outputMeter', 'Output Level', [
+      widget('axis.widget.outputMeter', 'axis.outputMeter', 'top.center', 0, { state: widgetState(25) })
+    ]),
     'axis.library.widget.tools': widgetTemplate('axis.library.widget.tools', 'Tuner + Tempo', [
       layout.widgets['axis.widget.tuner'],
       layout.widgets['axis.widget.tempo']
@@ -252,6 +258,31 @@ export function pruneAxisRetiredRailWidgets(doc: WorkbenchDocument): WorkbenchDo
       if (instance && instance.zone === 'rail') delete layout.widgets[id];
     }
   }
+  return doc;
+}
+
+/** doc.metadata marker: the Output Level widget template has been offered once. */
+export const AXIS_OUTPUT_METER_LIBRARY_MARKER = 'axisOutputMeterLibrary';
+
+/**
+ * Offer the "Output Level" widget template to documents minted before it existed.
+ *
+ * The widget LIBRARY is part of the persisted document, not a static list: a template added to
+ * `AXIS_WIDGET_LIBRARY` reaches fresh documents only, so anyone with a saved workbench never saw the
+ * new entry in the widget list. This self-heal adds it once, keyed on a doc-metadata marker — a user
+ * who deliberately deletes the entry does not get it pushed back on every load.
+ */
+export function ensureAxisOutputMeterWidgetTemplate(doc: WorkbenchDocument): WorkbenchDocument {
+  if (doc.metadata?.[AXIS_OUTPUT_METER_LIBRARY_MARKER]) return doc;
+  const library = (doc.widgetLibrary = doc.widgetLibrary ?? {});
+  if (!library['axis.library.widget.outputMeter']) {
+    library['axis.library.widget.outputMeter'] = widgetTemplate(
+      'axis.library.widget.outputMeter',
+      'Output Level',
+      [widget('axis.widget.outputMeter', 'axis.outputMeter', 'top.center', 0, { state: widgetState(25) })]
+    );
+  }
+  doc.metadata = { ...(doc.metadata ?? {}), [AXIS_OUTPUT_METER_LIBRARY_MARKER]: 'v1' };
   return doc;
 }
 

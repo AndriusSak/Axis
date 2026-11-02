@@ -423,7 +423,7 @@
 
   // ── pointer gestures: tap / double-tap / long-press move / port connect / swipe ──
   // On a block: horizontal swipe cycles the active control (continuous), vertical adjusts its value.
-  let gesture: { cell: Cell; startX: number; startY: number; lastY: number; cycleX: number; moved: boolean; swiping: boolean; axis: '' | 'h' | 'v' } | null = null;
+  let gesture: { cell: Cell; startX: number; startY: number; lastY: number; cycleX: number; moved: boolean; swiping: boolean; axis: '' | 'h' | 'v'; pointerType: string } | null = null;
   const hasSwipe = (cell: Cell) => !dense && cell.kind === 'block' && !!cell.pack && editor.controlsFor(cell).length > 0;
   // live value/name overlay shown on the tile while swiping
   let swipeHud = $state<{ key: string; m: NonNullable<ReturnType<typeof editor.meterFor>> } | null>(null);
@@ -438,6 +438,36 @@
   let moveCell = $state<Cell | null>(null);
   let movePos = $state({ x: 0, y: 0 });
   let overBin = $state(false);
+
+  // Right-click / long-press menu for a SHUNT cell (see tap()): the only way to delete a shunt now
+  // that a plain tap opens the block picker.
+  let shuntMenu = $state<{ x: number; y: number; row: number; col: number } | null>(null);
+
+  function openShuntMenu(cell: Cell, x: number, y: number, ev?: Event) {
+    ev?.preventDefault();
+    const W = 190;
+    const H = 96;
+    shuntMenu = {
+      x: Math.max(8, Math.min(x, (window.innerWidth || 0) - W - 8)),
+      y: Math.max(8, Math.min(y, (window.innerHeight || 0) - H - 8)),
+      row: cell.row,
+      col: cell.col
+    };
+  }
+  function shuntPickBlock() {
+    if (!shuntMenu) return;
+    const { row, col } = shuntMenu;
+    shuntMenu = null;
+    editor.selectCellOnDevice(row, col);
+    editor.openPaletteAt(row, col);
+  }
+  function shuntRemove() {
+    if (!shuntMenu) return;
+    const { row, col } = shuntMenu;
+    shuntMenu = null;
+    editor.removeAt(row, col);
+    editor.showToast('Shunt removed', '#9a9aa3');
+  }
 
   let connectSrc = $state<Cell | null>(null);
   let linkTo = $state<{ x: number; y: number } | null>(null);
@@ -455,6 +485,9 @@
   }
 
   function onBlockDown(cell: Cell, e: PointerEvent) {
+    // Right / middle button is not a grid gesture: right-click opens the shunt menu (contextmenu),
+    // and letting it start a gesture would fire a TAP on pointerup and open the block picker too.
+    if (e.button !== 0) return;
     if (connectSrc) return;
     if (editor.linkFrom) {
       // armed link mode: this tap picks the destination (any later column) — no gesture/select
@@ -462,10 +495,20 @@
       editor.completeLink(cell.row, cell.col);
       return;
     }
-    gesture = { cell, startX: e.clientX, startY: e.clientY, lastY: e.clientY, cycleX: e.clientX, moved: false, swiping: false, axis: '' };
+    gesture = { cell, startX: e.clientX, startY: e.clientY, lastY: e.clientY, cycleX: e.clientX, moved: false, swiping: false, axis: '', pointerType: e.pointerType || 'mouse' };
     if (lpTimer) clearTimeout(lpTimer);
     lpTimer = setTimeout(() => {
-      if (gesture && !gesture.moved && !moveMode) startMove();
+      if (gesture && !gesture.moved && !moveMode) {
+        // Touch/pen have no right-click: a long press on a SHUNT opens its menu (select / remove)
+        // instead of entering move mode — the menu is the only way to reach removal once a plain tap
+        // offers the block picker. Mouse keeps long-press = drag, and uses right-click for the menu.
+        if (gesture.cell.kind === 'shunt' && gesture.pointerType !== 'mouse') {
+          openShuntMenu(gesture.cell, gesture.startX, gesture.startY);
+          gesture = null;
+          return;
+        }
+        startMove();
+      }
     }, 380);
   }
 
@@ -636,8 +679,16 @@
 
   function tap(cell: Cell) {
     if (cell.kind === 'shunt') {
-      editor.removeAt(cell.row, cell.col);
-      editor.showToast('Shunt removed', '#9a9aa3');
+      // A shunt is routing plumbing, not a block. Tapping it OFFERS the block picker for that cell
+      // (place() replaces the shunt in place) — a stray tap used to delete it, which silently
+      // unwired the chain. Removal is deliberate: right-click (desktop) or long-press (touch) →
+      // "Remove shunt".
+      if (shouldFetchOnGridAction(gridNav, 'select').kind === 'skip') {
+        navSelect(cell); // grid-nav mode: tap only moves the cursor, no picker
+        return;
+      }
+      editor.selectCellOnDevice(cell.row, cell.col);
+      editor.openPaletteAt(cell.row, cell.col);
       return;
     }
     const key = `${cell.row},${cell.col}`;
@@ -937,7 +988,19 @@
                 data-idx="{r},{c}"
                 role="button"
                 tabindex="0"
+                title="Empty shunt — click to choose a block, right-click to remove"
                 onpointerdown={(e) => onBlockDown(cell, e)}
+                oncontextmenu={(e) => openShuntMenu(cell, e.clientX, e.clientY, e)}
+                onkeydown={(e) => {
+                  if (e.key === 'Delete' || e.key === 'Backspace') {
+                    e.preventDefault();
+                    editor.removeAt(cell.row, cell.col);
+                    editor.showToast('Shunt removed', '#9a9aa3');
+                  } else if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    tap(cell);
+                  }
+                }}
               >
                 <span class="sh-bar"></span>
                 {#if c < cols - 1}
@@ -1068,7 +1131,79 @@
   </div>
 {/if}
 
+{#if shuntMenu}
+  <!-- Shunt menu (right-click on desktop, long-press on touch): a shunt has no page of its own, so
+       the two things you can do with it live here. -->
+  <div
+    class="ctx-backdrop"
+    role="presentation"
+    onpointerdown={() => (shuntMenu = null)}
+    oncontextmenu={(e) => { e.preventDefault(); shuntMenu = null; }}
+  ></div>
+  <div
+    class="ctx"
+    role="menu"
+    aria-label="Shunt"
+    tabindex="-1"
+    data-testid="shunt-menu"
+    style="left:{shuntMenu.x}px; top:{shuntMenu.y}px;"
+    onkeydown={(e) => { if (e.key === 'Escape') shuntMenu = null; }}
+  >
+    <div class="ctx-h mono">SHUNT · {shuntMenu.row + 1}:{shuntMenu.col + 1}</div>
+    <button class="ctx-i" role="menuitem" onclick={shuntPickBlock}>Select a block…</button>
+    <button class="ctx-i danger" role="menuitem" onclick={shuntRemove}>Remove shunt</button>
+  </div>
+{/if}
+
 <style>
+  /* ── shunt context menu ── */
+  .ctx-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+  }
+  .ctx {
+    position: fixed;
+    z-index: 91;
+    min-width: 178px;
+    padding: 5px;
+    border-radius: 9px;
+    background: var(--surface2);
+    border: 1px solid var(--border3);
+    box-shadow: 0 14px 34px rgba(0, 0, 0, 0.45);
+  }
+  .ctx-h {
+    padding: 4px 8px 6px;
+    font-size: 9.5px;
+    letter-spacing: 0.09em;
+    color: var(--textfaint);
+  }
+  .ctx-i {
+    display: block;
+    width: 100%;
+    padding: 7px 9px;
+    border: 0;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--text);
+    font: inherit;
+    font-size: 12.5px;
+    text-align: left;
+    cursor: pointer;
+  }
+  .ctx-i:hover,
+  .ctx-i:focus-visible {
+    background: var(--border2);
+    outline: none;
+  }
+  .ctx-i.danger {
+    color: var(--danger);
+  }
+  .ctx-i.danger:hover,
+  .ctx-i.danger:focus-visible {
+    background: var(--danger-tint);
+  }
+
   /* armed tap-to-connect bar (mock: gridLinkBar) — sits above the grid so it survives paging */
   .linkbar {
     flex: none;
