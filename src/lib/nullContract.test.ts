@@ -140,6 +140,21 @@ describe('Setup MIDI/Remote — an unresolved GLOBAL knob is inert, not a knob a
   });
 });
 
+// A CPU reading is a measurement of the state that produced it. On a structural change (preset switch
+// being the common case) the held value describes the preset you just LEFT — showing it until the next
+// poll is how the widget displays 75% while the unit's panel reads 22%. Drop it to `--` instead.
+describe('CPU — a stale reading is never carried across a structural change', () => {
+  const ed = read('./editor.svelte.ts');
+
+  it('the `changed` event clears cpu + cpuAt before scheduling the reload', () => {
+    expect(ed).toMatch(/this\.cpu = null;\s*this\.cpuAt = null;\s*if \(this\.#eventReload\) clearTimeout/);
+  });
+
+  it('a CPU reading still records when it arrived, so the widget can age it out', () => {
+    expect(ed).toMatch(/case 'cpu': this\.cpu = e\.percent; this\.cpuAt = Date\.now\(\); break;/);
+  });
+});
+
 // P11 — the guard must hold on the EVENT path and at every `?? 0` site the review flagged that is
 // actually reachable. editor.svelte.ts / the components are runic (unimportable in node-env vitest),
 // so these are source scans, like the ones above.

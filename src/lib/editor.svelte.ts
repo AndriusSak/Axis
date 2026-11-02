@@ -1371,6 +1371,13 @@ class EditorStore {
         // one refresh. Also re-read the open block's knobs: load() only refreshes the grid + blocks, so
         // without this a front-panel knob turn on the currently-open block would leave its arcs stale.
         // The broadest refresh wins, so a later scene/blockState event cannot downgrade it (eventReload.ts).
+        //
+        // Drop the CPU reading: it describes the state BEFORE this change, and the common case is a
+        // preset switch — the previous preset's load is not this one's. Showing it until the next poll
+        // (up to ~8 s later) is how a widget ends up displaying 75% for a preset whose panel reads 22%.
+        // null renders `--`, which is honest; the poll refills it.
+        this.cpu = null;
+        this.cpuAt = null;
         if (this.#eventReload) clearTimeout(this.#eventReload);
         this.#pendingReload = 'full';
         this.#eventReload = setTimeout(async () => {
