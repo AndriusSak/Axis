@@ -29,6 +29,7 @@ import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildDeviceLayoutBoard, type BoardCtl } from './deviceLayoutBoard';
+import { isOnOffEnum } from './toggleState';
 
 interface FixtureParam { id: number; name: string; value: number; norm: number; min: number; max: number }
 interface FixtureEnum { id: number; name: string; value: number; options: { value: number; label: string }[] }
@@ -49,7 +50,7 @@ function catalog(): BoardCtl[] {
   const out: BoardCtl[] = [];
   for (const p of F.named) out.push({ key: `k${p.id}`, kind: 'cont', label: p.name, id: p.id, w: 1, h: 1, view: 'knob', views: ['knob'] });
   for (const e of F.enums) {
-    const tog = e.options.length <= 2;
+    const tog = isOnOffEnum(e);
     out.push({ key: `e${e.id}`, kind: tog ? 'toggle' : 'select', label: e.name, id: e.id, w: tog ? 1 : 2, h: 1, view: tog ? 'button' : 'select', views: ['select'] });
   }
   return out;

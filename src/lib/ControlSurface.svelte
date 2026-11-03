@@ -12,7 +12,7 @@
   import { surfGet, surfSet, surfRemove, surfRev } from './surfaceStore.svelte';
   import { paramHelp, helpSlugForPack } from './help';
   import type { NamedParam, EnumParam } from './types';
-  import { enumIsOn } from './toggleState';
+  import { enumIsOn, isOnOffEnum } from './toggleState';
   import { buildDeviceLayoutBoard, layoutVariantSig, packRows, packUniform, overflowsColumns, pageForViewMode, type SurfaceWidget, type SurfaceBoard } from './deviceLayoutBoard';
   import { AXIS_PIN_SELECTED_PARAMETERS_ACTION, AXIS_PARAMETER_SOURCE_EDGE_DROP_ACTION } from './axis-workbench/axisParameterActions';
   import { axisParameterSourceFromEditorParamId } from './axis-workbench/axisParameterSources';
@@ -114,7 +114,9 @@
     }
     for (const e of editor.enums) {
       if (hidden.has(e.id)) continue;
-      const tog = e.options.length <= 2;
+      // Two options is not the same as on/off: PRESET|GLOBAL and INPUT 1|INPUT 2 are selectors, and
+      // drawing them as toggles made them permanently green (see isOnOffEnum).
+      const tog = isOnOffEnum(e);
       out.push({ key: `e${e.id}`, kind: tog ? 'toggle' : 'select', label: e.name, id: e.id, w: tog ? 1 : 2, h: 1, view: tog ? 'button' : 'select', views: tog ? TOG_VIEWS : ['select'] });
     }
     out.push({ key: 'bypass', kind: 'action', label: 'Bypass', id: -2, w: 2, h: 1, view: 'action', views: ['action'] });
